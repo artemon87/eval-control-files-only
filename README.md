@@ -4,7 +4,7 @@ Responsive React/TypeScript dashboard for read-only monitoring of unit and end-t
 
 ## Evaluation boundaries
 
-- **Unit**: one run evaluates exactly one skill. The run carries `skill`, `environment`, `unit_config.skill_version`, and `unit_config.bsa_version`. The Compare view groups by skill and defaults to the newest distinct version versus the previous version.
+- **Unit**: one run evaluates exactly one skill. The run carries `skill`, `environment`, `unit_config.skill_version`, and `unit_config.bsa_version`. The Compare view groups by skill and defaults to the latest run versus the previous run, including when both runs use the same skill version.
 - **E2E**: one run executes live conversations against one deployed target in one stage. `e2e_config.selected_suites` may be the target's full suite list or a subset.
 - Runs and cases are separate. The dashboard fetches the small execution envelope first, then fetches case evidence only for an opened run.
 
@@ -31,7 +31,9 @@ GET /api/v1/e2e/runs
 GET /api/v1/e2e/runs/{run_id}/cases
 ```
 
-When the variable is absent, the app intentionally uses deterministic demo data. When configured but unavailable, it displays the connection error and falls back to that demo set.
+When the variable is absent, the app intentionally uses deterministic demo data. When the top-level run feed is unavailable, it displays the connection error and falls back to that demo set. Case and comparison failures never mix demo cases into live MongoDB runs.
+
+Overview metrics, attention items and trend lines are calculated from live run summaries. Use the evaluation-type and 7/30/90-day controls to change the dashboard scope.
 
 ## Development and validation
 
