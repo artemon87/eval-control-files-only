@@ -49,6 +49,7 @@ interface E2EApiRun extends BaseApiRun {
   e2e_config: {
     selected_suites: string[];
     max_tier?: number | null;
+    pass_rate_threshold?: number | null;
     live_conversation: boolean;
   };
 }
@@ -154,6 +155,7 @@ function mapE2ERun(run: E2EApiRun): EvalRun {
       targetId: run.target,
       selectedSuites: run.e2e_config.selected_suites,
       maxTier: (run.e2e_config.max_tier ?? "all") as "all" | 1 | 2 | 3,
+      passRateThreshold: run.e2e_config.pass_rate_threshold ?? undefined,
     },
     summary: summary(run.summary),
     suites: run.e2e_config.selected_suites.map((name) => ({
@@ -205,7 +207,7 @@ export class EvalApi {
         score: numberOrZero(item.score),
         threshold: numberOrZero(item.threshold),
         responseTimeMs: numberOrZero(item.response_time_ms),
-        input: "Stored in the authored E2E suite",
+        input: undefined,
         responseText: item.response_text ?? "",
         explanation: item.explanation ?? "",
         error: item.error ?? undefined,

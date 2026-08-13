@@ -25,6 +25,8 @@ export interface E2ERunConfig {
   targetId: string;
   selectedSuites: string[];
   maxTier: "all" | 1 | 2 | 3;
+  /** Target-level fraction (0-1) or percentage (0-100) required to pass. */
+  passRateThreshold?: number;
 }
 
 export interface UnitRunConfig {
@@ -76,7 +78,8 @@ export interface EvalCase {
   score: number;
   threshold: number;
   responseTimeMs: number;
-  input: string;
+  /** Exact authored prompt, when the result producer persisted a snapshot. */
+  input?: string;
   responseText: string;
   explanation: string;
   scores?: Record<string, number>;
