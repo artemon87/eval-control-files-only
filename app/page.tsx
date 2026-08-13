@@ -5,7 +5,7 @@ import { evalCases, evalRuns } from "./lib/eval-data";
 import { configuredEvalApi, type EvalApi } from "./lib/eval-api";
 import { e2eHistory, unitHistory } from "./lib/eval-history";
 import type { E2EHistoryPoint } from "./lib/eval-history";
-import type { EvalCase, EvalRun, EvalType, SuiteSummary, Verdict } from "./lib/eval-types";
+import type { EvalCase, EvalRun, EvalType, ExecutionStatus, SuiteSummary, Verdict } from "./lib/eval-types";
 
 type View = "overview" | "runs" | "history" | "compare" | "schema";
 
@@ -31,7 +31,13 @@ const e2eSuites = [
 ];
 
 function StatusBadge({ verdict }: { verdict: Verdict }) {
-  return <span className={`status status--${verdict}`}><i />{verdict}</span>;
+  const label = verdict === "xpassed" ? "XPASS" : verdict;
+  const title = verdict === "xpassed" ? "Unexpected pass: this known-bug/expected-failure case passed and should be reviewed" : undefined;
+  return <span className={`status status--${verdict}`} title={title} aria-label={title ? `${label}: ${title}` : label}><i />{label}</span>;
+}
+
+function effectiveRunVerdict(run: EvalRun): Verdict {
+  return run.executionStatus === "error" ? "blocked" : run.verdict;
 }
 
 function TypeBadge({ type }: { type: EvalType }) {
@@ -146,8 +152,8 @@ function summarizeCases(run: EvalRun, items: EvalCase[]): SuiteSummary[] {
   return Array.from(groups.entries()).map(([name, grouped]) => ({
     name,
     total: grouped.length,
-    passed: grouped.filter((item) => item.verdict === "passed").length,
-    failed: grouped.filter((item) => item.verdict !== "passed").length,
+    passed: grouped.filter((item) => item.verdict === "passed" || item.verdict === "xpassed").length,
+    failed: grouped.filter((item) => item.verdict !== "passed" && item.verdict !== "xpassed").length,
     meanScore: grouped.reduce((sum, item) => sum + item.score, 0) / grouped.length,
   }));
 }
@@ -163,7 +169,7 @@ function RunsTable({ runs, onOpen }: { runs: EvalRun[]; onOpen: (run: EvalRun) =
               <td><button className="run-link" onClick={() => onOpen(run)}>{run.runId}</button><small>{run.actor} · {run.trigger}</small></td>
               <td><TypeBadge type={run.evalType} /></td>
               <td><span>{runScope(run).primary}</span><small>{runScope(run).secondary}</small></td>
-              <td><StatusBadge verdict={run.verdict} /></td>
+              <td><StatusBadge verdict={effectiveRunVerdict(run)} /></td>
               <td><div className="rate"><span>{run.summary.passRatePct || "—"}{run.summary.passRatePct ? "%" : ""}</span><i><b style={{ width: `${run.summary.passRatePct}%` }} /></i></div></td>
               <td><strong className="score">{run.summary.meanScore || "—"}</strong><small>{run.summary.total ? `/ 5.0 · ${run.summary.total} cases` : "Waiting"}</small></td>
               <td>{formatDuration(run.durationMs)}</td>
@@ -189,6 +195,12 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [type, setType] = useState<"all" | EvalType>("all");
   const [verdict, setVerdict] = useState<"all" | Verdict>("all");
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
+  const [executionStatus, setExecutionStatus] = useState<"all" | ExecutionStatus>("all");
+  const [stage, setStage] = useState("all");
+  const [trigger, setTrigger] = useState("all");
+  const [actor, setActor] = useState("all");
+  const [startedWithin, setStartedWithin] = useState<"all" | "24h" | "7d" | "30d">("all");
   const [selectedRun, setSelectedRun] = useState<EvalRun | null>(null);
   const [selectedCase, setSelectedCase] = useState<EvalCase | null>(null);
   const [historyFocus, setHistoryFocus] = useState<{ type: EvalType; stage?: string; target?: string; skillId?: string; environment?: string } | null>(null);
@@ -243,10 +255,36 @@ export default function Home() {
     return () => controller.abort();
   }, [api, dataSource, selectedRun]);
 
+  const filterOptions = useMemo(() => ({
+    stages: Array.from(new Set(runs.map((run) => run.stage).filter(Boolean))).sort(),
+    triggers: Array.from(new Set(runs.map((run) => run.trigger).filter(Boolean))).sort(),
+    actors: Array.from(new Set(runs.map((run) => run.actor).filter(Boolean))).sort(),
+  }), [runs]);
+
+  const activeMoreFilterCount = [executionStatus, stage, trigger, actor, startedWithin].filter((value) => value !== "all").length;
+
+  const resetMoreFilters = () => {
+    setExecutionStatus("all");
+    setStage("all");
+    setTrigger("all");
+    setActor("all");
+    setStartedWithin("all");
+  };
+
   const filteredRuns = useMemo(() => runs.filter((run) => {
     const haystack = `${run.runId} ${run.actor} ${run.stage} ${run.target} ${run.gitSha} ${run.unitConfig?.skillId ?? ""} ${run.unitConfig?.skillVersion ?? ""} ${run.e2eConfig?.selectedSuites.join(" ") ?? ""}`.toLowerCase();
-    return haystack.includes(search.toLowerCase()) && (type === "all" || run.evalType === type) && (verdict === "all" || run.verdict === verdict);
-  }), [runs, search, type, verdict]);
+    const hours = startedWithin === "24h" ? 24 : startedWithin === "7d" ? 24 * 7 : startedWithin === "30d" ? 24 * 30 : null;
+    const referenceTime = runs.reduce((latest, item) => Math.max(latest, new Date(item.startedAt).getTime()), 0);
+    const startedMatches = hours === null || new Date(run.startedAt).getTime() >= referenceTime - hours * 3_600_000;
+    return haystack.includes(search.toLowerCase())
+      && (type === "all" || run.evalType === type)
+      && (verdict === "all" || effectiveRunVerdict(run) === verdict)
+      && (executionStatus === "all" || run.executionStatus === executionStatus)
+      && (stage === "all" || run.stage === stage)
+      && (trigger === "all" || run.trigger === trigger)
+      && (actor === "all" || run.actor === actor)
+      && startedMatches;
+  }), [actor, executionStatus, runs, search, stage, startedWithin, trigger, type, verdict]);
 
   const overview = useMemo(() => {
     const now = runs.reduce((latest, run) => Math.max(latest, new Date(run.startedAt).getTime()), 0);
@@ -342,7 +380,8 @@ export default function Home() {
           {view === "runs" && <>
             <div className="page-heading compact"><div><span className="eyebrow">Operations</span><h1>{selectedRun ? selectedRun.runId : "Evaluation runs"}</h1><p>{selectedRun ? "Run result, suite breakdown and case-level evidence." : "Search, filter and inspect every E2E and unit evaluation."}</p></div>{selectedRun && <button className="secondary-button" onClick={() => setSelectedRun(null)}>← All runs</button>}</div>
             {!selectedRun ? <section className="panel runs-panel">
-              <div className="filter-bar"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search run, actor, SHA or target…" /></label><select value={type} onChange={(event) => setType(event.target.value as "all" | EvalType)} aria-label="Evaluation type"><option value="all">All types</option><option value="e2e">E2E</option><option value="unit">Unit</option></select><select value={verdict} onChange={(event) => setVerdict(event.target.value as "all" | Verdict)} aria-label="Verdict"><option value="all">All verdicts</option><option value="passed">Passed</option><option value="failed">Failed</option><option value="blocked">Blocked</option><option value="pending">Pending</option></select><button className="filter-button">☷ More filters</button></div>
+              <div className="filter-bar"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search run, actor, SHA or target…" /></label><select value={type} onChange={(event) => setType(event.target.value as "all" | EvalType)} aria-label="Evaluation type"><option value="all">All types</option><option value="e2e">E2E</option><option value="unit">Unit</option></select><select value={verdict} onChange={(event) => setVerdict(event.target.value as "all" | Verdict)} aria-label="Verdict"><option value="all">All verdicts</option><option value="passed">Passed</option><option value="failed">Failed</option><option value="blocked">Blocked</option><option value="xpassed">XPASS</option><option value="pending">Pending</option></select><button className={`filter-button ${moreFiltersOpen || activeMoreFilterCount ? "active" : ""}`} aria-expanded={moreFiltersOpen} aria-controls="advanced-run-filters" onClick={() => setMoreFiltersOpen((open) => !open)}>☷ More filters{activeMoreFilterCount ? ` (${activeMoreFilterCount})` : ""}</button></div>
+              {moreFiltersOpen && <div className="advanced-filters" id="advanced-run-filters"><label><span>Execution status</span><select value={executionStatus} onChange={(event) => setExecutionStatus(event.target.value as "all" | ExecutionStatus)}><option value="all">All statuses</option><option value="queued">Queued</option><option value="running">Running</option><option value="completed">Completed</option><option value="error">Error</option><option value="cancelled">Cancelled</option></select></label><label><span>Stage / environment</span><select value={stage} onChange={(event) => setStage(event.target.value)}><option value="all">All stages</option>{filterOptions.stages.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label><span>Trigger</span><select value={trigger} onChange={(event) => setTrigger(event.target.value)}><option value="all">All triggers</option>{filterOptions.triggers.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label><span>Actor</span><select value={actor} onChange={(event) => setActor(event.target.value)}><option value="all">All actors</option>{filterOptions.actors.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label><span>Started</span><select value={startedWithin} onChange={(event) => setStartedWithin(event.target.value as typeof startedWithin)}><option value="all">Any time</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label><div className="advanced-filter-actions"><span>{activeMoreFilterCount ? `${activeMoreFilterCount} advanced filter${activeMoreFilterCount === 1 ? "" : "s"} active` : "No advanced filters active"}</span><button type="button" onClick={resetMoreFilters} disabled={!activeMoreFilterCount}>Clear advanced filters</button></div></div>}
               <RunsTable runs={filteredRuns} onOpen={openRun} />
               <div className="table-footer"><span>Showing {filteredRuns.length} of {runs.length} runs</span><div><button disabled>←</button><button className="current">1</button><button disabled>→</button></div></div>
             </section> : <RunSummary run={selectedRun} cases={cases} onCase={setSelectedCase} onHistory={openHistory} />}
@@ -366,7 +405,7 @@ function RunSummary({ run, cases, onCase, onHistory }: { run: EvalRun; cases: Ev
   const suites = summarizeCases(run, scopedCases);
   return <>
     <div className="detail-grid">
-      <section className="panel run-hero"><div><TypeBadge type={run.evalType} /><StatusBadge verdict={run.verdict} /><span className={`execution execution--${run.executionStatus}`}>{run.executionStatus}</span></div><h2>{scope.primary}</h2><p>{scope.secondary} · triggered by <strong>{run.actor}</strong> through {run.trigger.toUpperCase()} · {run.evalType === "e2e" ? `target manifest ${run.datasetVersion}` : `evalset ${run.datasetVersion}`}</p>{run.evalType === "e2e" ? <div className="scope-chips"><span>Live target</span><span>No tool mocks</span><span>{run.e2eConfig?.selectedSuites.length ?? run.suites.length} suites</span><span>Target gate ≥ {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</span><span>Max tier {run.e2eConfig?.maxTier ?? "not recorded"}</span></div> : <div className="scope-chips unit"><span>{run.unitConfig?.mode ?? "all"} turns</span><span>Per-skill mocks</span><span>Tool + response quality</span></div>}<button className="history-link" onClick={() => onHistory(run)}>View {run.evalType === "e2e" ? "target" : "skill"} history →</button><div className="detail-stats"><span><small>Pass rate</small><strong>{run.summary.passRatePct || "—"}{run.summary.passRatePct ? "%" : ""}</strong>{run.evalType === "e2e" && <em>Required: {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</em>}</span><span><small>Mean score</small><strong>{run.summary.meanScore || "—"}</strong></span><span><small>Cases</small><strong>{run.summary.total}</strong></span><span><small>Duration</small><strong>{formatDuration(run.durationMs)}</strong></span></div></section>
+      <section className="panel run-hero"><div><TypeBadge type={run.evalType} /><StatusBadge verdict={effectiveRunVerdict(run)} /><span className={`execution execution--${run.executionStatus}`}>{run.executionStatus}</span></div><h2>{scope.primary}</h2><p>{scope.secondary} · triggered by <strong>{run.actor}</strong> through {run.trigger.toUpperCase()} · {run.evalType === "e2e" ? `target manifest ${run.datasetVersion}` : `evalset ${run.datasetVersion}`}</p>{run.evalType === "e2e" ? <div className="scope-chips"><span>Live target</span><span>No tool mocks</span><span>{run.e2eConfig?.selectedSuites.length ?? run.suites.length} suites</span><span>Target gate ≥ {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</span><span>Max tier {run.e2eConfig?.maxTier ?? "not recorded"}</span></div> : <div className="scope-chips unit"><span>{run.unitConfig?.mode ?? "all"} turns</span><span>Per-skill mocks</span><span>Tool + response quality</span></div>}<button className="history-link" onClick={() => onHistory(run)}>View {run.evalType === "e2e" ? "target" : "skill"} history →</button><div className="detail-stats"><span><small>Pass rate</small><strong>{run.summary.passRatePct || "—"}{run.summary.passRatePct ? "%" : ""}</strong>{run.evalType === "e2e" && <em>Required: {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</em>}</span><span><small>Mean score</small><strong>{run.summary.meanScore || "—"}</strong></span><span><small>Cases</small><strong>{run.summary.total}</strong></span><span><small>Duration</small><strong>{formatDuration(run.durationMs)}</strong></span></div></section>
       <section className="panel suite-panel"><div className="panel-heading"><div><h2>{run.evalType === "e2e" ? "Suite breakdown" : "Skill / metric breakdown"}</h2><p>{run.evalType === "e2e" ? "Live conversation result by enabled suite" : "Mock-backed cases scored for this single skill"}</p></div></div>{suites.length ? suites.map((suite) => <div className="suite-row" key={suite.name}><div><strong>{suite.name}</strong><small>{suite.total ? `${suite.passed} passed · ${suite.failed} failed` : "Enabled suite · case results not available"}</small></div><div className="suite-bar"><i><b style={{ width: `${(suite.passed / Math.max(suite.total, 1)) * 100}%` }} /></i><span>{suite.total ? suite.meanScore.toFixed(2) : "—"}</span></div></div>) : <div className="empty compact-empty"><strong>No results yet</strong><span>This run has not produced suite results.</span></div>}</section>
     </div>
     <section className="panel cases-panel"><div className="panel-heading"><div><h2>Evaluated cases</h2><p>Case-level verdicts, evidence and latency</p></div><span className="result-count">{scopedCases.length} results</span></div>
@@ -377,7 +416,7 @@ function RunSummary({ run, cases, onCase, onHistory }: { run: EvalRun; cases: Ev
 
 function CaseDrawer({ item, onClose }: { item: EvalCase; onClose: () => void }) {
   const prompt = item.input ?? "Not captured in this run result. The prompt remains defined in the authored stage suite.";
-  return <div className="drawer-layer" role="dialog" aria-modal="true" aria-label={`Evaluation case ${item.caseId}`}><button className="drawer-backdrop" onClick={onClose} aria-label="Close case detail" /><aside className="case-drawer"><header><div><span className="eyebrow">Case evidence</span><h2>{item.caseId}</h2></div><button onClick={onClose} aria-label="Close">×</button></header><div className="drawer-body"><div className="case-summary"><StatusBadge verdict={item.verdict === "error" ? "blocked" : item.verdict} /><span>Score <strong>{item.score.toFixed(1)}</strong> / case threshold {item.threshold.toFixed(1)}</span><span>{item.responseTimeMs ? `${(item.responseTimeMs / 1000).toFixed(2)}s` : "unit case"}</span></div><dl className="meta-grid"><div><dt>Suite</dt><dd>{item.suite}</dd></div><div><dt>Role / type</dt><dd>{item.role}</dd></div><div><dt>Tier</dt><dd>{item.tier || "—"}</dd></div><div><dt>Skill</dt><dd>{item.skill}</dd></div></dl><EvidenceBlock title={item.scores ? "Test input" : "User prompt"} content={prompt} tone={item.input ? "default" : "muted"} /><EvidenceBlock title="Assistant response" content={item.responseText || "No response stored"} />{item.scores && <EvidenceBlock title="Unit metric scores" content={JSON.stringify(item.scores, null, 2)} tone={item.verdict === "failed" ? "danger" : "default"} />}{item.toolCalls?.length ? <EvidenceBlock title="Observed tool calls" content={JSON.stringify(item.toolCalls, null, 2)} /> : null}<EvidenceBlock title="Judge explanation" content={item.explanation} tone={item.verdict === "failed" ? "danger" : "default"} />{item.bugRef && <div className="bug-ref"><span>Linked issue</span><strong>{item.bugRef}</strong></div>}{item.error && <EvidenceBlock title="Execution error" content={item.error} tone="danger" />}</div></aside></div>;
+  return <div className="drawer-layer" role="dialog" aria-modal="true" aria-label={`Evaluation case ${item.caseId}`}><button className="drawer-backdrop" onClick={onClose} aria-label="Close case detail" /><aside className="case-drawer"><header><div><span className="eyebrow">Case evidence</span><h2>{item.caseId}</h2></div><button onClick={onClose} aria-label="Close">×</button></header><div className="drawer-body"><div className="case-summary"><StatusBadge verdict={item.verdict === "error" ? "blocked" : item.verdict} /><span>Score <strong>{item.score.toFixed(1)}</strong> / case threshold {item.threshold.toFixed(1)}</span><span>{item.responseTimeMs ? `${(item.responseTimeMs / 1000).toFixed(2)}s` : "unit case"}</span></div>{item.verdict === "xpassed" && <div className="xpass-note"><strong>Unexpected pass</strong><span>This case is marked as a known or expected failure, but it passed. Review the known-bug marker and linked issue; the expected-failure annotation may now be stale.</span></div>}<dl className="meta-grid"><div><dt>Suite</dt><dd>{item.suite}</dd></div><div><dt>Role / type</dt><dd>{item.role}</dd></div><div><dt>Tier</dt><dd>{item.tier || "—"}</dd></div><div><dt>Skill</dt><dd>{item.skill}</dd></div></dl><EvidenceBlock title={item.scores ? "Test input" : "User prompt"} content={prompt} tone={item.input ? "default" : "muted"} /><EvidenceBlock title="Assistant response" content={item.responseText || "No response stored"} />{item.scores && <EvidenceBlock title="Unit metric scores" content={JSON.stringify(item.scores, null, 2)} tone={item.verdict === "failed" ? "danger" : "default"} />}{item.toolCalls?.length ? <EvidenceBlock title="Observed tool calls" content={JSON.stringify(item.toolCalls, null, 2)} /> : null}<EvidenceBlock title="Judge explanation" content={item.explanation} tone={item.verdict === "failed" ? "danger" : "default"} />{item.bugRef && <div className="bug-ref"><span>Linked issue</span><strong>{item.bugRef}</strong></div>}{item.error && <EvidenceBlock title="Execution error" content={item.error} tone="danger" />}</div></aside></div>;
 }
 
 function EvidenceBlock({ title, content, tone = "default" }: { title: string; content: string; tone?: "default" | "danger" | "muted" }) {

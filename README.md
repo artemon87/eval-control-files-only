@@ -35,6 +35,8 @@ When the variable is absent, the app intentionally uses deterministic demo data.
 
 Overview metrics, attention items and trend lines are calculated from live run summaries. Use the evaluation-type and 7/30/90-day controls to change the dashboard scope.
 
+The Evaluation Runs screen normalizes API verdict spellings before filtering. `error` execution states are presented as **Blocked**, and `xpass`/`xpassed` are presented as **XPASS**. XPASS means a case marked as a known or expected failure unexpectedly passed; it is successful evidence, but should prompt review of the stale expected-failure marker. Advanced run filters cover execution status, stage/environment, trigger, actor and relative start time.
+
 ## Development and validation
 
 ```bash

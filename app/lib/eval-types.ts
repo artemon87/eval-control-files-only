@@ -1,7 +1,8 @@
 export type EvalType = "e2e" | "unit";
 export type Trigger = "ui" | "cli" | "ci" | "schedule" | string;
 export type ExecutionStatus = "queued" | "running" | "completed" | "error" | "cancelled";
-export type Verdict = "passed" | "failed" | "blocked" | "pending";
+export type Verdict = "passed" | "failed" | "blocked" | "pending" | "xpassed";
+export type CaseVerdict = "passed" | "failed" | "blocked" | "error" | "xpassed";
 
 export interface RunSummary {
   total: number;
@@ -74,7 +75,7 @@ export interface EvalCase {
   skill: string;
   role: string;
   tier: number;
-  verdict: "passed" | "failed" | "error";
+  verdict: CaseVerdict;
   score: number;
   threshold: number;
   responseTimeMs: number;

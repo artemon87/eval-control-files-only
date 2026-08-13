@@ -1,4 +1,4 @@
-import type { EvalCase, EvalRun, ExecutionStatus, Verdict } from "./eval-types";
+import type { CaseVerdict, EvalCase, EvalRun, ExecutionStatus, Verdict } from "./eval-types";
 
 export interface Page<T> {
   items: T[];
@@ -17,7 +17,7 @@ interface BaseApiRun {
   run_id: string;
   batch_id?: string | null;
   execution_status: ExecutionStatus;
-  verdict: Verdict;
+  verdict: string;
   started_at?: string | null;
   created_at?: string | null;
   finished_at?: string | null;
@@ -61,7 +61,7 @@ interface UnitApiCase {
   test_name: string;
   test_type: string;
   tier?: number | null;
-  verdict: "passed" | "failed" | "error";
+  verdict: string;
   scores: Record<string, number>;
   tool_calls: Array<{ name: string; parameters: Record<string, unknown>; tool_call_id?: string }>;
   response?: string | null;
@@ -76,7 +76,7 @@ interface E2EApiCase {
   suite: string;
   role?: string | null;
   tier?: number | null;
-  verdict: "passed" | "failed" | "error";
+  verdict: string;
   score?: number | null;
   threshold?: number | null;
   response_time_ms?: number | null;
@@ -88,6 +88,34 @@ interface E2EApiCase {
 
 function numberOrZero(value?: number | null) {
   return typeof value === "number" ? value : 0;
+}
+
+function normalizeVerdict(value: string | null | undefined): Verdict {
+  switch (value?.trim().toLowerCase()) {
+    case "pass":
+    case "passed":
+      return "passed";
+    case "fail":
+    case "failed":
+      return "failed";
+    case "block":
+    case "blocked":
+    case "error":
+      return "blocked";
+    case "xpass":
+    case "xpassed":
+    case "unexpected_pass":
+    case "unexpected-pass":
+      return "xpassed";
+    default:
+      return "pending";
+  }
+}
+
+function normalizeCaseVerdict(value: string | null | undefined): CaseVerdict {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "error") return "error";
+  return normalizeVerdict(normalized) as CaseVerdict;
 }
 
 function summary(value: ApiSummary) {
@@ -110,7 +138,7 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
     stage: run.environment,
     target: skill,
     executionStatus: run.execution_status,
-    verdict: run.verdict,
+    verdict: run.execution_status === "error" ? "blocked" : normalizeVerdict(run.verdict),
     startedAt: run.started_at ?? run.created_at ?? "1970-01-01T00:00:00.000Z",
     completedAt: run.finished_at ?? undefined,
     durationMs: run.duration_ms ?? undefined,
@@ -141,7 +169,7 @@ function mapE2ERun(run: E2EApiRun): EvalRun {
     stage: run.stage,
     target: run.target,
     executionStatus: run.execution_status,
-    verdict: run.verdict,
+    verdict: run.execution_status === "error" ? "blocked" : normalizeVerdict(run.verdict),
     startedAt: run.started_at ?? run.created_at ?? "1970-01-01T00:00:00.000Z",
     completedAt: run.finished_at ?? undefined,
     durationMs: run.duration_ms ?? undefined,
@@ -203,7 +231,7 @@ export class EvalApi {
         skill: item.suite,
         role: item.role ?? "unknown",
         tier: item.tier ?? 0,
-        verdict: item.verdict,
+        verdict: normalizeCaseVerdict(item.verdict),
         score: numberOrZero(item.score),
         threshold: numberOrZero(item.threshold),
         responseTimeMs: numberOrZero(item.response_time_ms),
@@ -224,7 +252,7 @@ export class EvalApi {
         skill: item.skill,
         role: item.test_type,
         tier: item.tier ?? 0,
-        verdict: item.verdict,
+        verdict: normalizeCaseVerdict(item.verdict),
         score: scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : 0,
         threshold: 4,
         responseTimeMs: 0,
