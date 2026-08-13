@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { evalCases, evalRuns } from "./lib/eval-data";
 import { configuredEvalApi, type EvalApi } from "./lib/eval-api";
@@ -457,7 +458,7 @@ export default function Home() {
     <div className="app-shell">
       {sidebarOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
       <aside className={`sidebar ${sidebarOpen ? "mobile-open" : ""}`}>
-        <div className="brand"><span>EC</span><div><strong>Eval Control</strong><small>Quality operations</small></div>{sidebarOpen && <button className="sidebar-close" aria-label="Close navigation" onClick={() => setSidebarOpen(false)}>×</button>}</div>
+        <div className="brand"><span className="brand-mark"><b aria-hidden="true">UKG</b><Image className="brand-logo" src="/ukg-rgb.png" alt="UKG" width={52} height={34} unoptimized onError={(event) => { event.currentTarget.style.display = "none"; }} /></span><div><strong>EvalHub</strong><small>Quality operations</small></div>{sidebarOpen && <button className="sidebar-close" aria-label="Close navigation" onClick={() => setSidebarOpen(false)}>×</button>}</div>
         <nav aria-label="Main navigation">
           <p>Workspace</p>
           {navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setSelectedRun(null); if (item.id === "history") setHistoryFocus(null); setSidebarOpen(false); }}><span>{item.glyph}</span>{item.label}</button>)}
@@ -559,10 +560,13 @@ function DrilldownTrendDrawer({ request, runs, api, live, onClose, onOpenRun }: 
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
-    setError(null);
-    void loadDrilldownTrend(request, runs, api, live, controller.signal).then((items) => {
+    void Promise.resolve().then(() => {
       if (controller.signal.aborted) return;
+      setLoading(true);
+      setError(null);
+      return loadDrilldownTrend(request, runs, api, live, controller.signal);
+    }).then((items) => {
+      if (controller.signal.aborted || !items) return;
       setPoints(items.length || live ? items : demoDrilldownTrend(request));
     }).catch((reason: unknown) => {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Unable to load trend data");

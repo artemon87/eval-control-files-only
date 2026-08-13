@@ -4,7 +4,7 @@ import { useEffect } from "react";
 
 export default function ErrorBoundary({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
-    console.error("Eval Control Center render failure", error);
+    console.error("EvalHub render failure", error);
   }, [error]);
 
   return (
@@ -16,4 +16,3 @@ export default function ErrorBoundary({ error, reset }: { error: Error & { diges
     </main>
   );
 }
-

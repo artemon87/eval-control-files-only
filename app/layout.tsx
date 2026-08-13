@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Eval Control Center",
+  title: "EvalHub",
   description: "Monitor and compare end-to-end targets and versioned single-skill unit evaluations.",
   other: {
     "codex-preview": "development",
