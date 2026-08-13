@@ -24,3 +24,15 @@ test("exposes schema-backed advanced run filters", async () => {
   }
   assert.match(page, /Clear advanced filters/);
 });
+
+test("loads isolated skill and case trends on demand", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /View this case over time/);
+  assert.match(page, /View trend/);
+  assert.match(page, /loadDrilldownTrend/);
+  assert.match(page, /offset \+= 4/);
+  assert.match(page, /run\.evalType !== request\.evalType/);
+  assert.match(page, /run\.stage === request\.stage && run\.target === request\.target/);
+  assert.match(page, /bsaEnvironment \?\? run\.stage\) === request\.environment/);
+});

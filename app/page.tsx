@@ -9,6 +9,33 @@ import type { EvalCase, EvalRun, EvalType, ExecutionStatus, SuiteSummary, Verdic
 
 type View = "overview" | "runs" | "history" | "compare" | "schema";
 
+type DrilldownTrendKind = "skill" | "case";
+
+type DrilldownTrendRequest = {
+  kind: DrilldownTrendKind;
+  evalType: EvalType;
+  skill: string;
+  caseId?: string;
+  stage: string;
+  target: string;
+  environment: string;
+  sourceRunId: string;
+};
+
+type DrilldownTrendPoint = {
+  runId: string;
+  startedAt: string;
+  verdict: Verdict;
+  score: number;
+  threshold: number;
+  passRatePct: number;
+  totalCases: number;
+  responseTimeMs: number;
+  skillVersion?: string;
+  bsaVersion?: string;
+  datasetVersion?: string;
+};
+
 const navItems: { id: View; label: string; glyph: string }[] = [
   { id: "overview", label: "Overview", glyph: "⌂" },
   { id: "runs", label: "Evaluation runs", glyph: "▤" },
@@ -158,6 +185,88 @@ function summarizeCases(run: EvalRun, items: EvalCase[]): SuiteSummary[] {
   }));
 }
 
+function drilldownRequest(run: EvalRun, kind: DrilldownTrendKind, skill: string, caseId?: string): DrilldownTrendRequest {
+  return {
+    kind,
+    evalType: run.evalType,
+    skill,
+    caseId,
+    stage: run.stage,
+    target: run.target,
+    environment: run.unitConfig?.bsaEnvironment ?? run.stage,
+    sourceRunId: run.runId,
+  };
+}
+
+function drilldownCandidateRuns(request: DrilldownTrendRequest, runs: EvalRun[]) {
+  return runs.filter((run) => {
+    if (run.evalType !== request.evalType || run.executionStatus !== "completed") return false;
+    if (request.evalType === "unit") {
+      return (run.unitConfig?.skillId ?? run.target) === request.skill
+        && (run.unitConfig?.bsaEnvironment ?? run.stage) === request.environment;
+    }
+    return run.stage === request.stage && run.target === request.target;
+  }).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 30).reverse();
+}
+
+function trendPointFromCases(request: DrilldownTrendRequest, run: EvalRun, items: EvalCase[]): DrilldownTrendPoint | null {
+  const skillCases = items.filter((item) => item.runId === run.runId && (item.skill === request.skill || item.suite === request.skill));
+  const matching = request.kind === "case" ? skillCases.filter((item) => item.caseId === request.caseId) : skillCases;
+  if (!matching.length) return null;
+  const passed = matching.filter((item) => item.verdict === "passed" || item.verdict === "xpassed").length;
+  const verdict: Verdict = matching.some((item) => item.verdict === "blocked" || item.verdict === "error")
+    ? "blocked"
+    : matching.some((item) => item.verdict === "failed")
+      ? "failed"
+      : matching.some((item) => item.verdict === "xpassed") ? "xpassed" : "passed";
+  return {
+    runId: run.runId,
+    startedAt: run.startedAt,
+    verdict,
+    score: matching.reduce((sum, item) => sum + item.score, 0) / matching.length,
+    threshold: matching.reduce((sum, item) => sum + item.threshold, 0) / matching.length,
+    passRatePct: passed / matching.length * 100,
+    totalCases: matching.length,
+    responseTimeMs: percentile(matching.map((item) => item.responseTimeMs).filter(Boolean), .95),
+    skillVersion: matching.find((item) => item.skillVersion)?.skillVersion ?? run.unitConfig?.skillVersion,
+    bsaVersion: matching.find((item) => item.bsaVersion)?.bsaVersion ?? run.unitConfig?.bsaVersion,
+    datasetVersion: run.datasetVersion,
+  };
+}
+
+function demoDrilldownTrend(request: DrilldownTrendRequest): DrilldownTrendPoint[] {
+  const offset = [-.35, .15, -.1, .3];
+  if (request.evalType === "unit") {
+    return unitHistory.filter((point) => point.skillId === request.skill && point.environment === request.environment).map((point, index) => {
+      const score = request.kind === "skill" ? point.meanScore : Math.max(1, Math.min(5, point.meanScore + offset[index % offset.length]));
+      return { runId: point.runId, startedAt: point.startedAt, verdict: request.kind === "case" ? (score >= 4 ? "passed" : "failed") : point.verdict, score, threshold: 4, passRatePct: request.kind === "case" ? (score >= 4 ? 100 : 0) : point.passRatePct, totalCases: request.kind === "case" ? 1 : point.totalCases, responseTimeMs: point.durationMs / Math.max(point.totalCases, 1), skillVersion: `1.${index}.0`, bsaVersion: "1.4.0", datasetVersion: `${request.skill}@1.${index}.0` };
+    });
+  }
+  return e2eHistory.filter((point) => point.stage === request.stage && point.target === request.target).map((point, index) => {
+    const score = request.kind === "skill" ? point.meanScore : Math.max(1, Math.min(5, point.meanScore + offset[index % offset.length]));
+    return { runId: point.runId, startedAt: point.startedAt, verdict: request.kind === "case" ? (score >= 3 ? "passed" : "failed") : point.verdict, score, threshold: request.kind === "case" ? 3 : 4.5, passRatePct: request.kind === "case" ? (score >= 3 ? 100 : 0) : point.passRatePct, totalCases: request.kind === "case" ? 1 : point.totalCases, responseTimeMs: point.durationMs / Math.max(point.totalCases, 1), datasetVersion: `e2e/${request.stage}/${request.target}` };
+  });
+}
+
+async function loadDrilldownTrend(request: DrilldownTrendRequest, runs: EvalRun[], api: EvalApi | null, live: boolean, signal: AbortSignal) {
+  const candidates = drilldownCandidateRuns(request, runs);
+  const points: DrilldownTrendPoint[] = [];
+  for (let offset = 0; offset < candidates.length; offset += 4) {
+    const batch = candidates.slice(offset, offset + 4);
+    const results = await Promise.all(batch.map(async (run) => {
+      try {
+        const items = live && api ? await api.listCases(run, signal) : evalCases.filter((item) => item.runId === run.runId);
+        return trendPointFromCases(request, run, items);
+      } catch (error) {
+        if (signal.aborted) throw error;
+        return null;
+      }
+    }));
+    points.push(...results.filter((point): point is DrilldownTrendPoint => Boolean(point)));
+  }
+  return points.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+}
+
 function RunsTable({ runs, onOpen }: { runs: EvalRun[]; onOpen: (run: EvalRun) => void }) {
   return (
     <div className="table-wrap">
@@ -203,6 +312,7 @@ export default function Home() {
   const [startedWithin, setStartedWithin] = useState<"all" | "24h" | "7d" | "30d">("all");
   const [selectedRun, setSelectedRun] = useState<EvalRun | null>(null);
   const [selectedCase, setSelectedCase] = useState<EvalCase | null>(null);
+  const [selectedTrend, setSelectedTrend] = useState<DrilldownTrendRequest | null>(null);
   const [historyFocus, setHistoryFocus] = useState<{ type: EvalType; stage?: string; target?: string; skillId?: string; environment?: string } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [overviewDays, setOverviewDays] = useState<7 | 30 | 90>(7);
@@ -324,6 +434,7 @@ export default function Home() {
   const openRun = (run: EvalRun) => {
     setCases(dataSource === "api" ? [] : evalCases.filter((item) => item.runId === run.runId));
     setSelectedCase(null);
+    setSelectedTrend(null);
     setDetailError(null);
     setSelectedRun(run);
     setView("runs");
@@ -335,6 +446,11 @@ export default function Home() {
       : { type: "unit", skillId: run.unitConfig?.skillId ?? run.target, environment: run.unitConfig?.bsaEnvironment ?? run.stage });
     setSelectedRun(null);
     setView("history");
+  };
+
+  const openTrend = (request: DrilldownTrendRequest) => {
+    setSelectedCase(null);
+    setSelectedTrend(request);
   };
 
   return (
@@ -384,7 +500,7 @@ export default function Home() {
               {moreFiltersOpen && <div className="advanced-filters" id="advanced-run-filters"><label><span>Execution status</span><select value={executionStatus} onChange={(event) => setExecutionStatus(event.target.value as "all" | ExecutionStatus)}><option value="all">All statuses</option><option value="queued">Queued</option><option value="running">Running</option><option value="completed">Completed</option><option value="error">Error</option><option value="cancelled">Cancelled</option></select></label><label><span>Stage / environment</span><select value={stage} onChange={(event) => setStage(event.target.value)}><option value="all">All stages</option>{filterOptions.stages.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label><span>Trigger</span><select value={trigger} onChange={(event) => setTrigger(event.target.value)}><option value="all">All triggers</option>{filterOptions.triggers.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label><span>Actor</span><select value={actor} onChange={(event) => setActor(event.target.value)}><option value="all">All actors</option>{filterOptions.actors.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label><span>Started</span><select value={startedWithin} onChange={(event) => setStartedWithin(event.target.value as typeof startedWithin)}><option value="all">Any time</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label><div className="advanced-filter-actions"><span>{activeMoreFilterCount ? `${activeMoreFilterCount} advanced filter${activeMoreFilterCount === 1 ? "" : "s"} active` : "No advanced filters active"}</span><button type="button" onClick={resetMoreFilters} disabled={!activeMoreFilterCount}>Clear advanced filters</button></div></div>}
               <RunsTable runs={filteredRuns} onOpen={openRun} />
               <div className="table-footer"><span>Showing {filteredRuns.length} of {runs.length} runs</span><div><button disabled>←</button><button className="current">1</button><button disabled>→</button></div></div>
-            </section> : <RunSummary run={selectedRun} cases={cases} onCase={setSelectedCase} onHistory={openHistory} />}
+            </section> : <RunSummary run={selectedRun} cases={cases} onCase={setSelectedCase} onHistory={openHistory} onTrend={openTrend} />}
           </>}
 
           {apiError && <div className="toast toast--error"><span>!</span>{apiError} · showing deterministic demo data</div>}
@@ -394,19 +510,20 @@ export default function Home() {
           {view === "schema" && <SchemaView />}
         </div>
       </main>
-      {selectedCase && <CaseDrawer item={selectedCase} onClose={() => setSelectedCase(null)} />}
+      {selectedCase && selectedRun && <CaseDrawer item={selectedCase} run={selectedRun} onClose={() => setSelectedCase(null)} onTrend={openTrend} />}
+      {selectedTrend && <DrilldownTrendDrawer request={selectedTrend} runs={runs} api={api} live={dataSource === "api"} onClose={() => setSelectedTrend(null)} onOpenRun={(runId) => { const run = runs.find((item) => item.runId === runId); if (run) openRun(run); }} />}
     </div>
   );
 }
 
-function RunSummary({ run, cases, onCase, onHistory }: { run: EvalRun; cases: EvalCase[]; onCase: (item: EvalCase) => void; onHistory: (run: EvalRun) => void }) {
+function RunSummary({ run, cases, onCase, onHistory, onTrend }: { run: EvalRun; cases: EvalCase[]; onCase: (item: EvalCase) => void; onHistory: (run: EvalRun) => void; onTrend: (request: DrilldownTrendRequest) => void }) {
   const scope = runScope(run);
   const scopedCases = cases.filter((item) => item.runId === run.runId);
   const suites = summarizeCases(run, scopedCases);
   return <>
     <div className="detail-grid">
       <section className="panel run-hero"><div><TypeBadge type={run.evalType} /><StatusBadge verdict={effectiveRunVerdict(run)} /><span className={`execution execution--${run.executionStatus}`}>{run.executionStatus}</span></div><h2>{scope.primary}</h2><p>{scope.secondary} · triggered by <strong>{run.actor}</strong> through {run.trigger.toUpperCase()} · {run.evalType === "e2e" ? `target manifest ${run.datasetVersion}` : `evalset ${run.datasetVersion}`}</p>{run.evalType === "e2e" ? <div className="scope-chips"><span>Live target</span><span>No tool mocks</span><span>{run.e2eConfig?.selectedSuites.length ?? run.suites.length} suites</span><span>Target gate ≥ {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</span><span>Max tier {run.e2eConfig?.maxTier ?? "not recorded"}</span></div> : <div className="scope-chips unit"><span>{run.unitConfig?.mode ?? "all"} turns</span><span>Per-skill mocks</span><span>Tool + response quality</span></div>}<button className="history-link" onClick={() => onHistory(run)}>View {run.evalType === "e2e" ? "target" : "skill"} history →</button><div className="detail-stats"><span><small>Pass rate</small><strong>{run.summary.passRatePct || "—"}{run.summary.passRatePct ? "%" : ""}</strong>{run.evalType === "e2e" && <em>Required: {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</em>}</span><span><small>Mean score</small><strong>{run.summary.meanScore || "—"}</strong></span><span><small>Cases</small><strong>{run.summary.total}</strong></span><span><small>Duration</small><strong>{formatDuration(run.durationMs)}</strong></span></div></section>
-      <section className="panel suite-panel"><div className="panel-heading"><div><h2>{run.evalType === "e2e" ? "Suite breakdown" : "Skill / metric breakdown"}</h2><p>{run.evalType === "e2e" ? "Live conversation result by enabled suite" : "Mock-backed cases scored for this single skill"}</p></div></div>{suites.length ? suites.map((suite) => <div className="suite-row" key={suite.name}><div><strong>{suite.name}</strong><small>{suite.total ? `${suite.passed} passed · ${suite.failed} failed` : "Enabled suite · case results not available"}</small></div><div className="suite-bar"><i><b style={{ width: `${(suite.passed / Math.max(suite.total, 1)) * 100}%` }} /></i><span>{suite.total ? suite.meanScore.toFixed(2) : "—"}</span></div></div>) : <div className="empty compact-empty"><strong>No results yet</strong><span>This run has not produced suite results.</span></div>}</section>
+      <section className="panel suite-panel"><div className="panel-heading"><div><h2>{run.evalType === "e2e" ? "Suite breakdown" : "Skill / metric breakdown"}</h2><p>{run.evalType === "e2e" ? "Live conversation result by enabled suite" : "Mock-backed cases scored for this single skill"}</p></div></div>{suites.length ? suites.map((suite) => <div className="suite-row" key={suite.name}><div><strong>{suite.name}</strong><small>{suite.total ? `${suite.passed} passed · ${suite.failed} failed` : "Enabled suite · case results not available"}</small></div><div className="suite-bar"><i><b style={{ width: `${(suite.passed / Math.max(suite.total, 1)) * 100}%` }} /></i><span>{suite.total ? suite.meanScore.toFixed(2) : "—"}</span></div><button className="trend-action" onClick={() => onTrend(drilldownRequest(run, "skill", run.evalType === "unit" ? (run.unitConfig?.skillId ?? run.target) : suite.name))}>View trend</button></div>) : <div className="empty compact-empty"><strong>No results yet</strong><span>This run has not produced suite results.</span></div>}</section>
     </div>
     <section className="panel cases-panel"><div className="panel-heading"><div><h2>Evaluated cases</h2><p>Case-level verdicts, evidence and latency</p></div><span className="result-count">{scopedCases.length} results</span></div>
       {scopedCases.length ? <div className="table-wrap"><table className="cases-table"><thead><tr><th>Case</th><th>Suite</th><th>Verdict</th><th>Score</th><th>Threshold</th><th>Latency</th><th /></tr></thead><tbody>{scopedCases.map((item) => <tr key={item.caseId} onClick={() => onCase(item)}><td><button className="run-link">{item.caseId}</button><small>{item.role} · tier {item.tier}</small></td><td>{item.suite}</td><td><StatusBadge verdict={item.verdict === "error" ? "blocked" : item.verdict} /></td><td><strong className={item.score < item.threshold ? "bad-score" : "score"}>{item.score.toFixed(1)}</strong></td><td>{item.threshold.toFixed(1)}</td><td>{(item.responseTimeMs / 1000).toFixed(1)}s</td><td><button className="row-arrow" aria-label={`Open ${item.caseId}`}>›</button></td></tr>)}</tbody></table></div> : <div className="empty"><strong>No case documents available</strong><span>No cases matching run {run.runId} were returned.</span></div>}
@@ -414,13 +531,52 @@ function RunSummary({ run, cases, onCase, onHistory }: { run: EvalRun; cases: Ev
   </>;
 }
 
-function CaseDrawer({ item, onClose }: { item: EvalCase; onClose: () => void }) {
+function CaseDrawer({ item, run, onClose, onTrend }: { item: EvalCase; run: EvalRun; onClose: () => void; onTrend: (request: DrilldownTrendRequest) => void }) {
   const prompt = item.input ?? "Not captured in this run result. The prompt remains defined in the authored stage suite.";
-  return <div className="drawer-layer" role="dialog" aria-modal="true" aria-label={`Evaluation case ${item.caseId}`}><button className="drawer-backdrop" onClick={onClose} aria-label="Close case detail" /><aside className="case-drawer"><header><div><span className="eyebrow">Case evidence</span><h2>{item.caseId}</h2></div><button onClick={onClose} aria-label="Close">×</button></header><div className="drawer-body"><div className="case-summary"><StatusBadge verdict={item.verdict === "error" ? "blocked" : item.verdict} /><span>Score <strong>{item.score.toFixed(1)}</strong> / case threshold {item.threshold.toFixed(1)}</span><span>{item.responseTimeMs ? `${(item.responseTimeMs / 1000).toFixed(2)}s` : "unit case"}</span></div>{item.verdict === "xpassed" && <div className="xpass-note"><strong>Unexpected pass</strong><span>This case is marked as a known or expected failure, but it passed. Review the known-bug marker and linked issue; the expected-failure annotation may now be stale.</span></div>}<dl className="meta-grid"><div><dt>Suite</dt><dd>{item.suite}</dd></div><div><dt>Role / type</dt><dd>{item.role}</dd></div><div><dt>Tier</dt><dd>{item.tier || "—"}</dd></div><div><dt>Skill</dt><dd>{item.skill}</dd></div></dl><EvidenceBlock title={item.scores ? "Test input" : "User prompt"} content={prompt} tone={item.input ? "default" : "muted"} /><EvidenceBlock title="Assistant response" content={item.responseText || "No response stored"} />{item.scores && <EvidenceBlock title="Unit metric scores" content={JSON.stringify(item.scores, null, 2)} tone={item.verdict === "failed" ? "danger" : "default"} />}{item.toolCalls?.length ? <EvidenceBlock title="Observed tool calls" content={JSON.stringify(item.toolCalls, null, 2)} /> : null}<EvidenceBlock title="Judge explanation" content={item.explanation} tone={item.verdict === "failed" ? "danger" : "default"} />{item.bugRef && <div className="bug-ref"><span>Linked issue</span><strong>{item.bugRef}</strong></div>}{item.error && <EvidenceBlock title="Execution error" content={item.error} tone="danger" />}</div></aside></div>;
+  return <div className="drawer-layer" role="dialog" aria-modal="true" aria-label={`Evaluation case ${item.caseId}`}><button className="drawer-backdrop" onClick={onClose} aria-label="Close case detail" /><aside className="case-drawer"><header><div><span className="eyebrow">Case evidence</span><h2>{item.caseId}</h2></div><button onClick={onClose} aria-label="Close">×</button></header><div className="drawer-body"><button className="case-trend-button" onClick={() => onTrend(drilldownRequest(run, "case", item.skill || item.suite, item.caseId))}>↗ View this case over time</button><div className="case-summary"><StatusBadge verdict={item.verdict === "error" ? "blocked" : item.verdict} /><span>Score <strong>{item.score.toFixed(1)}</strong> / case threshold {item.threshold.toFixed(1)}</span><span>{item.responseTimeMs ? `${(item.responseTimeMs / 1000).toFixed(2)}s` : "unit case"}</span></div>{item.verdict === "xpassed" && <div className="xpass-note"><strong>Unexpected pass</strong><span>This case is marked as a known or expected failure, but it passed. Review the known-bug marker and linked issue; the expected-failure annotation may now be stale.</span></div>}<dl className="meta-grid"><div><dt>Suite</dt><dd>{item.suite}</dd></div><div><dt>Role / type</dt><dd>{item.role}</dd></div><div><dt>Tier</dt><dd>{item.tier || "—"}</dd></div><div><dt>Skill</dt><dd>{item.skill}</dd></div></dl><EvidenceBlock title={item.scores ? "Test input" : "User prompt"} content={prompt} tone={item.input ? "default" : "muted"} /><EvidenceBlock title="Assistant response" content={item.responseText || "No response stored"} />{item.scores && <EvidenceBlock title="Unit metric scores" content={JSON.stringify(item.scores, null, 2)} tone={item.verdict === "failed" ? "danger" : "default"} />}{item.toolCalls?.length ? <EvidenceBlock title="Observed tool calls" content={JSON.stringify(item.toolCalls, null, 2)} /> : null}<EvidenceBlock title="Judge explanation" content={item.explanation} tone={item.verdict === "failed" ? "danger" : "default"} />{item.bugRef && <div className="bug-ref"><span>Linked issue</span><strong>{item.bugRef}</strong></div>}{item.error && <EvidenceBlock title="Execution error" content={item.error} tone="danger" />}</div></aside></div>;
 }
 
 function EvidenceBlock({ title, content, tone = "default" }: { title: string; content: string; tone?: "default" | "danger" | "muted" }) {
   return <section className={`evidence evidence--${tone}`}><h3>{title}</h3><p>{content}</p></section>;
+}
+
+function DrilldownScoreChart({ points, onOpenRun }: { points: DrilldownTrendPoint[]; onOpenRun: (runId: string) => void }) {
+  const width = 760;
+  const left = 42;
+  const right = 728;
+  const top = 22;
+  const bottom = 178;
+  const x = (index: number) => points.length < 2 ? (left + right) / 2 : left + index / (points.length - 1) * (right - left);
+  const y = (score: number) => top + (5 - score) / 5 * (bottom - top);
+  const scoreLine = points.map((point, index) => `${x(index)},${y(point.score)}`).join(" ");
+  const thresholdLine = points.map((point, index) => `${x(index)},${y(point.threshold)}`).join(" ");
+  return <div className="drilldown-chart" role="img" aria-label="Score and threshold over time"><svg viewBox={`0 0 ${width} 218`} preserveAspectRatio="none"><g className="drilldown-grid">{[5,4,3,2,1,0].map((value) => <g key={value}><line x1={left} x2={right} y1={y(value)} y2={y(value)} /><text x="12" y={y(value)+3}>{value}</text></g>)}</g>{points.length > 1 && <><polyline className="drilldown-threshold-line" points={thresholdLine} /><polyline className="drilldown-score-line" points={scoreLine} /></>}{points.map((point, index) => <g className="drilldown-point" key={`${point.runId}-${point.startedAt}`} onClick={() => onOpenRun(point.runId)} role="button"><circle className={`drilldown-dot drilldown-dot--${point.verdict}`} cx={x(index)} cy={y(point.score)} r="5"><title>{`${formatTime(point.startedAt)} · score ${point.score.toFixed(2)} · ${point.verdict}`}</title></circle><text className="drilldown-value" x={x(index)} y={Math.max(12, y(point.score)-11)} textAnchor="middle">{point.score.toFixed(1)}</text><text className="point-date" x={x(index)} y="207" textAnchor="middle">{formatDateShort(point.startedAt)}</text></g>)}</svg></div>;
+}
+
+function DrilldownTrendDrawer({ request, runs, api, live, onClose, onOpenRun }: { request: DrilldownTrendRequest; runs: EvalRun[]; api: EvalApi | null; live: boolean; onClose: () => void; onOpenRun: (runId: string) => void }) {
+  const [points, setPoints] = useState<DrilldownTrendPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    void loadDrilldownTrend(request, runs, api, live, controller.signal).then((items) => {
+      if (controller.signal.aborted) return;
+      setPoints(items.length || live ? items : demoDrilldownTrend(request));
+    }).catch((reason: unknown) => {
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Unable to load trend data");
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [api, live, request, runs]);
+  const latest = points[points.length - 1];
+  const previous = points[points.length - 2];
+  const delta = latest && previous ? latest.score - previous.score : 0;
+  const nonPasses = points.filter((point) => point.verdict !== "passed" && point.verdict !== "xpassed").length;
+  const title = request.kind === "case" ? request.caseId : request.skill;
+  return <div className="drawer-layer" role="dialog" aria-modal="true" aria-label={`${title} historical trend`}><button className="drawer-backdrop" onClick={onClose} aria-label="Close trend" /><aside className="case-drawer trend-drawer"><header><div><span className="eyebrow">{request.kind === "case" ? "Case history" : "Skill trend"}</span><h2>{title}</h2><p><TypeBadge type={request.evalType} /> {request.evalType === "e2e" ? `${request.stage} · ${request.target}` : `${request.environment} · ${request.skill}`}</p></div><button onClick={onClose} aria-label="Close">×</button></header><div className="drawer-body">{loading ? <div className="trend-loading"><span /><span /><span />Loading historical cases…</div> : error ? <div className="trend-error"><strong>Trend could not be loaded</strong><span>{error}</span></div> : points.length ? <><div className="trend-kpis"><article><span>Latest score</span><strong>{latest?.score.toFixed(2)}</strong><small>threshold {latest?.threshold.toFixed(2)}</small></article><article><span>Change</span><strong className={delta >= 0 ? "delta-good" : "delta-bad"}>{delta >= 0 ? "+" : ""}{delta.toFixed(2)}</strong><small>vs previous matching run</small></article><article><span>History</span><strong>{points.length}</strong><small>{nonPasses} failed or blocked</small></article></div><section className="trend-chart-card"><div className="trend-chart-heading"><div><h3>Score over time</h3><p>Matching {request.evalType === "e2e" ? "stage, target and skill" : "environment and skill"}; points open the source run.</p></div><div className="drilldown-legend"><span><i />Score</span><span><i />Threshold</span></div></div><DrilldownScoreChart points={points} onOpenRun={onOpenRun} /></section><div className="trend-table-wrap"><table><thead><tr><th>Run</th><th>{request.evalType === "unit" ? "Skill version" : "Dataset"}</th><th>Verdict</th><th>Score / gate</th><th>Started</th></tr></thead><tbody>{[...points].reverse().map((point) => <tr key={`${point.runId}-${point.startedAt}`} onClick={() => onOpenRun(point.runId)}><td><button className="run-link">{point.runId}</button></td><td>{request.evalType === "unit" ? `v${point.skillVersion ?? "unknown"} · BSA ${point.bsaVersion ?? "unknown"}` : point.datasetVersion}</td><td><StatusBadge verdict={point.verdict} /></td><td><strong>{point.score.toFixed(2)}</strong> / {point.threshold.toFixed(2)}</td><td>{formatTime(point.startedAt)}</td></tr>)}</tbody></table></div></> : <div className="trend-empty"><strong>No matching history yet</strong><span>This view keeps {request.evalType === "e2e" ? "E2E target" : "unit environment"} results separate. More completed matching runs are needed before a trend can be drawn.</span></div>}</div></aside></div>;
 }
 
 type HistoryFocus = { type: EvalType; stage?: string; target?: string; skillId?: string; environment?: string } | null;
