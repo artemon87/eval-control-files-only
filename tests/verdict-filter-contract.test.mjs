@@ -50,3 +50,13 @@ test("never substitutes operational demo data", async () => {
   await assert.rejects(readFile(new URL("../app/lib/eval-data.ts", import.meta.url), "utf8"));
   await assert.rejects(readFile(new URL("../app/lib/eval-history.ts", import.meta.url), "utf8"));
 });
+
+test("applies the selected Evaluation History time window", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /const rangeDays = range === "7d" \? 7 : range === "30d" \? 30 : 90/);
+  assert.match(page, /timestamp >= rangeStart && timestamp <= referenceTime/);
+  assert.match(page, /e2eSource\.filter\(\(point\) => inRange\(point\.startedAt\) && point\.stage === stage\)/);
+  assert.match(page, /unitSource\.filter\(\(point\) => inRange\(point\.startedAt\)/);
+  assert.match(page, /No historical runs in the selected \{rangeDays\}-day window/);
+});
