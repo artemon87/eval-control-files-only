@@ -2,10 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { evalCases, evalRuns } from "./lib/eval-data";
 import { configuredEvalApi, type EvalApi } from "./lib/eval-api";
-import { e2eHistory, unitHistory } from "./lib/eval-history";
-import type { E2EHistoryPoint } from "./lib/eval-history";
 import type { EvalCase, EvalRun, EvalType, ExecutionStatus, SuiteSummary, Verdict } from "./lib/eval-types";
 
 type View = "overview" | "runs" | "history" | "compare" | "schema";
@@ -36,6 +33,21 @@ type DrilldownTrendPoint = {
   bsaVersion?: string;
   datasetVersion?: string;
 };
+
+type E2EHistoryPoint = {
+  runId: string;
+  batchId?: string;
+  startedAt: string;
+  stage: string;
+  target: string;
+  passRatePct: number;
+  meanScore: number;
+  totalCases: number;
+  durationMs: number;
+  verdict: Verdict;
+};
+
+type DataState = "connecting" | "live" | "unconfigured" | "error";
 
 const navItems: { id: View; label: string; glyph: string }[] = [
   { id: "overview", label: "Overview", glyph: "⌂" },
@@ -207,20 +219,6 @@ function drilldownRequest(run: EvalRun, kind: DrilldownTrendKind, skill: string,
   };
 }
 
-function demoDrilldownTrend(request: DrilldownTrendRequest): DrilldownTrendPoint[] {
-  const offset = [-.35, .15, -.1, .3];
-  if (request.evalType === "unit") {
-    return unitHistory.filter((point) => point.skillId === request.skill && point.environment === request.environment).map((point, index) => {
-      const score = request.kind === "skill" ? point.meanScore : Math.max(1, Math.min(5, point.meanScore + offset[index % offset.length]));
-      return { runId: point.runId, startedAt: point.startedAt, verdict: request.kind === "case" ? (score >= 4 ? "passed" : "failed") : point.verdict, score, threshold: 4, passRatePct: request.kind === "case" ? (score >= 4 ? 100 : 0) : point.passRatePct, totalCases: request.kind === "case" ? 1 : point.totalCases, responseTimeMs: point.durationMs / Math.max(point.totalCases, 1), skillVersion: `1.${index}.0`, bsaVersion: "1.4.0", datasetVersion: `${request.skill}@1.${index}.0` };
-    });
-  }
-  return e2eHistory.filter((point) => point.stage === request.stage && point.target === request.target).map((point, index) => {
-    const score = request.kind === "skill" ? point.meanScore : Math.max(1, Math.min(5, point.meanScore + offset[index % offset.length]));
-    return { runId: point.runId, startedAt: point.startedAt, verdict: request.kind === "case" ? (score >= 3 ? "passed" : "failed") : point.verdict, score, threshold: request.kind === "case" ? 3 : 4.5, passRatePct: request.kind === "case" ? (score >= 3 ? 100 : 0) : point.passRatePct, totalCases: request.kind === "case" ? 1 : point.totalCases, responseTimeMs: point.durationMs / Math.max(point.totalCases, 1), datasetVersion: `e2e/${request.stage}/${request.target}` };
-  });
-}
-
 function RunsTable({ runs, onOpen }: { runs: EvalRun[]; onOpen: (run: EvalRun) => void }) {
   return (
     <div className="table-wrap">
@@ -249,9 +247,9 @@ function RunsTable({ runs, onOpen }: { runs: EvalRun[]; onOpen: (run: EvalRun) =
 export default function Home() {
   const RUNS_PAGE_SIZE = 25;
   const api = useMemo(() => configuredEvalApi(), []);
-  const [runs, setRuns] = useState<EvalRun[]>(evalRuns);
+  const [runs, setRuns] = useState<EvalRun[]>([]);
   const [cases, setCases] = useState<EvalCase[]>([]);
-  const [dataSource, setDataSource] = useState<"api" | "demo">("demo");
+  const [dataState, setDataState] = useState<DataState>(api ? "connecting" : "unconfigured");
   const [loading, setLoading] = useState(Boolean(api));
   const [apiError, setApiError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -320,11 +318,13 @@ export default function Home() {
       setRuns(batch.items);
       setRunCursors(batch.nextCursors);
       setRunPage(0);
-      setDataSource("api");
+      setDataState("live");
     } catch (error) {
       setApiError(error instanceof Error ? error.message : "Unable to load the Eval API");
-      setRuns(evalRuns);
-      setDataSource("demo");
+      setRuns([]);
+      setCases([]);
+      setRunCursors({ e2e: null, unit: null });
+      setDataState("error");
     } finally {
       setLoading(false);
     }
@@ -336,13 +336,15 @@ export default function Home() {
     void api.listRunBatch(undefined, 50, controller.signal).then((batch) => {
       setRuns(batch.items);
       setRunCursors(batch.nextCursors);
-      setDataSource("api");
+      setDataState("live");
       setApiError(null);
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
       setApiError(error instanceof Error ? error.message : "Unable to load the Eval API");
-      setRuns(evalRuns);
-      setDataSource("demo");
+      setRuns([]);
+      setCases([]);
+      setRunCursors({ e2e: null, unit: null });
+      setDataState("error");
     }).finally(() => {
       if (!controller.signal.aborted) setLoading(false);
     });
@@ -370,7 +372,7 @@ export default function Home() {
   }, [api, hasOlderRuns, loadingMoreRuns, runCursors]);
 
   useEffect(() => {
-    if (!selectedRunId || selectedRun || !api || dataSource !== "api") return;
+    if (!selectedRunId || selectedRun || !api || dataState !== "live") return;
     const evalType = selectedRunId.startsWith("unit-") ? "unit" : "e2e";
     const controller = new AbortController();
     void api.getRun(evalType, selectedRunId, controller.signal).then((run) => {
@@ -379,10 +381,10 @@ export default function Home() {
       if (!controller.signal.aborted) setDetailError(error instanceof Error ? error.message : "Unable to load this run");
     });
     return () => controller.abort();
-  }, [api, dataSource, selectedRun, selectedRunId]);
+  }, [api, dataState, selectedRun, selectedRunId]);
 
   useEffect(() => {
-    if (!selectedRun || !api || dataSource !== "api") return;
+    if (!selectedRun || !api || dataState !== "live") return;
     const controller = new AbortController();
     void api.listCases(selectedRun, controller.signal)
       .then((items) => {
@@ -392,7 +394,7 @@ export default function Home() {
         if (!controller.signal.aborted) setDetailError(error instanceof Error ? error.message : "Unable to load cases");
       });
     return () => controller.abort();
-  }, [api, dataSource, selectedRun]);
+  }, [api, dataState, selectedRun]);
 
   const filterOptions = useMemo(() => ({
     stages: Array.from(new Set(runs.map((run) => run.stage).filter(Boolean))).sort(),
@@ -466,7 +468,7 @@ export default function Home() {
   }, [overviewDays, overviewType, runs]);
 
   const openRun = (run: EvalRun) => {
-    setCases(dataSource === "api" ? [] : evalCases.filter((item) => item.runId === run.runId));
+    setCases([]);
     setSelectedCase(null);
     setSelectedTrend(null);
     setDetailError(null);
@@ -475,7 +477,7 @@ export default function Home() {
 
   const openRunById = async (runId: string, evalType: EvalType) => {
     const loaded = runs.find((run) => run.runId === runId);
-    if (!api || dataSource !== "api") {
+    if (!api || dataState !== "live") {
       if (loaded) openRun(loaded);
       return;
     }
@@ -518,12 +520,12 @@ export default function Home() {
           <button disabled title="Policy management is planned"><span>⌁</span>Policies<b className="nav-soon">soon</b></button>
           <button disabled title="Metric management is planned"><span>✣</span>Custom metrics<b className="nav-soon">soon</b></button>
         </nav>
-        <div className={`sidebar-note sidebar-note--${apiError ? "error" : dataSource}`}><span>Data status</span><strong><i /> {apiError ? "API fallback active" : dataSource === "api" ? "Live API connected" : "Demo dataset"}</strong><small>FastAPI · MongoDB · read only</small></div>
+        <div className={`sidebar-note sidebar-note--${dataState}`}><span>Data status</span><strong><i /> {dataState === "live" ? "Live API connected" : dataState === "connecting" ? "Connecting to API" : dataState === "error" ? "API unavailable" : "API not configured"}</strong><small>FastAPI · MongoDB · read only</small></div>
         <div className="profile"><span>AK</span><div><strong>Artem Kovtunenko</strong><small>Evaluation operator</small></div><b>•••</b></div>
       </aside>
 
       <main className="main">
-        <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setSidebarOpen(true)}>☰</button><div className="breadcrumb">Evaluation framework <span>/</span> {navItems.find((item) => item.id === view)?.label} <span>·</span> {dataSource === "api" ? "Live MongoDB" : "Demo data"}</div><div className="top-actions"><button className="icon-button" aria-label="Notifications">♢<i /></button><button className="primary-button" onClick={() => void loadRuns()} disabled={!api || loading}>{loading ? "Refreshing…" : "↻ Refresh data"}</button></div></header>
+        <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setSidebarOpen(true)}>☰</button><div className="breadcrumb">Evaluation framework <span>/</span> {navItems.find((item) => item.id === view)?.label} <span>·</span> {dataState === "live" ? "Live MongoDB" : dataState === "connecting" ? "Connecting" : "No live data"}</div><div className="top-actions"><button className="icon-button" aria-label="Notifications">♢<i /></button><button className="primary-button" onClick={() => void loadRuns()} disabled={!api || loading}>{loading ? "Refreshing…" : "↻ Refresh data"}</button></div></header>
 
         <div className="content">
           {view === "overview" && <>
@@ -556,15 +558,16 @@ export default function Home() {
             </section> : <RunSummary run={selectedRun} cases={cases} onCase={setSelectedCase} onHistory={openHistory} onTrend={openTrend} />}
           </>}
 
-          {apiError && <div className="toast toast--error"><span>!</span>{apiError} · showing deterministic demo data</div>}
+          {dataState === "unconfigured" && <div className="toast toast--error"><span>!</span>Eval API is not configured. Set NEXT_PUBLIC_EVAL_API_URL to load dashboard data.</div>}
+          {apiError && <div className="toast toast--error"><span>!</span>{apiError} · no dashboard data is being substituted</div>}
           {detailError && <div className="toast toast--error"><span>!</span>{detailError} · no cross-run fallback was used</div>}
-          {view === "history" && <HistoryView initialFocus={historyFocus} runs={runs} live={dataSource === "api"} openingRunId={openingRunId} onOpenRun={(runId, evalType) => void openRunById(runId, evalType)} />}
-          {view === "compare" && <CompareView runs={runs} api={api} live={dataSource === "api"} onError={setDetailError} />}
+          {view === "history" && <HistoryView initialFocus={historyFocus} runs={runs} openingRunId={openingRunId} onOpenRun={(runId, evalType) => void openRunById(runId, evalType)} />}
+          {view === "compare" && <CompareView runs={runs} api={api} onError={setDetailError} />}
           {view === "schema" && <SchemaView />}
         </div>
       </main>
       {selectedCase && selectedRun && <CaseDrawer item={selectedCase} run={selectedRun} onClose={() => setSelectedCase(null)} onTrend={openTrend} />}
-      {selectedTrend && <DrilldownTrendDrawer request={selectedTrend} api={api} live={dataSource === "api"} onClose={() => setSelectedTrend(null)} onOpenRun={(runId) => void openRunById(runId, selectedTrend.evalType)} />}
+      {selectedTrend && <DrilldownTrendDrawer request={selectedTrend} api={api} onClose={() => setSelectedTrend(null)} onOpenRun={(runId) => void openRunById(runId, selectedTrend.evalType)} />}
     </div>
   );
 }
@@ -607,7 +610,7 @@ function DrilldownScoreChart({ points, onOpenRun }: { points: DrilldownTrendPoin
   return <div className="drilldown-chart" role="img" aria-label="Score and threshold over time"><svg viewBox={`0 0 ${width} 218`} preserveAspectRatio="none"><g className="drilldown-grid">{[5,4,3,2,1,0].map((value) => <g key={value}><line x1={left} x2={right} y1={y(value)} y2={y(value)} /><text x="12" y={y(value)+3}>{value}</text></g>)}</g>{points.length > 1 && <><polyline className="drilldown-threshold-line" points={thresholdLine} /><polyline className="drilldown-score-line" points={scoreLine} /></>}{points.map((point, index) => <g className="drilldown-point" key={`${point.runId}-${point.startedAt}`} onClick={() => onOpenRun(point.runId)} role="button"><circle className={`drilldown-dot drilldown-dot--${point.verdict}`} cx={x(index)} cy={y(point.score)} r="5"><title>{`${formatTime(point.startedAt)} · score ${point.score.toFixed(2)} · ${point.verdict}`}</title></circle><text className="drilldown-value" x={x(index)} y={Math.max(12, y(point.score)-11)} textAnchor="middle">{point.score.toFixed(1)}</text><text className="point-date" x={x(index)} y="207" textAnchor="middle">{formatDateShort(point.startedAt)}</text></g>)}</svg></div>;
 }
 
-function DrilldownTrendDrawer({ request, api, live, onClose, onOpenRun }: { request: DrilldownTrendRequest; api: EvalApi | null; live: boolean; onClose: () => void; onOpenRun: (runId: string) => void }) {
+function DrilldownTrendDrawer({ request, api, onClose, onOpenRun }: { request: DrilldownTrendRequest; api: EvalApi | null; onClose: () => void; onOpenRun: (runId: string) => void }) {
   const [points, setPoints] = useState<DrilldownTrendPoint[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -620,7 +623,9 @@ function DrilldownTrendDrawer({ request, api, live, onClose, onOpenRun }: { requ
       setLoading(true);
       setError(null);
       setNextCursor(null);
-      return live && api ? api.listTrend(request, null, 30, controller.signal) : { items: demoDrilldownTrend(request), nextCursor: null };
+      setPoints([]);
+      if (!api) throw new Error("Eval API is not configured. Trend data is unavailable.");
+      return api.listTrend(request, null, 30, controller.signal);
     }).then((page) => {
       if (controller.signal.aborted || !page) return;
       setPoints(page.items.sort((a, b) => a.startedAt.localeCompare(b.startedAt)));
@@ -631,7 +636,7 @@ function DrilldownTrendDrawer({ request, api, live, onClose, onOpenRun }: { requ
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [api, live, request]);
+  }, [api, request]);
   const loadOlder = async () => {
     if (!api || !nextCursor || loadingOlder) return;
     setLoadingOlder(true);
@@ -663,10 +668,13 @@ type TrendPoint = { id: string; startedAt: string; passRatePct: number; meanScor
 
 function aggregateE2E(points: E2EHistoryPoint[]): TrendPoint[] {
   const groups = new Map<string, E2EHistoryPoint[]>();
-  points.forEach((point) => groups.set(point.batchId, [...(groups.get(point.batchId) ?? []), point]));
+  points.forEach((point) => {
+    const batchId = point.batchId ?? point.runId;
+    groups.set(batchId, [...(groups.get(batchId) ?? []), point]);
+  });
   return Array.from(groups.entries()).map(([batchId, items]) => {
     const totalCases = items.reduce((sum, item) => sum + item.totalCases, 0);
-    const weighted = (key: "passRatePct" | "meanScore") => items.reduce((sum, item) => sum + item[key] * item.totalCases, 0) / totalCases;
+    const weighted = (key: "passRatePct" | "meanScore") => totalCases ? items.reduce((sum, item) => sum + item[key] * item.totalCases, 0) / totalCases : 0;
     const passRatePct = weighted("passRatePct");
     const verdict: Verdict = passRatePct >= 90 ? "passed" : "failed";
     return { id: batchId, batchId, startedAt: items[0].startedAt, passRatePct, meanScore: weighted("meanScore"), totalCases, durationMs: Math.max(...items.map((item) => item.durationMs)), verdict, scope: `${items.length} targets` };
@@ -686,13 +694,13 @@ function HistoryChart({ points, title }: { points: TrendPoint[]; title: string }
   return <section className="panel history-chart-card"><div className="panel-heading"><div><h2>{title}</h2><p>Pass rate and normalized mean score over time</p></div><div className="history-legend"><span><i />Pass rate</span><span><i />Mean score</span><span><i />90% gate</span></div></div><div className="history-chart" role="img" aria-label={`${title} historical trend`}><svg viewBox={`0 0 ${width} 230`} preserveAspectRatio="none"><g className="history-grid">{[100,75,50,25,0].map((value) => <g key={value}><line x1={plotLeft} x2={plotRight} y1={y(value)} y2={y(value)}/><text x="7" y={y(value)+3}>{value}%</text></g>)}</g><line className="gate-line" x1={plotLeft} x2={plotRight} y1={y(90)} y2={y(90)}/>{points.length > 1 && <><polyline className="history-pass-line" points={passPoints}/><polyline className="history-score-line" points={scorePoints}/></>}{points.map((point,index) => <g key={point.id}><circle className="history-pass-dot" cx={x(index)} cy={y(point.passRatePct)} r="4"><title>{point.passRatePct.toFixed(1)}% pass rate</title></circle><circle className="history-score-dot" cx={x(index)} cy={y((point.meanScore/5)*100)} r="3"><title>{point.meanScore.toFixed(2)} mean score</title></circle><text className="point-value" x={x(index)} y={Math.max(12,y(point.passRatePct)-10)} textAnchor="middle">{point.passRatePct.toFixed(point.passRatePct % 1 ? 1 : 0)}%</text><text className="point-date" x={x(index)} y="211" textAnchor="middle">{formatDateShort(point.startedAt)}</text></g>)}</svg></div></section>;
 }
 
-function HistoryView({ initialFocus, runs, live, openingRunId, onOpenRun }: { initialFocus: HistoryFocus; runs: EvalRun[]; live: boolean; openingRunId: string | null; onOpenRun: (runId: string, evalType: EvalType) => void }) {
-  const e2eSource = live ? runs.filter((run) => run.evalType === "e2e" && run.executionStatus === "completed").map((run) => ({ runId: run.runId, batchId: run.batchId ?? run.runId, startedAt: run.startedAt, stage: run.stage, target: run.target, passRatePct: run.summary.passRatePct, meanScore: run.summary.meanScore, totalCases: run.summary.total, durationMs: run.durationMs ?? 0, verdict: run.verdict })) : e2eHistory;
-  const unitSource = live ? runs.filter((run) => run.evalType === "unit" && run.executionStatus === "completed").map((run) => ({ runId: run.runId, batchId: run.batchId, startedAt: run.startedAt, skillId: run.unitConfig?.skillId ?? run.target, environment: run.unitConfig?.bsaEnvironment ?? run.stage, passRatePct: run.summary.passRatePct, meanScore: run.summary.meanScore, generalQuality: 0, toolUseQuality: 0, totalCases: run.summary.total, durationMs: run.durationMs ?? 0, verdict: run.verdict })) : unitHistory;
+function HistoryView({ initialFocus, runs, openingRunId, onOpenRun }: { initialFocus: HistoryFocus; runs: EvalRun[]; openingRunId: string | null; onOpenRun: (runId: string, evalType: EvalType) => void }) {
+  const e2eSource = runs.filter((run) => run.evalType === "e2e" && run.executionStatus === "completed").map((run) => ({ runId: run.runId, batchId: run.batchId ?? run.runId, startedAt: run.startedAt, stage: run.stage, target: run.target, passRatePct: run.summary.passRatePct, meanScore: run.summary.meanScore, totalCases: run.summary.total, durationMs: run.durationMs ?? 0, verdict: run.verdict }));
+  const unitSource = runs.filter((run) => run.evalType === "unit" && run.executionStatus === "completed").map((run) => ({ runId: run.runId, batchId: run.batchId, startedAt: run.startedAt, skillId: run.unitConfig?.skillId ?? run.target, environment: run.unitConfig?.bsaEnvironment ?? run.stage, passRatePct: run.summary.passRatePct, meanScore: run.summary.meanScore, generalQuality: 0, toolUseQuality: 0, totalCases: run.summary.total, durationMs: run.durationMs ?? 0, verdict: run.verdict }));
   const stages = Array.from(new Set(e2eSource.map((point) => point.stage)));
-  const skills = Array.from(new Set([...unitSkills.map((skill) => skill.id), ...unitSource.map((point) => point.skillId)]));
-  const initialStage = initialFocus?.stage && stages.includes(initialFocus.stage) ? initialFocus.stage : (stages[0] ?? "1-dev-staging");
-  const initialSkill = initialFocus?.skillId && skills.includes(initialFocus.skillId) ? initialFocus.skillId : skills[0];
+  const skills = Array.from(new Set(unitSource.map((point) => point.skillId)));
+  const initialStage = initialFocus?.stage && stages.includes(initialFocus.stage) ? initialFocus.stage : (stages[0] ?? "");
+  const initialSkill = initialFocus?.skillId && skills.includes(initialFocus.skillId) ? initialFocus.skillId : (skills[0] ?? "");
   const [historyType, setHistoryType] = useState<EvalType>(initialFocus?.type ?? "e2e");
   const [stage, setStage] = useState(initialStage);
   const stageTargets = Array.from(new Set(e2eSource.filter((point) => point.stage === stage).map((point) => point.target)));
@@ -710,7 +718,7 @@ function HistoryView({ initialFocus, runs, live, openingRunId, onOpenRun }: { in
   const previous = trend.at(-2);
   const passDelta = latest && previous ? latest.passRatePct - previous.passRatePct : 0;
   const latestUnit = unitFiltered.at(-1);
-  const selectedSkill = unitSkills.find((skill) => skill.id === skillId) ?? { id: skillId, label: skillId, tools: [] };
+  const selectedSkill = { id: skillId, label: skillId };
   const latestByTarget = stageTargets.map((targetId) => e2eSource.filter((point) => point.stage === stage && point.target === targetId).sort((a,b)=>a.startedAt.localeCompare(b.startedAt)).at(-1)!);
   const isBatchRollup = historyType === "e2e" && target === "all";
 
@@ -721,27 +729,27 @@ function HistoryView({ initialFocus, runs, live, openingRunId, onOpenRun }: { in
   return <>
     <div className="page-heading history-heading"><div><span className="eyebrow">Longitudinal quality</span><h1>Evaluation history</h1><p>Track the same E2E target or unit skill across runs without mixing their scopes.</p></div><div className="type-switch"><button className={historyType === "e2e" ? "active" : ""} onClick={() => setHistoryType("e2e")}>E2E history</button><button className={historyType === "unit" ? "active" : ""} onClick={() => setHistoryType("unit")}>Unit skill history</button></div></div>
     <section className="panel history-controls"><div className="history-control-copy"><TypeBadge type={historyType}/><div><strong>{historyType === "e2e" ? "Target-scoped history" : "Skill-scoped history"}</strong><small>{historyType === "e2e" ? "Stage rollups are case-weighted across fan-out targets." : "Every unit run belongs to exactly one skill and one skill version."}</small></div></div>{historyType === "e2e" ? <><label><span>Stage</span><select aria-label="History stage" value={stage} onChange={(event) => { setStage(event.target.value); setTarget("all"); }}>
-      {stages.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Target</span><select aria-label="History target" value={target} onChange={(event) => setTarget(event.target.value)}><option value="all">All targets · stage rollup</option>{stageTargets.map((value) => <option key={value}>{value}</option>)}</select></label></> : <><label><span>Skill</span><select aria-label="History skill" value={skillId} onChange={(event) => setSkillId(event.target.value)}>{skills.map((value) => <option key={value} value={value}>{unitSkills.find((skill) => skill.id === value)?.label ?? value}</option>)}</select></label><label><span>Environment</span><select aria-label="History environment" value={environment} onChange={(event) => setEnvironment(event.target.value)}><option value="all">All environments</option><option value="staging">Staging BSA</option><option value="dev">Development BSA</option></select></label></>}<div className="range-switch"><button className={range === "7d" ? "active" : ""} onClick={() => setRange("7d")}>7d</button><button className={range === "30d" ? "active" : ""} onClick={() => setRange("30d")}>30d</button><button className={range === "90d" ? "active" : ""} onClick={() => setRange("90d")}>90d</button></div></section>
+      {stages.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Target</span><select aria-label="History target" value={target} onChange={(event) => setTarget(event.target.value)}><option value="all">All targets · stage rollup</option>{stageTargets.map((value) => <option key={value}>{value}</option>)}</select></label></> : <><label><span>Skill</span><select aria-label="History skill" value={skillId} onChange={(event) => setSkillId(event.target.value)}>{skills.map((value) => <option key={value} value={value}>{value}</option>)}</select></label><label><span>Environment</span><select aria-label="History environment" value={environment} onChange={(event) => setEnvironment(event.target.value)}><option value="all">All environments</option><option value="staging">Staging BSA</option><option value="dev">Development BSA</option></select></label></>}<div className="range-switch"><button className={range === "7d" ? "active" : ""} onClick={() => setRange("7d")}>7d</button><button className={range === "30d" ? "active" : ""} onClick={() => setRange("30d")}>30d</button><button className={range === "90d" ? "active" : ""} onClick={() => setRange("90d")}>90d</button></div></section>
     <section className="history-metrics"><article className="panel"><span>Latest pass rate</span><strong>{latest?.passRatePct.toFixed(1) ?? "—"}%</strong><small className={passDelta >= 0 ? "delta-good" : "delta-bad"}>{passDelta >= 0 ? "+" : ""}{passDelta.toFixed(1)} points vs prior</small></article><article className="panel"><span>Latest mean score</span><strong>{latest?.meanScore.toFixed(2) ?? "—"}</strong><small>out of 5.0</small></article><article className="panel"><span>Historical runs</span><strong>{trend.length}</strong><small>{historyType === "e2e" && target === "all" ? `${stageTargets.length} targets per batch` : "matching this scope"}</small></article><article className="panel"><span>Gate record</span><strong>{trend.filter((point) => point.passRatePct >= 90).length}/{trend.length}</strong><small>runs at or above 90%</small></article></section>
     {trend.length ? <HistoryChart points={trend} title={historyType === "e2e" ? (target === "all" ? `${stage} · stage rollup` : target) : selectedSkill.label}/> : <section className="panel empty"><strong>No historical runs</strong><span>Change the environment or scope selection.</span></section>}
-    {historyType === "e2e" ? <section className="target-history-grid">{latestByTarget.map((point) => <button key={point.target} className={`panel target-history-card ${target === point.target ? "selected" : ""}`} onClick={() => setTarget(point.target)}><div><span className="target-dot"/><strong>{point.target}</strong></div><b>{point.passRatePct.toFixed(1)}%</b><small>{e2eSource.filter((item) => item.stage === stage && item.target === point.target).length} historical runs · latest {formatDateShort(point.startedAt)}</small><i><em style={{width:`${point.passRatePct}%`}}/></i></button>)}</section> : <section className="panel unit-history-summary"><div><span className="collection-icon case">S</span><div><strong>{selectedSkill.label}</strong><small>{selectedSkill.id}</small></div></div><div><span>Declared tools</span><strong>{selectedSkill.tools.join(" · ") || "Stored with skill definition"}</strong></div><div><span>General quality</span><strong>{latestUnit?.generalQuality ? latestUnit.generalQuality.toFixed(2) : "case metric"}</strong></div><div><span>Tool use quality</span><strong>{latestUnit?.toolUseQuality ? latestUnit.toolUseQuality.toFixed(2) : "case metric"}</strong></div></section>}
+    {historyType === "e2e" ? <section className="target-history-grid">{latestByTarget.map((point) => <button key={point.target} className={`panel target-history-card ${target === point.target ? "selected" : ""}`} onClick={() => setTarget(point.target)}><div><span className="target-dot"/><strong>{point.target}</strong></div><b>{point.passRatePct.toFixed(1)}%</b><small>{e2eSource.filter((item) => item.stage === stage && item.target === point.target).length} historical runs · latest {formatDateShort(point.startedAt)}</small><i><em style={{width:`${point.passRatePct}%`}}/></i></button>)}</section> : <section className="panel unit-history-summary"><div><span className="collection-icon case">S</span><div><strong>{selectedSkill.label}</strong><small>{selectedSkill.id}</small></div></div><div><span>History source</span><strong>Live unit evaluation runs</strong></div><div><span>General quality</span><strong>{latestUnit?.generalQuality ? latestUnit.generalQuality.toFixed(2) : "case metric"}</strong></div><div><span>Tool use quality</span><strong>{latestUnit?.toolUseQuality ? latestUnit.toolUseQuality.toFixed(2) : "case metric"}</strong></div></section>}
     <section className="panel history-table"><div className="panel-heading"><div><h2>{isBatchRollup ? "Scheduled batch history" : "Matching run history"}</h2><p>{isBatchRollup ? "One rollup row per multi-target workflow execution · select a target above to open individual runs" : "Every execution for the selected scope · select a row to open its live run details"}</p></div><span className="result-count">{trend.length} results</span></div><div className="table-wrap"><table><thead><tr><th>{isBatchRollup ? "Batch" : "Run"}</th><th>Scope</th><th>Verdict</th><th>Pass rate</th><th>Mean score</th><th>Cases</th><th>Duration</th><th>Started</th></tr></thead><tbody>{[...trend].reverse().map((point) => <tr key={point.id} className={isBatchRollup ? undefined : "clickable-row"} tabIndex={isBatchRollup ? undefined : 0} aria-label={isBatchRollup ? undefined : `Open run ${point.id}`} onClick={isBatchRollup ? undefined : () => openHistoryRun(point.id)} onKeyDown={isBatchRollup ? undefined : (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openHistoryRun(point.id); } }}><td>{isBatchRollup ? <span className="run-link">{point.id}</span> : <button className="run-link" disabled={openingRunId === point.id} onClick={(event) => { event.stopPropagation(); openHistoryRun(point.id); }}>{openingRunId === point.id ? "Opening…" : point.id}</button>}{point.batchId && point.id !== point.batchId && <small>batch {point.batchId}</small>}</td><td>{point.scope}</td><td><StatusBadge verdict={point.verdict}/></td><td><strong>{point.passRatePct.toFixed(1)}%</strong></td><td>{point.meanScore.toFixed(2)}</td><td>{point.totalCases}</td><td>{formatDuration(point.durationMs)}</td><td>{formatTime(point.startedAt)}</td></tr>)}</tbody></table></div></section>
   </>;
 }
 
-function CompareView({ runs, api, live, onError }: { runs: EvalRun[]; api: EvalApi | null; live: boolean; onError: (message: string | null) => void }) {
+function CompareView({ runs, api, onError }: { runs: EvalRun[]; api: EvalApi | null; onError: (message: string | null) => void }) {
   const [compareType, setCompareType] = useState<EvalType>("e2e");
   return <>
     <div className="page-heading compact"><div><span className="eyebrow">Regression analysis</span><h1>Compare evaluation runs</h1><p>Compare like with like: E2E targets and unit skill runs use separate baselines.</p></div><div className="type-switch"><button className={compareType === "e2e" ? "active" : ""} onClick={() => setCompareType("e2e")}>E2E targets</button><button className={compareType === "unit" ? "active" : ""} onClick={() => setCompareType("unit")}>Unit skills</button></div></div>
-    <TypeComparison key={compareType} runs={runs} type={compareType} api={api} live={live} onError={onError} />
+    <TypeComparison key={compareType} runs={runs} type={compareType} api={api} onError={onError} />
   </>;
 }
 
-function TypeComparison({ runs, type, api, live, onError }: { runs: EvalRun[]; type: EvalType; api: EvalApi | null; live: boolean; onError: (message: string | null) => void }) {
-  return type === "unit" ? <UnitRunComparison runs={runs} api={api} live={live} onError={onError} /> : <E2ERunComparison runs={runs} api={api} live={live} onError={onError} />;
+function TypeComparison({ runs, type, api, onError }: { runs: EvalRun[]; type: EvalType; api: EvalApi | null; onError: (message: string | null) => void }) {
+  return type === "unit" ? <UnitRunComparison runs={runs} api={api} onError={onError} /> : <E2ERunComparison runs={runs} api={api} onError={onError} />;
 }
 
-function E2ERunComparison({ runs, api, live, onError }: { runs: EvalRun[]; api: EvalApi | null; live: boolean; onError: (message: string | null) => void }) {
+function E2ERunComparison({ runs, api, onError }: { runs: EvalRun[]; api: EvalApi | null; onError: (message: string | null) => void }) {
   const e2eRuns = runs.filter((run) => run.executionStatus === "completed" && run.evalType === "e2e").sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   const scopes = Array.from(new Set(e2eRuns.map((run) => `${run.stage}::${run.target}`)));
   const [scope, setScope] = useState(scopes[0] ?? "");
@@ -749,22 +757,22 @@ function E2ERunComparison({ runs, api, live, onError }: { runs: EvalRun[]; api: 
   if (!e2eRuns.length) return <section className="panel empty"><strong>No completed E2E runs</strong><span>Load at least one completed target run before comparing.</span></section>;
   return <>
     <section className="panel compare-scope"><label><span>E2E target scope</span><select value={scope} onChange={(event) => setScope(event.target.value)}>{scopes.map((value) => { const [stage, target] = value.split("::"); return <option key={value} value={value}>{target} · {stage}</option>; })}</select></label><div><strong>Target-isolated comparison</strong><small>Only runs for this exact stage and target are available below.</small></div></section>
-    <RunPairPicker key={scope} comparable={comparable} unitRuns={false} api={api} live={live} onError={onError} />
+    <RunPairPicker key={scope} comparable={comparable} unitRuns={false} api={api} onError={onError} />
   </>;
 }
 
-function UnitRunComparison({ runs, api, live, onError }: { runs: EvalRun[]; api: EvalApi | null; live: boolean; onError: (message: string | null) => void }) {
+function UnitRunComparison({ runs, api, onError }: { runs: EvalRun[]; api: EvalApi | null; onError: (message: string | null) => void }) {
   const unitRuns = runs.filter((run) => run.executionStatus === "completed" && run.evalType === "unit");
   const skills = Array.from(new Set(unitRuns.map((run) => run.unitConfig?.skillId).filter((value): value is string => Boolean(value))));
   const [skillId, setSkillId] = useState(skills[0] ?? "");
   const comparable = unitRuns.filter((run) => run.unitConfig?.skillId === skillId).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   return <>
     <section className="panel compare-scope"><label><span>Unit skill</span><select value={skillId} onChange={(event) => setSkillId(event.target.value)}>{skills.map((skill) => <option key={skill}>{skill}</option>)}</select></label><div><strong>Run comparison</strong><small>Defaults to the latest run versus the previous run, even when both use the same skill version.</small></div></section>
-    {comparable.length ? <RunPairPicker key={skillId} comparable={comparable} unitRuns api={api} live={live} onError={onError} /> : <section className="panel empty"><strong>No completed runs</strong><span>{skillId || "This skill"} has no completed unit runs to compare.</span></section>}
+    {comparable.length ? <RunPairPicker key={skillId} comparable={comparable} unitRuns api={api} onError={onError} /> : <section className="panel empty"><strong>No completed runs</strong><span>{skillId || "This skill"} has no completed unit runs to compare.</span></section>}
   </>;
 }
 
-function RunPairPicker({ comparable, unitRuns, api, live, onError }: { comparable: EvalRun[]; unitRuns: boolean; api: EvalApi | null; live: boolean; onError: (message: string | null) => void }) {
+function RunPairPicker({ comparable, unitRuns, api, onError }: { comparable: EvalRun[]; unitRuns: boolean; api: EvalApi | null; onError: (message: string | null) => void }) {
   const defaultCandidate = comparable[0];
   const defaultBaseline = comparable[1] ?? comparable[0];
   const [baselineId, setBaselineId] = useState(defaultBaseline.runId);
@@ -780,7 +788,8 @@ function RunPairPicker({ comparable, unitRuns, api, live, onError }: { comparabl
     const controller = new AbortController();
     const selected = baseline.runId === candidate.runId ? [baseline] : [baseline, candidate];
     void Promise.all(selected.map(async (run) => {
-      const items = live && api ? await api.listCases(run, controller.signal) : evalCases.filter((item) => item.runId === run.runId);
+      if (!api) throw new Error("Eval API is not configured. Comparison cases are unavailable.");
+      const items = await api.listCases(run, controller.signal);
       return [run.runId, items.filter((item) => item.runId === run.runId)] as const;
     })).then((entries) => {
       if (!controller.signal.aborted) {
@@ -793,7 +802,7 @@ function RunPairPicker({ comparable, unitRuns, api, live, onError }: { comparabl
       if (!controller.signal.aborted) setLoadingCases(false);
     });
     return () => controller.abort();
-  }, [api, baseline, candidate, live, onError]);
+  }, [api, baseline, candidate, onError]);
   const baselineCases = caseSets[baseline.runId] ?? [];
   const candidateCases = caseSets[candidate.runId] ?? [];
   const hasUnitMetrics = !unitRuns || (
@@ -821,99 +830,11 @@ function ComparisonResults({ baseline, candidate, unitRuns, baselineSuites, cand
 
 function DeltaCard({ label, value, good, detail }: { label: string; value: string; good: boolean; detail: string }) { return <article className="panel delta-card"><span>{label}</span><strong className={good ? "delta-good" : "delta-bad"}>{value}</strong><small>{detail}</small></article>; }
 
-const runRecordExample = `{
-  "run_id": "e2e-97a0f7b810",
-  "batch_id": "gh-44918",
-  "eval_type": "e2e",
-  "execution_status": "completed",
-  "verdict": "failed",
-  "stage": "1-dev-staging",
-  "target": "us-east4-dev-staging",
-  "e2e_config": {
-    "selected_suites": ["navigation", "feedback", "general_inquiry"],
-    "max_tier": "all",
-    "pass_rate_threshold": 0.9,
-    "live_conversation": true
-  },
-  "trigger": "cli",
-  "actor": "artem.kovtunenko",
-  "git_sha": "a7c91f2",
-  "summary": {
-    "total": 8,
-    "passed": 7,
-    "failed": 1,
-    "pass_rate_pct": 87.5,
-    "mean_score": 4.25
-  }
-}`;
-
-const unitRunRecordExample = `{
-  "run_id": "unit-fc82d1a640",
-  "batch_id": null,
-  "eval_type": "unit",
-  "execution_status": "completed",
-  "verdict": "failed",
-  "skill": "feedback-skill",
-  "environment": "staging",
-  "unit_config": {
-    "skill_ids": ["feedback-skill"],
-    "bsa_environment": "staging",
-    "bsa_version": "1.4.0",
-    "skill_version": "1.3.0",
-    "mode": "all",
-    "metrics": ["tool_use_quality", "general_quality"]
-  },
-  "summary": {
-    "total": 3,
-    "passed": 0,
-    "failed": 3,
-    "pass_rate_pct": 0
-  }
-}`;
-
-const caseRecordExample = `{
-  "case_id": "general_inquiry::pto_balance",
-  "run_id": "e2e-97a0f7b810",
-  "eval_type": "e2e",
-  "suite": "general_inquiry",
-  "role": "employee",
-  "tier": 3,
-  "verdict": "failed",
-  "score": 2,
-  "threshold": 3,
-  "response_time_ms": 32973.53,
-  "response_text": "I'm unable to retrieve…",
-  "explanation": "Missing product navigation…",
-  "bug_ref": "EVAL-1842"
-}`;
-
-const unitCaseRecordExample = `{
-  "case_id": "feedback-003",
-  "run_id": "unit-fc82d1a640",
-  "eval_type": "unit",
-  "skill": "feedback-skill",
-  "test_name": "Handle feedback submission failure",
-  "test_type": "single-turn",
-  "verdict": "failed",
-  "scores": {
-    "GENERAL_QUALITY": 1,
-    "tool_use_quality": 5
-  },
-  "tool_calls": [{
-    "name": "submit_feedback",
-    "parameters": { "feedback_disposition": "thumbs_up" }
-  }],
-  "skill_version": "1.3.0",
-  "bsa_version": "1.4.0"
-}`;
-
 function SchemaView() {
   return <>
     <div className="page-heading compact"><div><span className="eyebrow">MongoDB collections</span><h1>Eval runs vs eval cases</h1><p>A run is the execution envelope; cases are the individual scored conversations or skill tests inside it.</p></div></div>
     <section className="relationship"><article className="collection-card"><header><span className="collection-icon">R</span><div><h2>unit_eval_runs · e2e_eval_runs</h2><p>One document per execution</p></div><b>1</b></header><ul><li>Type-specific configuration</li><li>Lifecycle, ownership and source version</li><li>Aggregate verdict and metrics</li><li>Small enough for fast list queries</li></ul></article><div className="relation-line"><strong>1 : N</strong><span>run_id</span></div><article className="collection-card"><header><span className="collection-icon case">C</span><div><h2>unit_eval_cases · e2e_eval_cases</h2><p>One document per evaluated case</p></div><b>N</b></header><ul><li>E2E: one live conversation scenario</li><li>Unit: one mocked skill test and its tool calls</li><li>Metric scores, thresholds and evidence</li><li>Filter and paginate independently</li></ul></article></section>
     <section className="launch-contracts"><article className="contract-card e2e"><TypeBadge type="e2e"/><h3>Target-first run</h3><p>Select a deployed target, then all or a subset of suites enabled by its target manifest.</p></article><article className="contract-card unit"><TypeBadge type="unit"/><h3>Exactly one skill per run</h3><p>A unit run evaluates one skill, its declared tools and one skill version. Compare latest vs previous by default.</p></article></section>
-    <section className="schema-grid"><article className="panel code-card"><div className="panel-heading"><div><h2>E2E eval_runs example</h2><p>Live target execution envelope</p></div><span>run</span></div><pre>{runRecordExample}</pre></article><article className="panel code-card"><div className="panel-heading"><div><h2>Unit eval_runs example</h2><p>Mock-backed skill execution envelope</p></div><span>run</span></div><pre>{unitRunRecordExample}</pre></article></section>
-    <section className="schema-grid"><article className="panel code-card"><div className="panel-heading"><div><h2>E2E case example</h2><p>GET /api/v1/e2e/runs/:run_id/cases</p></div><span>evidence</span></div><pre>{caseRecordExample}</pre></article><article className="panel code-card"><div className="panel-heading"><div><h2>Unit case example</h2><p>GET /api/v1/unit/runs/:run_id/cases</p></div><span>metrics</span></div><pre>{unitCaseRecordExample}</pre></article></section>
   </>;
 }
 

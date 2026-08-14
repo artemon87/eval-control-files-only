@@ -26,13 +26,27 @@ test("exposes schema-backed advanced run filters", async () => {
 });
 
 test("loads isolated skill and case trends on demand", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const [page, api] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/eval-api.ts", import.meta.url), "utf8"),
+  ]);
 
   assert.match(page, /View this case over time/);
   assert.match(page, /View trend/);
-  assert.match(page, /loadDrilldownTrend/);
-  assert.match(page, /offset \+= 4/);
-  assert.match(page, /run\.evalType !== request\.evalType/);
-  assert.match(page, /run\.stage === request\.stage && run\.target === request\.target/);
-  assert.match(page, /bsaEnvironment \?\? run\.stage\) === request\.environment/);
+  assert.match(page, /api\.listTrend\(request, null, 30/);
+  assert.match(api, /\/e2e\/trends\/cases/);
+  assert.match(api, /\/e2e\/trends\/suites/);
+  assert.match(api, /\/unit\/trends\/cases/);
+  assert.match(api, /\/unit\/trends\/skills/);
+});
+
+test("never substitutes operational demo data", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(page, /demoDrilldownTrend|eval-data|eval-history|deterministic demo/i);
+  assert.doesNotMatch(page, /RecordExample|e2e-97a0f7b810|unit-fc82d1a640/);
+  assert.match(page, /setRuns\(\[\]\)/);
+  assert.match(page, /no dashboard data is being substituted/);
+  await assert.rejects(readFile(new URL("../app/lib/eval-data.ts", import.meta.url), "utf8"));
+  await assert.rejects(readFile(new URL("../app/lib/eval-history.ts", import.meta.url), "utf8"));
 });
