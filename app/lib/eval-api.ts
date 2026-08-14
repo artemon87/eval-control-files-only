@@ -1,4 +1,4 @@
-import type { CaseVerdict, EvalCase, EvalRun, ExecutionStatus, Verdict } from "./eval-types";
+import type { CaseVerdict, EvalCase, EvalRun, EvalType, ExecutionStatus, Verdict } from "./eval-types";
 
 export interface Page<T> {
   items: T[];
@@ -84,6 +84,51 @@ interface E2EApiCase {
   explanation?: string | null;
   error?: string | null;
   bug_ref?: string | null;
+}
+
+interface ApiTrendPoint {
+  run_id: string;
+  started_at: string;
+  verdict: string;
+  score?: number | null;
+  threshold?: number | null;
+  pass_rate_pct: number;
+  total_cases: number;
+  response_time_ms?: number | null;
+  skill_version?: string | null;
+  bsa_version?: string | null;
+}
+
+export interface TrendQuery {
+  kind: "skill" | "case";
+  evalType: EvalType;
+  skill: string;
+  caseId?: string;
+  stage: string;
+  target: string;
+  environment: string;
+}
+
+export interface ApiTrendPage {
+  items: Array<{
+    runId: string;
+    startedAt: string;
+    verdict: Verdict;
+    score: number;
+    threshold: number;
+    passRatePct: number;
+    totalCases: number;
+    responseTimeMs: number;
+    skillVersion?: string;
+    bsaVersion?: string;
+    datasetVersion?: string;
+  }>;
+  nextCursor: string | null;
+}
+
+export interface RunBatch {
+  items: EvalRun[];
+  nextCursors: Record<EvalType, string | null>;
 }
 
 function numberOrZero(value?: number | null) {
@@ -212,13 +257,74 @@ export class EvalApi {
     return response.json() as Promise<T>;
   }
 
-  async listRuns(signal?: AbortSignal): Promise<EvalRun[]> {
+  async listRunBatch(
+    cursors?: Partial<Record<EvalType, string | null>>,
+    limit = 50,
+    signal?: AbortSignal,
+  ): Promise<RunBatch> {
+    const loadUnit = cursors?.unit !== null;
+    const loadE2E = cursors?.e2e !== null;
+    const query = (cursor: string | undefined) => `?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
     const [unit, e2e] = await Promise.all([
-      this.request<Page<UnitApiRun>>("/unit/runs?limit=200", signal),
-      this.request<Page<E2EApiRun>>("/e2e/runs?limit=200", signal),
+      loadUnit ? this.request<Page<UnitApiRun>>(`/unit/runs${query(cursors?.unit ?? undefined)}`, signal) : Promise.resolve({ items: [], next_cursor: null }),
+      loadE2E ? this.request<Page<E2EApiRun>>(`/e2e/runs${query(cursors?.e2e ?? undefined)}`, signal) : Promise.resolve({ items: [], next_cursor: null }),
     ]);
-    return [...unit.items.map(mapUnitRun), ...e2e.items.map(mapE2ERun)]
-      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    return {
+      items: [...unit.items.map(mapUnitRun), ...e2e.items.map(mapE2ERun)].sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+      nextCursors: { unit: unit.next_cursor ?? null, e2e: e2e.next_cursor ?? null },
+    };
+  }
+
+  async listRuns(signal?: AbortSignal): Promise<EvalRun[]> {
+    return (await this.listRunBatch(undefined, 50, signal)).items;
+  }
+
+  async getRun(evalType: EvalType, runId: string, signal?: AbortSignal): Promise<EvalRun> {
+    const path = `/${evalType}/runs/${encodeURIComponent(runId)}`;
+    return evalType === "e2e"
+      ? mapE2ERun(await this.request<E2EApiRun>(path, signal))
+      : mapUnitRun(await this.request<UnitApiRun>(path, signal));
+  }
+
+  async listTrend(query: TrendQuery, cursor?: string | null, limit = 30, signal?: AbortSignal): Promise<ApiTrendPage> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set("cursor", cursor);
+    let path: string;
+    if (query.evalType === "e2e") {
+      params.set("stage", query.stage);
+      params.set("target", query.target);
+      if (query.kind === "case") {
+        params.set("suite", query.skill);
+        path = `/e2e/trends/cases/${encodeURIComponent(query.caseId ?? "")}`;
+      } else {
+        path = `/e2e/trends/suites/${encodeURIComponent(query.skill)}`;
+      }
+    } else {
+      params.set("environment", query.environment);
+      if (query.kind === "case") {
+        params.set("skill", query.skill);
+        path = `/unit/trends/cases/${encodeURIComponent(query.caseId ?? "")}`;
+      } else {
+        path = `/unit/trends/skills/${encodeURIComponent(query.skill)}`;
+      }
+    }
+    const page = await this.request<Page<ApiTrendPoint>>(`${path}?${params}`, signal);
+    return {
+      items: page.items.map((point) => ({
+        runId: point.run_id,
+        startedAt: point.started_at,
+        verdict: normalizeVerdict(point.verdict),
+        score: numberOrZero(point.score),
+        threshold: numberOrZero(point.threshold),
+        passRatePct: point.pass_rate_pct,
+        totalCases: point.total_cases,
+        responseTimeMs: numberOrZero(point.response_time_ms),
+        skillVersion: point.skill_version ?? undefined,
+        bsaVersion: point.bsa_version ?? undefined,
+        datasetVersion: query.evalType === "e2e" ? `e2e/${query.stage}/${query.target}` : undefined,
+      })),
+      nextCursor: page.next_cursor ?? null,
+    };
   }
 
   async listCases(run: EvalRun, signal?: AbortSignal): Promise<EvalCase[]> {

@@ -199,42 +199,6 @@ function drilldownRequest(run: EvalRun, kind: DrilldownTrendKind, skill: string,
   };
 }
 
-function drilldownCandidateRuns(request: DrilldownTrendRequest, runs: EvalRun[]) {
-  return runs.filter((run) => {
-    if (run.evalType !== request.evalType || run.executionStatus !== "completed") return false;
-    if (request.evalType === "unit") {
-      return (run.unitConfig?.skillId ?? run.target) === request.skill
-        && (run.unitConfig?.bsaEnvironment ?? run.stage) === request.environment;
-    }
-    return run.stage === request.stage && run.target === request.target;
-  }).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 30).reverse();
-}
-
-function trendPointFromCases(request: DrilldownTrendRequest, run: EvalRun, items: EvalCase[]): DrilldownTrendPoint | null {
-  const skillCases = items.filter((item) => item.runId === run.runId && (item.skill === request.skill || item.suite === request.skill));
-  const matching = request.kind === "case" ? skillCases.filter((item) => item.caseId === request.caseId) : skillCases;
-  if (!matching.length) return null;
-  const passed = matching.filter((item) => item.verdict === "passed" || item.verdict === "xpassed").length;
-  const verdict: Verdict = matching.some((item) => item.verdict === "blocked" || item.verdict === "error")
-    ? "blocked"
-    : matching.some((item) => item.verdict === "failed")
-      ? "failed"
-      : matching.some((item) => item.verdict === "xpassed") ? "xpassed" : "passed";
-  return {
-    runId: run.runId,
-    startedAt: run.startedAt,
-    verdict,
-    score: matching.reduce((sum, item) => sum + item.score, 0) / matching.length,
-    threshold: matching.reduce((sum, item) => sum + item.threshold, 0) / matching.length,
-    passRatePct: passed / matching.length * 100,
-    totalCases: matching.length,
-    responseTimeMs: percentile(matching.map((item) => item.responseTimeMs).filter(Boolean), .95),
-    skillVersion: matching.find((item) => item.skillVersion)?.skillVersion ?? run.unitConfig?.skillVersion,
-    bsaVersion: matching.find((item) => item.bsaVersion)?.bsaVersion ?? run.unitConfig?.bsaVersion,
-    datasetVersion: run.datasetVersion,
-  };
-}
-
 function demoDrilldownTrend(request: DrilldownTrendRequest): DrilldownTrendPoint[] {
   const offset = [-.35, .15, -.1, .3];
   if (request.evalType === "unit") {
@@ -247,25 +211,6 @@ function demoDrilldownTrend(request: DrilldownTrendRequest): DrilldownTrendPoint
     const score = request.kind === "skill" ? point.meanScore : Math.max(1, Math.min(5, point.meanScore + offset[index % offset.length]));
     return { runId: point.runId, startedAt: point.startedAt, verdict: request.kind === "case" ? (score >= 3 ? "passed" : "failed") : point.verdict, score, threshold: request.kind === "case" ? 3 : 4.5, passRatePct: request.kind === "case" ? (score >= 3 ? 100 : 0) : point.passRatePct, totalCases: request.kind === "case" ? 1 : point.totalCases, responseTimeMs: point.durationMs / Math.max(point.totalCases, 1), datasetVersion: `e2e/${request.stage}/${request.target}` };
   });
-}
-
-async function loadDrilldownTrend(request: DrilldownTrendRequest, runs: EvalRun[], api: EvalApi | null, live: boolean, signal: AbortSignal) {
-  const candidates = drilldownCandidateRuns(request, runs);
-  const points: DrilldownTrendPoint[] = [];
-  for (let offset = 0; offset < candidates.length; offset += 4) {
-    const batch = candidates.slice(offset, offset + 4);
-    const results = await Promise.all(batch.map(async (run) => {
-      try {
-        const items = live && api ? await api.listCases(run, signal) : evalCases.filter((item) => item.runId === run.runId);
-        return trendPointFromCases(request, run, items);
-      } catch (error) {
-        if (signal.aborted) throw error;
-        return null;
-      }
-    }));
-    points.push(...results.filter((point): point is DrilldownTrendPoint => Boolean(point)));
-  }
-  return points.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }
 
 function RunsTable({ runs, onOpen }: { runs: EvalRun[]; onOpen: (run: EvalRun) => void }) {
@@ -294,6 +239,7 @@ function RunsTable({ runs, onOpen }: { runs: EvalRun[]; onOpen: (run: EvalRun) =
 }
 
 export default function Home() {
+  const RUNS_PAGE_SIZE = 25;
   const api = useMemo(() => configuredEvalApi(), []);
   const [runs, setRuns] = useState<EvalRun[]>(evalRuns);
   const [cases, setCases] = useState<EvalCase[]>([]);
@@ -302,6 +248,10 @@ export default function Home() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [view, setView] = useState<View>("overview");
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [runCursors, setRunCursors] = useState<Record<EvalType, string | null>>({ e2e: null, unit: null });
+  const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
+  const [runPage, setRunPage] = useState(0);
   const [search, setSearch] = useState("");
   const [type, setType] = useState<"all" | EvalType>("all");
   const [verdict, setVerdict] = useState<"all" | Verdict>("all");
@@ -311,20 +261,54 @@ export default function Home() {
   const [trigger, setTrigger] = useState("all");
   const [actor, setActor] = useState("all");
   const [startedWithin, setStartedWithin] = useState<"all" | "24h" | "7d" | "30d">("all");
-  const [selectedRun, setSelectedRun] = useState<EvalRun | null>(null);
   const [selectedCase, setSelectedCase] = useState<EvalCase | null>(null);
   const [selectedTrend, setSelectedTrend] = useState<DrilldownTrendRequest | null>(null);
   const [historyFocus, setHistoryFocus] = useState<{ type: EvalType; stage?: string; target?: string; skillId?: string; environment?: string } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [overviewDays, setOverviewDays] = useState<7 | 30 | 90>(7);
   const [overviewType, setOverviewType] = useState<"all" | EvalType>("all");
+  const selectedRun = useMemo(() => selectedRunId ? runs.find((run) => run.runId === selectedRunId) ?? null : null, [runs, selectedRunId]);
+  const hasOlderRuns = Boolean(runCursors.e2e || runCursors.unit);
+
+  const navigate = useCallback((nextView: View, runId: string | null = null, replace = false) => {
+    setView(nextView);
+    setSelectedRunId(nextView === "runs" ? runId : null);
+    setSelectedCase(null);
+    setSelectedTrend(null);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (nextView === "overview") url.searchParams.delete("view");
+      else url.searchParams.set("view", nextView);
+      if (nextView === "runs" && runId) url.searchParams.set("run", runId);
+      else url.searchParams.delete("run");
+      window.history[replace ? "replaceState" : "pushState"]({}, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    const restoreLocation = () => {
+      const params = new URLSearchParams(window.location.search);
+      const requested = params.get("view") as View | null;
+      const nextView = navItems.some((item) => item.id === requested) ? requested! : "overview";
+      setView(nextView);
+      setSelectedRunId(nextView === "runs" ? params.get("run") : null);
+      setSelectedCase(null);
+      setSelectedTrend(null);
+    };
+    restoreLocation();
+    window.addEventListener("popstate", restoreLocation);
+    return () => window.removeEventListener("popstate", restoreLocation);
+  }, []);
 
   const loadRuns = useCallback(async () => {
     if (!api) return;
     setLoading(true);
     setApiError(null);
     try {
-      setRuns(await api.listRuns());
+      const batch = await api.listRunBatch(undefined, 50);
+      setRuns(batch.items);
+      setRunCursors(batch.nextCursors);
+      setRunPage(0);
       setDataSource("api");
     } catch (error) {
       setApiError(error instanceof Error ? error.message : "Unable to load the Eval API");
@@ -338,8 +322,9 @@ export default function Home() {
   useEffect(() => {
     if (!api) return;
     const controller = new AbortController();
-    void api.listRuns(controller.signal).then((items) => {
-      setRuns(items);
+    void api.listRunBatch(undefined, 50, controller.signal).then((batch) => {
+      setRuns(batch.items);
+      setRunCursors(batch.nextCursors);
       setDataSource("api");
       setApiError(null);
     }).catch((error: unknown) => {
@@ -352,6 +337,38 @@ export default function Home() {
     });
     return () => controller.abort();
   }, [api]);
+
+  const loadOlderRuns = useCallback(async () => {
+    if (!api || !hasOlderRuns || loadingMoreRuns) return 0;
+    setLoadingMoreRuns(true);
+    try {
+      const batch = await api.listRunBatch(runCursors, 50);
+      setRunCursors(batch.nextCursors);
+      setRuns((current) => {
+        const byId = new Map(current.map((run) => [run.runId, run]));
+        batch.items.forEach((run) => byId.set(run.runId, run));
+        return Array.from(byId.values()).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+      });
+      return batch.items.length;
+    } catch (error) {
+      setDetailError(error instanceof Error ? error.message : "Unable to load older runs");
+      return 0;
+    } finally {
+      setLoadingMoreRuns(false);
+    }
+  }, [api, hasOlderRuns, loadingMoreRuns, runCursors]);
+
+  useEffect(() => {
+    if (!selectedRunId || selectedRun || !api || dataSource !== "api") return;
+    const evalType = selectedRunId.startsWith("unit-") ? "unit" : "e2e";
+    const controller = new AbortController();
+    void api.getRun(evalType, selectedRunId, controller.signal).then((run) => {
+      if (!controller.signal.aborted) setRuns((current) => current.some((item) => item.runId === run.runId) ? current : [run, ...current]);
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) setDetailError(error instanceof Error ? error.message : "Unable to load this run");
+    });
+    return () => controller.abort();
+  }, [api, dataSource, selectedRun, selectedRunId]);
 
   useEffect(() => {
     if (!selectedRun || !api || dataSource !== "api") return;
@@ -396,6 +413,11 @@ export default function Home() {
       && (actor === "all" || run.actor === actor)
       && startedMatches;
   }), [actor, executionStatus, runs, search, stage, startedWithin, trigger, type, verdict]);
+  const runPageCount = Math.max(1, Math.ceil(filteredRuns.length / RUNS_PAGE_SIZE));
+  const activeRunPage = Math.min(runPage, runPageCount - 1);
+  const visibleRuns = filteredRuns.slice(activeRunPage * RUNS_PAGE_SIZE, (activeRunPage + 1) * RUNS_PAGE_SIZE);
+  const visibleStart = filteredRuns.length ? activeRunPage * RUNS_PAGE_SIZE + 1 : 0;
+  const visibleEnd = Math.min((activeRunPage + 1) * RUNS_PAGE_SIZE, filteredRuns.length);
 
   const overview = useMemo(() => {
     const now = runs.reduce((latest, run) => Math.max(latest, new Date(run.startedAt).getTime()), 0);
@@ -437,16 +459,27 @@ export default function Home() {
     setSelectedCase(null);
     setSelectedTrend(null);
     setDetailError(null);
-    setSelectedRun(run);
-    setView("runs");
+    navigate("runs", run.runId);
+  };
+
+  const openRunById = async (runId: string, evalType: EvalType) => {
+    const loaded = runs.find((run) => run.runId === runId);
+    if (loaded) return openRun(loaded);
+    if (!api || dataSource !== "api") return;
+    try {
+      const run = await api.getRun(evalType, runId);
+      setRuns((current) => current.some((item) => item.runId === run.runId) ? current : [run, ...current]);
+      openRun(run);
+    } catch (error) {
+      setDetailError(error instanceof Error ? error.message : "Unable to load this source run");
+    }
   };
 
   const openHistory = (run: EvalRun) => {
     setHistoryFocus(run.evalType === "e2e"
       ? { type: "e2e", stage: run.stage, target: run.target }
       : { type: "unit", skillId: run.unitConfig?.skillId ?? run.target, environment: run.unitConfig?.bsaEnvironment ?? run.stage });
-    setSelectedRun(null);
-    setView("history");
+    navigate("history");
   };
 
   const openTrend = (request: DrilldownTrendRequest) => {
@@ -461,7 +494,7 @@ export default function Home() {
         <div className="brand"><span className="brand-mark"><b aria-hidden="true">UKG</b><Image className="brand-logo" src="/ukg-rgb.png" alt="UKG" width={52} height={34} unoptimized onError={(event) => { event.currentTarget.style.display = "none"; }} /></span><div><strong>EvalHub</strong><small>Quality operations</small></div>{sidebarOpen && <button className="sidebar-close" aria-label="Close navigation" onClick={() => setSidebarOpen(false)}>×</button>}</div>
         <nav aria-label="Main navigation">
           <p>Workspace</p>
-          {navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setSelectedRun(null); if (item.id === "history") setHistoryFocus(null); setSidebarOpen(false); }}><span>{item.glyph}</span>{item.label}</button>)}
+          {navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { navigate(item.id); if (item.id === "history") setHistoryFocus(null); setSidebarOpen(false); }}><span>{item.glyph}</span>{item.label}</button>)}
           <p>Manage</p>
           <button disabled title="Policy management is planned"><span>⌁</span>Policies<b className="nav-soon">soon</b></button>
           <button disabled title="Metric management is planned"><span>✣</span>Custom metrics<b className="nav-soon">soon</b></button>
@@ -484,23 +517,23 @@ export default function Home() {
             </section>
             <section className="dashboard-grid">
               <article className="panel trend-panel"><div className="panel-heading"><div><h2>Pass rate trend</h2><p>Case-weighted daily result from completed live runs</p></div><div className="legend">{overviewType !== "unit" && <span><i className="e2e-dot" />E2E</span>}{overviewType !== "e2e" && <span><i className="unit-dot" />Unit</span>}</div></div><TrendChart points={overview.daily} type={overviewType} /></article>
-              <article className="panel attention-panel"><div className="panel-heading"><div><h2>Needs attention</h2><p>Failures, blocks and execution errors in view</p></div><button onClick={() => { setType(overviewType); setVerdict("failed"); setSelectedRun(null); setView("runs"); }}>View all</button></div>
+              <article className="panel attention-panel"><div className="panel-heading"><div><h2>Needs attention</h2><p>Failures, blocks and execution errors in view</p></div><button onClick={() => { setType(overviewType); setVerdict("all"); navigate("runs"); }}>View all</button></div>
                 <div className="attention-list">
                   {overview.attention.slice(0, 4).map((run) => <button key={run.runId} onClick={() => openRun(run)}><span className={`alert-icon ${run.executionStatus === "error" || run.verdict === "blocked" ? "blocked" : ""}`}>{run.executionStatus === "error" || run.verdict === "blocked" ? "×" : "!"}</span><div><strong>{runScope(run).primary}</strong><small>{run.runId} · {run.evalType.toUpperCase()}</small></div><b>{run.executionStatus === "error" ? "Error" : `${run.summary.passRatePct}%`}</b></button>)}
                   {!overview.attention.length && <div className="attention-empty"><strong>No failures in view</strong><span>Completed runs in this window do not need attention.</span></div>}
                 </div>
               </article>
             </section>
-            <section className="panel recent-panel"><div className="panel-heading"><div><h2>Recent evaluation runs</h2><p>Latest activity matching the selected dashboard scope</p></div><button className="text-button" onClick={() => { setType(overviewType); setView("runs"); }}>View all runs →</button></div><RunsTable runs={overview.inView.slice(0, 5)} onOpen={openRun} /></section>
+            <section className="panel recent-panel"><div className="panel-heading"><div><h2>Recent evaluation runs</h2><p>Latest activity matching the selected dashboard scope</p></div><button className="text-button" onClick={() => { setType(overviewType); navigate("runs"); }}>View all runs →</button></div><RunsTable runs={overview.inView.slice(0, 5)} onOpen={openRun} /></section>
           </>}
 
           {view === "runs" && <>
-            <div className="page-heading compact"><div><span className="eyebrow">Operations</span><h1>{selectedRun ? selectedRun.runId : "Evaluation runs"}</h1><p>{selectedRun ? "Run result, suite breakdown and case-level evidence." : "Search, filter and inspect every E2E and unit evaluation."}</p></div>{selectedRun && <button className="secondary-button" onClick={() => setSelectedRun(null)}>← All runs</button>}</div>
+            <div className="page-heading compact"><div><span className="eyebrow">Operations</span><h1>{selectedRun ? selectedRun.runId : "Evaluation runs"}</h1><p>{selectedRun ? "Run result, suite breakdown and case-level evidence." : "Search, filter and inspect every E2E and unit evaluation."}</p></div>{selectedRun && <button className="secondary-button" onClick={() => navigate("runs")}>← All runs</button>}</div>
             {!selectedRun ? <section className="panel runs-panel">
-              <div className="filter-bar"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search run, actor, SHA or target…" /></label><select value={type} onChange={(event) => setType(event.target.value as "all" | EvalType)} aria-label="Evaluation type"><option value="all">All types</option><option value="e2e">E2E</option><option value="unit">Unit</option></select><select value={verdict} onChange={(event) => setVerdict(event.target.value as "all" | Verdict)} aria-label="Verdict"><option value="all">All verdicts</option><option value="passed">Passed</option><option value="failed">Failed</option><option value="blocked">Blocked</option><option value="xpassed">XPASS</option><option value="pending">Pending</option></select><button className={`filter-button ${moreFiltersOpen || activeMoreFilterCount ? "active" : ""}`} aria-expanded={moreFiltersOpen} aria-controls="advanced-run-filters" onClick={() => setMoreFiltersOpen((open) => !open)}>☷ More filters{activeMoreFilterCount ? ` (${activeMoreFilterCount})` : ""}</button></div>
+              <div className="filter-bar"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => { setSearch(event.target.value); setRunPage(0); }} placeholder="Search run, actor, SHA or target…" /></label><select value={type} onChange={(event) => { setType(event.target.value as "all" | EvalType); setRunPage(0); }} aria-label="Evaluation type"><option value="all">All types</option><option value="e2e">E2E</option><option value="unit">Unit</option></select><select value={verdict} onChange={(event) => { setVerdict(event.target.value as "all" | Verdict); setRunPage(0); }} aria-label="Verdict"><option value="all">All verdicts</option><option value="passed">Passed</option><option value="failed">Failed</option><option value="blocked">Blocked</option><option value="xpassed">XPASS</option><option value="pending">Pending</option></select><button className={`filter-button ${moreFiltersOpen || activeMoreFilterCount ? "active" : ""}`} aria-expanded={moreFiltersOpen} aria-controls="advanced-run-filters" onClick={() => setMoreFiltersOpen((open) => !open)}>☷ More filters{activeMoreFilterCount ? ` (${activeMoreFilterCount})` : ""}</button></div>
               {moreFiltersOpen && <div className="advanced-filters" id="advanced-run-filters"><label><span>Execution status</span><select value={executionStatus} onChange={(event) => setExecutionStatus(event.target.value as "all" | ExecutionStatus)}><option value="all">All statuses</option><option value="queued">Queued</option><option value="running">Running</option><option value="completed">Completed</option><option value="error">Error</option><option value="cancelled">Cancelled</option></select></label><label><span>Stage / environment</span><select value={stage} onChange={(event) => setStage(event.target.value)}><option value="all">All stages</option>{filterOptions.stages.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label><span>Trigger</span><select value={trigger} onChange={(event) => setTrigger(event.target.value)}><option value="all">All triggers</option>{filterOptions.triggers.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label><span>Actor</span><select value={actor} onChange={(event) => setActor(event.target.value)}><option value="all">All actors</option>{filterOptions.actors.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label><span>Started</span><select value={startedWithin} onChange={(event) => setStartedWithin(event.target.value as typeof startedWithin)}><option value="all">Any time</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label><div className="advanced-filter-actions"><span>{activeMoreFilterCount ? `${activeMoreFilterCount} advanced filter${activeMoreFilterCount === 1 ? "" : "s"} active` : "No advanced filters active"}</span><button type="button" onClick={resetMoreFilters} disabled={!activeMoreFilterCount}>Clear advanced filters</button></div></div>}
-              <RunsTable runs={filteredRuns} onOpen={openRun} />
-              <div className="table-footer"><span>Showing {filteredRuns.length} of {runs.length} runs</span><div><button disabled>←</button><button className="current">1</button><button disabled>→</button></div></div>
+              <RunsTable runs={visibleRuns} onOpen={openRun} />
+              <div className="table-footer"><span>Showing {visibleStart}–{visibleEnd} of {filteredRuns.length} matching · {runs.length} loaded{hasOlderRuns ? " · older runs available" : " · all available runs loaded"}</span><div><button disabled={activeRunPage === 0} onClick={() => setRunPage(Math.max(0, activeRunPage - 1))}>←</button><button className="current" aria-label={`Page ${activeRunPage + 1} of ${runPageCount}`}>{activeRunPage + 1}</button><button disabled={loadingMoreRuns || (activeRunPage + 1 >= runPageCount && !hasOlderRuns)} onClick={() => { if (activeRunPage + 1 < runPageCount) setRunPage(activeRunPage + 1); else void loadOlderRuns().then((loaded) => { if (loaded) setRunPage(activeRunPage + 1); }); }}>{loadingMoreRuns ? "…" : "→"}</button></div></div>
             </section> : <RunSummary run={selectedRun} cases={cases} onCase={setSelectedCase} onHistory={openHistory} onTrend={openTrend} />}
           </>}
 
@@ -512,7 +545,7 @@ export default function Home() {
         </div>
       </main>
       {selectedCase && selectedRun && <CaseDrawer item={selectedCase} run={selectedRun} onClose={() => setSelectedCase(null)} onTrend={openTrend} />}
-      {selectedTrend && <DrilldownTrendDrawer request={selectedTrend} runs={runs} api={api} live={dataSource === "api"} onClose={() => setSelectedTrend(null)} onOpenRun={(runId) => { const run = runs.find((item) => item.runId === runId); if (run) openRun(run); }} />}
+      {selectedTrend && <DrilldownTrendDrawer request={selectedTrend} api={api} live={dataSource === "api"} onClose={() => setSelectedTrend(null)} onOpenRun={(runId) => void openRunById(runId, selectedTrend.evalType)} />}
     </div>
   );
 }
@@ -554,9 +587,11 @@ function DrilldownScoreChart({ points, onOpenRun }: { points: DrilldownTrendPoin
   return <div className="drilldown-chart" role="img" aria-label="Score and threshold over time"><svg viewBox={`0 0 ${width} 218`} preserveAspectRatio="none"><g className="drilldown-grid">{[5,4,3,2,1,0].map((value) => <g key={value}><line x1={left} x2={right} y1={y(value)} y2={y(value)} /><text x="12" y={y(value)+3}>{value}</text></g>)}</g>{points.length > 1 && <><polyline className="drilldown-threshold-line" points={thresholdLine} /><polyline className="drilldown-score-line" points={scoreLine} /></>}{points.map((point, index) => <g className="drilldown-point" key={`${point.runId}-${point.startedAt}`} onClick={() => onOpenRun(point.runId)} role="button"><circle className={`drilldown-dot drilldown-dot--${point.verdict}`} cx={x(index)} cy={y(point.score)} r="5"><title>{`${formatTime(point.startedAt)} · score ${point.score.toFixed(2)} · ${point.verdict}`}</title></circle><text className="drilldown-value" x={x(index)} y={Math.max(12, y(point.score)-11)} textAnchor="middle">{point.score.toFixed(1)}</text><text className="point-date" x={x(index)} y="207" textAnchor="middle">{formatDateShort(point.startedAt)}</text></g>)}</svg></div>;
 }
 
-function DrilldownTrendDrawer({ request, runs, api, live, onClose, onOpenRun }: { request: DrilldownTrendRequest; runs: EvalRun[]; api: EvalApi | null; live: boolean; onClose: () => void; onOpenRun: (runId: string) => void }) {
+function DrilldownTrendDrawer({ request, api, live, onClose, onOpenRun }: { request: DrilldownTrendRequest; api: EvalApi | null; live: boolean; onClose: () => void; onOpenRun: (runId: string) => void }) {
   const [points, setPoints] = useState<DrilldownTrendPoint[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -564,23 +599,43 @@ function DrilldownTrendDrawer({ request, runs, api, live, onClose, onOpenRun }: 
       if (controller.signal.aborted) return;
       setLoading(true);
       setError(null);
-      return loadDrilldownTrend(request, runs, api, live, controller.signal);
-    }).then((items) => {
-      if (controller.signal.aborted || !items) return;
-      setPoints(items.length || live ? items : demoDrilldownTrend(request));
+      setNextCursor(null);
+      return live && api ? api.listTrend(request, null, 30, controller.signal) : { items: demoDrilldownTrend(request), nextCursor: null };
+    }).then((page) => {
+      if (controller.signal.aborted || !page) return;
+      setPoints(page.items.sort((a, b) => a.startedAt.localeCompare(b.startedAt)));
+      setNextCursor(page.nextCursor);
     }).catch((reason: unknown) => {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Unable to load trend data");
     }).finally(() => {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [api, live, request, runs]);
+  }, [api, live, request]);
+  const loadOlder = async () => {
+    if (!api || !nextCursor || loadingOlder) return;
+    setLoadingOlder(true);
+    setError(null);
+    try {
+      const page = await api.listTrend(request, nextCursor, 30);
+      setNextCursor(page.nextCursor);
+      setPoints((current) => {
+        const byRun = new Map(current.map((point) => [point.runId, point]));
+        page.items.forEach((point) => byRun.set(point.runId, point));
+        return Array.from(byRun.values()).sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to load older trend data");
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
   const latest = points[points.length - 1];
   const previous = points[points.length - 2];
   const delta = latest && previous ? latest.score - previous.score : 0;
   const nonPasses = points.filter((point) => point.verdict !== "passed" && point.verdict !== "xpassed").length;
   const title = request.kind === "case" ? request.caseId : request.skill;
-  return <div className="drawer-layer" role="dialog" aria-modal="true" aria-label={`${title} historical trend`}><button className="drawer-backdrop" onClick={onClose} aria-label="Close trend" /><aside className="case-drawer trend-drawer"><header><div><span className="eyebrow">{request.kind === "case" ? "Case history" : "Skill trend"}</span><h2>{title}</h2><p><TypeBadge type={request.evalType} /> {request.evalType === "e2e" ? `${request.stage} · ${request.target}` : `${request.environment} · ${request.skill}`}</p></div><button onClick={onClose} aria-label="Close">×</button></header><div className="drawer-body">{loading ? <div className="trend-loading"><span /><span /><span />Loading historical cases…</div> : error ? <div className="trend-error"><strong>Trend could not be loaded</strong><span>{error}</span></div> : points.length ? <><div className="trend-kpis"><article><span>Latest score</span><strong>{latest?.score.toFixed(2)}</strong><small>threshold {latest?.threshold.toFixed(2)}</small></article><article><span>Change</span><strong className={delta >= 0 ? "delta-good" : "delta-bad"}>{delta >= 0 ? "+" : ""}{delta.toFixed(2)}</strong><small>vs previous matching run</small></article><article><span>History</span><strong>{points.length}</strong><small>{nonPasses} failed or blocked</small></article></div><section className="trend-chart-card"><div className="trend-chart-heading"><div><h3>Score over time</h3><p>Matching {request.evalType === "e2e" ? "stage, target and skill" : "environment and skill"}; points open the source run.</p></div><div className="drilldown-legend"><span><i />Score</span><span><i />Threshold</span></div></div><DrilldownScoreChart points={points} onOpenRun={onOpenRun} /></section><div className="trend-table-wrap"><table><thead><tr><th>Run</th><th>{request.evalType === "unit" ? "Skill version" : "Dataset"}</th><th>Verdict</th><th>Score / gate</th><th>Started</th></tr></thead><tbody>{[...points].reverse().map((point) => <tr key={`${point.runId}-${point.startedAt}`} onClick={() => onOpenRun(point.runId)}><td><button className="run-link">{point.runId}</button></td><td>{request.evalType === "unit" ? `v${point.skillVersion ?? "unknown"} · BSA ${point.bsaVersion ?? "unknown"}` : point.datasetVersion}</td><td><StatusBadge verdict={point.verdict} /></td><td><strong>{point.score.toFixed(2)}</strong> / {point.threshold.toFixed(2)}</td><td>{formatTime(point.startedAt)}</td></tr>)}</tbody></table></div></> : <div className="trend-empty"><strong>No matching history yet</strong><span>This view keeps {request.evalType === "e2e" ? "E2E target" : "unit environment"} results separate. More completed matching runs are needed before a trend can be drawn.</span></div>}</div></aside></div>;
+  return <div className="drawer-layer" role="dialog" aria-modal="true" aria-label={`${title} historical trend`}><button className="drawer-backdrop" onClick={onClose} aria-label="Close trend" /><aside className="case-drawer trend-drawer"><header><div><span className="eyebrow">{request.kind === "case" ? "Case history" : "Skill trend"}</span><h2>{title}</h2><p><TypeBadge type={request.evalType} /> {request.evalType === "e2e" ? `${request.stage} · ${request.target}` : `${request.environment} · ${request.skill}`}</p></div><button onClick={onClose} aria-label="Close">×</button></header><div className="drawer-body">{loading ? <div className="trend-loading"><span /><span /><span />Loading historical cases…</div> : error && !points.length ? <div className="trend-error"><strong>Trend could not be loaded</strong><span>{error}</span></div> : points.length ? <><div className="trend-kpis"><article><span>Latest score</span><strong>{latest?.score.toFixed(2)}</strong><small>threshold {latest?.threshold.toFixed(2)}</small></article><article><span>Change</span><strong className={delta >= 0 ? "delta-good" : "delta-bad"}>{delta >= 0 ? "+" : ""}{delta.toFixed(2)}</strong><small>vs previous matching run</small></article><article><span>History loaded</span><strong>{points.length}</strong><small>{nonPasses} failed or blocked</small></article></div><section className="trend-chart-card"><div className="trend-chart-heading"><div><h3>Score over time</h3><p>Matching {request.evalType === "e2e" ? "stage, target and suite" : "environment and skill"}; points open the source run.</p></div><div className="drilldown-legend"><span><i />Score</span><span><i />Threshold</span></div></div><DrilldownScoreChart points={points} onOpenRun={onOpenRun} /></section><div className="trend-table-wrap"><table><thead><tr><th>Run</th><th>{request.evalType === "unit" ? "Skill version" : "Dataset"}</th><th>Verdict</th><th>Score / gate</th><th>Started</th></tr></thead><tbody>{[...points].reverse().map((point) => <tr key={`${point.runId}-${point.startedAt}`} onClick={() => onOpenRun(point.runId)}><td><button className="run-link">{point.runId}</button></td><td>{request.evalType === "unit" ? `v${point.skillVersion ?? "unknown"} · BSA ${point.bsaVersion ?? "unknown"}` : point.datasetVersion}</td><td><StatusBadge verdict={point.verdict} /></td><td><strong>{point.score.toFixed(2)}</strong> / {point.threshold.toFixed(2)}</td><td>{formatTime(point.startedAt)}</td></tr>)}</tbody></table></div>{error && <div className="trend-error"><span>{error}</span></div>}{nextCursor && <button className="secondary-button trend-load-more" disabled={loadingOlder} onClick={() => void loadOlder()}>{loadingOlder ? "Loading older runs…" : "Load 30 older matching runs"}</button>}</> : <div className="trend-empty"><strong>No matching history yet</strong><span>This view keeps {request.evalType === "e2e" ? "E2E target" : "unit environment"} results separate. More completed matching runs are needed before a trend can be drawn.</span>{nextCursor && <button className="secondary-button" onClick={() => void loadOlder()}>Search older runs</button>}</div>}</div></aside></div>;
 }
 
 type HistoryFocus = { type: EvalType; stage?: string; target?: string; skillId?: string; environment?: string } | null;
