@@ -98,6 +98,14 @@ function formatPassRateThreshold(value?: number) {
   return `${Number.isInteger(percentage) ? percentage.toFixed(0) : percentage.toFixed(1)}%`;
 }
 
+const githubManifestBaseUrl = process.env.NEXT_PUBLIC_GITHUB_MANIFEST_BASE_URL?.trim().replace(/\/+$/, "");
+
+function githubManifestUrl(manifestPath?: string) {
+  if (!githubManifestBaseUrl || !manifestPath) return null;
+  const encodedPath = manifestPath.split("/").map(encodeURIComponent).join("/");
+  return `${githubManifestBaseUrl}/${encodedPath}`;
+}
+
 function runScope(run: EvalRun) {
   if (run.evalType === "e2e") {
     return { primary: run.target, secondary: `${run.stage} · live conversation` };
@@ -221,7 +229,7 @@ function RunsTable({ runs, onOpen }: { runs: EvalRun[]; onOpen: (run: EvalRun) =
         <tbody>
           {runs.map((run) => (
             <tr key={run.runId} tabIndex={0} onClick={() => onOpen(run)} onKeyDown={(event) => event.key === "Enter" && onOpen(run)}>
-              <td><button className="run-link" onClick={() => onOpen(run)}>{run.runId}</button><small>{run.actor} · {run.trigger}</small></td>
+              <td><button className="run-link" onClick={(event) => { event.stopPropagation(); onOpen(run); }}>{run.runId}</button><small>{run.actor} · {run.trigger}</small></td>
               <td><TypeBadge type={run.evalType} /></td>
               <td><span>{runScope(run).primary}</span><small>{runScope(run).secondary}</small></td>
               <td><StatusBadge verdict={effectiveRunVerdict(run)} /></td>
@@ -247,6 +255,7 @@ export default function Home() {
   const [loading, setLoading] = useState(Boolean(api));
   const [apiError, setApiError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [openingRunId, setOpeningRunId] = useState<string | null>(null);
   const [view, setView] = useState<View>("overview");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runCursors, setRunCursors] = useState<Record<EvalType, string | null>>({ e2e: null, unit: null });
@@ -281,7 +290,9 @@ export default function Home() {
       else url.searchParams.set("view", nextView);
       if (nextView === "runs" && runId) url.searchParams.set("run", runId);
       else url.searchParams.delete("run");
-      window.history[replace ? "replaceState" : "pushState"]({}, "", `${url.pathname}${url.search}${url.hash}`);
+      const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+      const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (nextUrl !== currentUrl) window.history[replace ? "replaceState" : "pushState"]({}, "", nextUrl);
     }
   }, []);
 
@@ -464,14 +475,22 @@ export default function Home() {
 
   const openRunById = async (runId: string, evalType: EvalType) => {
     const loaded = runs.find((run) => run.runId === runId);
-    if (loaded) return openRun(loaded);
-    if (!api || dataSource !== "api") return;
+    if (!api || dataSource !== "api") {
+      if (loaded) openRun(loaded);
+      return;
+    }
+    setOpeningRunId(runId);
+    setDetailError(null);
     try {
       const run = await api.getRun(evalType, runId);
-      setRuns((current) => current.some((item) => item.runId === run.runId) ? current : [run, ...current]);
+      setRuns((current) => current.some((item) => item.runId === run.runId)
+        ? current.map((item) => item.runId === run.runId ? run : item)
+        : [run, ...current]);
       openRun(run);
     } catch (error) {
       setDetailError(error instanceof Error ? error.message : "Unable to load this source run");
+    } finally {
+      setOpeningRunId(null);
     }
   };
 
@@ -539,7 +558,7 @@ export default function Home() {
 
           {apiError && <div className="toast toast--error"><span>!</span>{apiError} · showing deterministic demo data</div>}
           {detailError && <div className="toast toast--error"><span>!</span>{detailError} · no cross-run fallback was used</div>}
-          {view === "history" && <HistoryView initialFocus={historyFocus} runs={runs} live={dataSource === "api"} />}
+          {view === "history" && <HistoryView initialFocus={historyFocus} runs={runs} live={dataSource === "api"} openingRunId={openingRunId} onOpenRun={(runId, evalType) => void openRunById(runId, evalType)} />}
           {view === "compare" && <CompareView runs={runs} api={api} live={dataSource === "api"} onError={setDetailError} />}
           {view === "schema" && <SchemaView />}
         </div>
@@ -554,9 +573,10 @@ function RunSummary({ run, cases, onCase, onHistory, onTrend }: { run: EvalRun; 
   const scope = runScope(run);
   const scopedCases = cases.filter((item) => item.runId === run.runId);
   const suites = summarizeCases(run, scopedCases);
+  const manifestUrl = run.evalType === "e2e" ? githubManifestUrl(run.datasetVersion) : null;
   return <>
     <div className="detail-grid">
-      <section className="panel run-hero"><div><TypeBadge type={run.evalType} /><StatusBadge verdict={effectiveRunVerdict(run)} /><span className={`execution execution--${run.executionStatus}`}>{run.executionStatus}</span></div><h2>{scope.primary}</h2><p>{scope.secondary} · triggered by <strong>{run.actor}</strong> through {run.trigger.toUpperCase()} · {run.evalType === "e2e" ? `target manifest ${run.datasetVersion}` : `evalset ${run.datasetVersion}`}</p>{run.evalType === "e2e" ? <div className="scope-chips"><span>Live target</span><span>No tool mocks</span><span>{run.e2eConfig?.selectedSuites.length ?? run.suites.length} suites</span><span>Target gate ≥ {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</span><span>Max tier {run.e2eConfig?.maxTier ?? "not recorded"}</span></div> : <div className="scope-chips unit"><span>{run.unitConfig?.mode ?? "all"} turns</span><span>Per-skill mocks</span><span>Tool + response quality</span></div>}<button className="history-link" onClick={() => onHistory(run)}>View {run.evalType === "e2e" ? "target" : "skill"} history →</button><div className="detail-stats"><span><small>Pass rate</small><strong>{run.summary.passRatePct || "—"}{run.summary.passRatePct ? "%" : ""}</strong>{run.evalType === "e2e" && <em>Required: {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</em>}</span><span><small>Mean score</small><strong>{run.summary.meanScore || "—"}</strong></span><span><small>Cases</small><strong>{run.summary.total}</strong></span><span><small>Duration</small><strong>{formatDuration(run.durationMs)}</strong></span></div></section>
+      <section className="panel run-hero"><div><TypeBadge type={run.evalType} /><StatusBadge verdict={effectiveRunVerdict(run)} /><span className={`execution execution--${run.executionStatus}`}>{run.executionStatus}</span></div><h2>{scope.primary}</h2><p>{scope.secondary} · triggered by <strong>{run.actor}</strong> through {run.trigger.toUpperCase()} · {run.evalType === "e2e" ? <>target manifest {manifestUrl ? <a className="manifest-link" href={manifestUrl} target="_blank" rel="noopener noreferrer">{run.datasetVersion} ↗</a> : <span title="Set NEXT_PUBLIC_GITHUB_MANIFEST_BASE_URL to enable this link">{run.datasetVersion}</span>}</> : `evalset ${run.datasetVersion}`}</p>{run.evalType === "e2e" ? <div className="scope-chips"><span>Live target</span><span>No tool mocks</span><span>{run.e2eConfig?.selectedSuites.length ?? run.suites.length} suites</span><span>Target gate ≥ {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</span><span>Max tier {run.e2eConfig?.maxTier ?? "not recorded"}</span></div> : <div className="scope-chips unit"><span>{run.unitConfig?.mode ?? "all"} turns</span><span>Per-skill mocks</span><span>Tool + response quality</span></div>}<button className="history-link" onClick={() => onHistory(run)}>View {run.evalType === "e2e" ? "target" : "skill"} history →</button><div className="detail-stats"><span><small>Pass rate</small><strong>{run.summary.passRatePct || "—"}{run.summary.passRatePct ? "%" : ""}</strong>{run.evalType === "e2e" && <em>Required: {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</em>}</span><span><small>Mean score</small><strong>{run.summary.meanScore || "—"}</strong></span><span><small>Cases</small><strong>{run.summary.total}</strong></span><span><small>Duration</small><strong>{formatDuration(run.durationMs)}</strong></span></div></section>
       <section className="panel suite-panel"><div className="panel-heading"><div><h2>{run.evalType === "e2e" ? "Suite breakdown" : "Skill / metric breakdown"}</h2><p>{run.evalType === "e2e" ? "Live conversation result by enabled suite" : "Mock-backed cases scored for this single skill"}</p></div></div>{suites.length ? suites.map((suite) => <div className="suite-row" key={suite.name}><div><strong>{suite.name}</strong><small>{suite.total ? `${suite.passed} passed · ${suite.failed} failed` : "Enabled suite · case results not available"}</small></div><div className="suite-bar"><i><b style={{ width: `${(suite.passed / Math.max(suite.total, 1)) * 100}%` }} /></i><span>{suite.total ? suite.meanScore.toFixed(2) : "—"}</span></div><button className="trend-action" onClick={() => onTrend(drilldownRequest(run, "skill", run.evalType === "unit" ? (run.unitConfig?.skillId ?? run.target) : suite.name))}>View trend</button></div>) : <div className="empty compact-empty"><strong>No results yet</strong><span>This run has not produced suite results.</span></div>}</section>
     </div>
     <section className="panel cases-panel"><div className="panel-heading"><div><h2>Evaluated cases</h2><p>Case-level verdicts, evidence and latency</p></div><span className="result-count">{scopedCases.length} results</span></div>
@@ -666,7 +686,7 @@ function HistoryChart({ points, title }: { points: TrendPoint[]; title: string }
   return <section className="panel history-chart-card"><div className="panel-heading"><div><h2>{title}</h2><p>Pass rate and normalized mean score over time</p></div><div className="history-legend"><span><i />Pass rate</span><span><i />Mean score</span><span><i />90% gate</span></div></div><div className="history-chart" role="img" aria-label={`${title} historical trend`}><svg viewBox={`0 0 ${width} 230`} preserveAspectRatio="none"><g className="history-grid">{[100,75,50,25,0].map((value) => <g key={value}><line x1={plotLeft} x2={plotRight} y1={y(value)} y2={y(value)}/><text x="7" y={y(value)+3}>{value}%</text></g>)}</g><line className="gate-line" x1={plotLeft} x2={plotRight} y1={y(90)} y2={y(90)}/>{points.length > 1 && <><polyline className="history-pass-line" points={passPoints}/><polyline className="history-score-line" points={scorePoints}/></>}{points.map((point,index) => <g key={point.id}><circle className="history-pass-dot" cx={x(index)} cy={y(point.passRatePct)} r="4"><title>{point.passRatePct.toFixed(1)}% pass rate</title></circle><circle className="history-score-dot" cx={x(index)} cy={y((point.meanScore/5)*100)} r="3"><title>{point.meanScore.toFixed(2)} mean score</title></circle><text className="point-value" x={x(index)} y={Math.max(12,y(point.passRatePct)-10)} textAnchor="middle">{point.passRatePct.toFixed(point.passRatePct % 1 ? 1 : 0)}%</text><text className="point-date" x={x(index)} y="211" textAnchor="middle">{formatDateShort(point.startedAt)}</text></g>)}</svg></div></section>;
 }
 
-function HistoryView({ initialFocus, runs, live }: { initialFocus: HistoryFocus; runs: EvalRun[]; live: boolean }) {
+function HistoryView({ initialFocus, runs, live, openingRunId, onOpenRun }: { initialFocus: HistoryFocus; runs: EvalRun[]; live: boolean; openingRunId: string | null; onOpenRun: (runId: string, evalType: EvalType) => void }) {
   const e2eSource = live ? runs.filter((run) => run.evalType === "e2e" && run.executionStatus === "completed").map((run) => ({ runId: run.runId, batchId: run.batchId ?? run.runId, startedAt: run.startedAt, stage: run.stage, target: run.target, passRatePct: run.summary.passRatePct, meanScore: run.summary.meanScore, totalCases: run.summary.total, durationMs: run.durationMs ?? 0, verdict: run.verdict })) : e2eHistory;
   const unitSource = live ? runs.filter((run) => run.evalType === "unit" && run.executionStatus === "completed").map((run) => ({ runId: run.runId, batchId: run.batchId, startedAt: run.startedAt, skillId: run.unitConfig?.skillId ?? run.target, environment: run.unitConfig?.bsaEnvironment ?? run.stage, passRatePct: run.summary.passRatePct, meanScore: run.summary.meanScore, generalQuality: 0, toolUseQuality: 0, totalCases: run.summary.total, durationMs: run.durationMs ?? 0, verdict: run.verdict })) : unitHistory;
   const stages = Array.from(new Set(e2eSource.map((point) => point.stage)));
@@ -692,6 +712,11 @@ function HistoryView({ initialFocus, runs, live }: { initialFocus: HistoryFocus;
   const latestUnit = unitFiltered.at(-1);
   const selectedSkill = unitSkills.find((skill) => skill.id === skillId) ?? { id: skillId, label: skillId, tools: [] };
   const latestByTarget = stageTargets.map((targetId) => e2eSource.filter((point) => point.stage === stage && point.target === targetId).sort((a,b)=>a.startedAt.localeCompare(b.startedAt)).at(-1)!);
+  const isBatchRollup = historyType === "e2e" && target === "all";
+
+  const openHistoryRun = (runId: string) => {
+    if (!isBatchRollup && openingRunId !== runId) onOpenRun(runId, historyType);
+  };
 
   return <>
     <div className="page-heading history-heading"><div><span className="eyebrow">Longitudinal quality</span><h1>Evaluation history</h1><p>Track the same E2E target or unit skill across runs without mixing their scopes.</p></div><div className="type-switch"><button className={historyType === "e2e" ? "active" : ""} onClick={() => setHistoryType("e2e")}>E2E history</button><button className={historyType === "unit" ? "active" : ""} onClick={() => setHistoryType("unit")}>Unit skill history</button></div></div>
@@ -700,7 +725,7 @@ function HistoryView({ initialFocus, runs, live }: { initialFocus: HistoryFocus;
     <section className="history-metrics"><article className="panel"><span>Latest pass rate</span><strong>{latest?.passRatePct.toFixed(1) ?? "—"}%</strong><small className={passDelta >= 0 ? "delta-good" : "delta-bad"}>{passDelta >= 0 ? "+" : ""}{passDelta.toFixed(1)} points vs prior</small></article><article className="panel"><span>Latest mean score</span><strong>{latest?.meanScore.toFixed(2) ?? "—"}</strong><small>out of 5.0</small></article><article className="panel"><span>Historical runs</span><strong>{trend.length}</strong><small>{historyType === "e2e" && target === "all" ? `${stageTargets.length} targets per batch` : "matching this scope"}</small></article><article className="panel"><span>Gate record</span><strong>{trend.filter((point) => point.passRatePct >= 90).length}/{trend.length}</strong><small>runs at or above 90%</small></article></section>
     {trend.length ? <HistoryChart points={trend} title={historyType === "e2e" ? (target === "all" ? `${stage} · stage rollup` : target) : selectedSkill.label}/> : <section className="panel empty"><strong>No historical runs</strong><span>Change the environment or scope selection.</span></section>}
     {historyType === "e2e" ? <section className="target-history-grid">{latestByTarget.map((point) => <button key={point.target} className={`panel target-history-card ${target === point.target ? "selected" : ""}`} onClick={() => setTarget(point.target)}><div><span className="target-dot"/><strong>{point.target}</strong></div><b>{point.passRatePct.toFixed(1)}%</b><small>{e2eSource.filter((item) => item.stage === stage && item.target === point.target).length} historical runs · latest {formatDateShort(point.startedAt)}</small><i><em style={{width:`${point.passRatePct}%`}}/></i></button>)}</section> : <section className="panel unit-history-summary"><div><span className="collection-icon case">S</span><div><strong>{selectedSkill.label}</strong><small>{selectedSkill.id}</small></div></div><div><span>Declared tools</span><strong>{selectedSkill.tools.join(" · ") || "Stored with skill definition"}</strong></div><div><span>General quality</span><strong>{latestUnit?.generalQuality ? latestUnit.generalQuality.toFixed(2) : "case metric"}</strong></div><div><span>Tool use quality</span><strong>{latestUnit?.toolUseQuality ? latestUnit.toolUseQuality.toFixed(2) : "case metric"}</strong></div></section>}
-    <section className="panel history-table"><div className="panel-heading"><div><h2>{historyType === "e2e" && target === "all" ? "Scheduled batch history" : "Matching run history"}</h2><p>{historyType === "e2e" && target === "all" ? "One rollup row per multi-target workflow execution" : "Every execution for the selected scope"}</p></div><span className="result-count">{trend.length} results</span></div><div className="table-wrap"><table><thead><tr><th>{historyType === "e2e" && target === "all" ? "Batch" : "Run"}</th><th>Scope</th><th>Verdict</th><th>Pass rate</th><th>Mean score</th><th>Cases</th><th>Duration</th><th>Started</th></tr></thead><tbody>{[...trend].reverse().map((point) => <tr key={point.id}><td><span className="run-link">{point.id}</span>{point.batchId && point.id !== point.batchId && <small>batch {point.batchId}</small>}</td><td>{point.scope}</td><td><StatusBadge verdict={point.verdict}/></td><td><strong>{point.passRatePct.toFixed(1)}%</strong></td><td>{point.meanScore.toFixed(2)}</td><td>{point.totalCases}</td><td>{formatDuration(point.durationMs)}</td><td>{formatTime(point.startedAt)}</td></tr>)}</tbody></table></div></section>
+    <section className="panel history-table"><div className="panel-heading"><div><h2>{isBatchRollup ? "Scheduled batch history" : "Matching run history"}</h2><p>{isBatchRollup ? "One rollup row per multi-target workflow execution · select a target above to open individual runs" : "Every execution for the selected scope · select a row to open its live run details"}</p></div><span className="result-count">{trend.length} results</span></div><div className="table-wrap"><table><thead><tr><th>{isBatchRollup ? "Batch" : "Run"}</th><th>Scope</th><th>Verdict</th><th>Pass rate</th><th>Mean score</th><th>Cases</th><th>Duration</th><th>Started</th></tr></thead><tbody>{[...trend].reverse().map((point) => <tr key={point.id} className={isBatchRollup ? undefined : "clickable-row"} tabIndex={isBatchRollup ? undefined : 0} aria-label={isBatchRollup ? undefined : `Open run ${point.id}`} onClick={isBatchRollup ? undefined : () => openHistoryRun(point.id)} onKeyDown={isBatchRollup ? undefined : (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openHistoryRun(point.id); } }}><td>{isBatchRollup ? <span className="run-link">{point.id}</span> : <button className="run-link" disabled={openingRunId === point.id} onClick={(event) => { event.stopPropagation(); openHistoryRun(point.id); }}>{openingRunId === point.id ? "Opening…" : point.id}</button>}{point.batchId && point.id !== point.batchId && <small>batch {point.batchId}</small>}</td><td>{point.scope}</td><td><StatusBadge verdict={point.verdict}/></td><td><strong>{point.passRatePct.toFixed(1)}%</strong></td><td>{point.meanScore.toFixed(2)}</td><td>{point.totalCases}</td><td>{formatDuration(point.durationMs)}</td><td>{formatTime(point.startedAt)}</td></tr>)}</tbody></table></div></section>
   </>;
 }
 
@@ -749,8 +774,8 @@ function RunPairPicker({ comparable, unitRuns, api, live, onError }: { comparabl
   const baseline = comparable.find((run) => run.runId === baselineId)!;
   const candidate = comparable.find((run) => run.runId === candidateId)!;
   const optionLabel = (run: EvalRun) => unitRuns
-    ? `v${run.unitConfig?.skillVersion} · ${run.runId} · ${run.summary.passRatePct}% · ${formatDateShort(run.startedAt)}`
-    : `${run.runId} · ${run.target} · ${run.summary.passRatePct}%`;
+    ? `v${run.unitConfig?.skillVersion} · ${run.runId} · ${formatTime(run.startedAt)} · ${run.summary.passRatePct}%`
+    : `${run.runId} · ${formatTime(run.startedAt)} · ${run.summary.passRatePct}%`;
   useEffect(() => {
     const controller = new AbortController();
     const selected = baseline.runId === candidate.runId ? [baseline] : [baseline, candidate];
