@@ -247,11 +247,15 @@ function RunsTable({ runs, onOpen }: { runs: EvalRun[]; onOpen: (run: EvalRun) =
 
 export default function Home() {
   const RUNS_PAGE_SIZE = 25;
-  const api = useMemo(() => configuredEvalApi(), []);
+  // Resolve the public API URL after hydration. Reading a build-time public
+  // environment variable during the first render can produce different server
+  // and browser trees in local Vite/vinext builds, leaving the page visible but
+  // without working React event handlers.
+  const [api, setApi] = useState<EvalApi | null>(null);
   const [runs, setRuns] = useState<EvalRun[]>([]);
   const [cases, setCases] = useState<EvalCase[]>([]);
-  const [dataState, setDataState] = useState<DataState>(api ? "connecting" : "unconfigured");
-  const [loading, setLoading] = useState(Boolean(api));
+  const [dataState, setDataState] = useState<DataState>("connecting");
+  const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [openingRunId, setOpeningRunId] = useState<string | null>(null);
@@ -278,6 +282,21 @@ export default function Home() {
   const [overviewShowPercentLabels, setOverviewShowPercentLabels] = useState(false);
   const selectedRun = useMemo(() => selectedRunId ? runs.find((run) => run.runId === selectedRunId) ?? null : null, [runs, selectedRunId]);
   const hasOlderRuns = Boolean(runCursors.e2e || runCursors.unit);
+
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      const configured = configuredEvalApi();
+      if (!configured) {
+        setDataState("unconfigured");
+        setLoading(false);
+        return;
+      }
+      setApi(configured);
+    });
+    return () => { active = false; };
+  }, []);
 
   const navigate = useCallback((nextView: View, runId: string | null = null, replace = false) => {
     setView(nextView);
@@ -517,7 +536,7 @@ export default function Home() {
         <div className="brand"><span className="brand-mark"><b aria-hidden="true">UKG</b><Image className="brand-logo" src="/ukg-rgb.png" alt="UKG" width={52} height={34} unoptimized onError={(event) => { event.currentTarget.style.display = "none"; }} /></span><div><strong>EvalHub</strong><small>Quality operations</small></div>{sidebarOpen && <button className="sidebar-close" aria-label="Close navigation" onClick={() => setSidebarOpen(false)}>×</button>}</div>
         <nav aria-label="Main navigation">
           <p>Workspace</p>
-          {navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { navigate(item.id); if (item.id === "history") setHistoryFocus(null); setSidebarOpen(false); }}><span>{item.glyph}</span>{item.label}</button>)}
+          {navItems.map((item) => <button type="button" key={item.id} className={view === item.id ? "active" : ""} onClick={() => { navigate(item.id); if (item.id === "history") setHistoryFocus(null); setSidebarOpen(false); }}><span>{item.glyph}</span>{item.label}</button>)}
           <p>Manage</p>
           <button disabled title="Policy management is planned"><span>⌁</span>Policies<b className="nav-soon">soon</b></button>
           <button disabled title="Metric management is planned"><span>✣</span>Custom metrics<b className="nav-soon">soon</b></button>

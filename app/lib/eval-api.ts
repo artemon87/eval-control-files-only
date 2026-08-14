@@ -245,16 +245,32 @@ export class EvalApi {
   constructor(private readonly baseUrl: string) {}
 
   private async request<T>(path: string, signal?: AbortSignal): Promise<T> {
-    const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}${path}`, {
-      headers: { Accept: "application/json" },
-      credentials: "same-origin",
-      signal,
-    });
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new Error(`Eval API ${response.status}: ${detail || response.statusText}`);
+    const controller = new AbortController();
+    const abortFromCaller = () => controller.abort(signal?.reason);
+    if (signal?.aborted) abortFromCaller();
+    else signal?.addEventListener("abort", abortFromCaller, { once: true });
+    const timeout = setTimeout(() => controller.abort("request-timeout"), 15_000);
+
+    try {
+      const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}${path}`, {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        throw new Error(`Eval API ${response.status}: ${detail || response.statusText}`);
+      }
+      return response.json() as Promise<T>;
+    } catch (error) {
+      if (controller.signal.aborted && !signal?.aborted) {
+        throw new Error("Eval API request timed out after 15 seconds");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abortFromCaller);
     }
-    return response.json() as Promise<T>;
   }
 
   async listRunBatch(
