@@ -62,3 +62,15 @@ test("applies the selected Evaluation History time window", async () => {
   assert.match(page, /windowDays=\{rangeDays\} windowEnd=\{referenceTime\}/);
   assert.match(page, /No historical runs in the selected \{rangeDays\}-day window/);
 });
+
+test("lets users toggle chart percentage annotations", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /overviewShowPercentLabels/);
+  assert.match(page, /showPercentLabels=\{overviewShowPercentLabels\}/);
+  assert.match(page, /const \[showPercentLabels, setShowPercentLabels\] = useState\(false\)/);
+  assert.match(page, /showPercentLabels=\{showPercentLabels\}/);
+  assert.ok((page.match(/Show % labels/g) ?? []).length >= 2);
+  assert.match(page, /showPercentLabels && visibleTypes\.flatMap/);
+  assert.match(page, /\{showPercentLabels && <text className="point-value"/);
+});
