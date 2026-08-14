@@ -703,11 +703,11 @@ function aggregateE2E(points: E2EHistoryPoint[]): TrendPoint[] {
 }
 
 function HistoryChart({ points, title, windowDays, windowEnd, showPercentLabels, onShowPercentLabelsChange }: { points: TrendPoint[]; title: string; windowDays: 7 | 30 | 90; windowEnd: number; showPercentLabels: boolean; onShowPercentLabelsChange: (show: boolean) => void }) {
-  const width = 760;
-  const plotLeft = 46;
-  const plotRight = 730;
-  const plotTop = 22;
-  const plotBottom = 182;
+  const width = 1400;
+  const plotLeft = 70;
+  const plotRight = 1360;
+  const plotTop = 18;
+  const plotBottom = 140;
   const windowStart = windowEnd - windowDays * 86_400_000;
   const windowDuration = Math.max(windowEnd - windowStart, 1);
   const x = (startedAt: string) => {
@@ -722,7 +722,7 @@ function HistoryChart({ points, title, windowDays, windowEnd, showPercentLabels,
     const timestamp = windowStart + (index / 6) * windowDuration;
     return { timestamp, x: plotLeft + (index / 6) * (plotRight - plotLeft) };
   });
-  return <section className="panel history-chart-card"><div className="panel-heading"><div><h2>{title}</h2><p>Pass rate and normalized mean score across the selected {windowDays}-day window</p></div><div className="chart-heading-actions"><label className="chart-label-toggle"><input type="checkbox" checked={showPercentLabels} onChange={(event) => onShowPercentLabelsChange(event.target.checked)} /><span>Show % labels</span></label><div className="history-legend"><span><i />Pass rate</span><span><i />Mean score</span><span><i />90% gate</span></div></div></div><div className="history-chart" role="img" aria-label={`${title} ${windowDays}-day historical trend`}><svg viewBox={`0 0 ${width} 230`} preserveAspectRatio="none"><g className="history-grid">{[100,75,50,25,0].map((value) => <g key={value}><line x1={plotLeft} x2={plotRight} y1={y(value)} y2={y(value)}/><text x="7" y={y(value)+3}>{value}%</text></g>)}</g><line className="gate-line" x1={plotLeft} x2={plotRight} y1={y(90)} y2={y(90)}/>{points.length > 1 && <><polyline className="history-pass-line" points={passPoints}/><polyline className="history-score-line" points={scorePoints}/></>}{points.map((point) => <g key={point.id}><circle className="history-pass-dot" cx={x(point.startedAt)} cy={y(point.passRatePct)} r="4"><title>{point.passRatePct.toFixed(1)}% pass rate · {formatTime(point.startedAt)}</title></circle><circle className="history-score-dot" cx={x(point.startedAt)} cy={y((point.meanScore/5)*100)} r="3"><title>{point.meanScore.toFixed(2)} mean score · {formatTime(point.startedAt)}</title></circle>{showPercentLabels && <text className="point-value" x={x(point.startedAt)} y={Math.max(12,y(point.passRatePct)-10)} textAnchor="middle">{point.passRatePct.toFixed(point.passRatePct % 1 ? 1 : 0)}%</text>}</g>)}{dateTicks.map((tick) => <text key={tick.timestamp} className="point-date" x={tick.x} y="211" textAnchor="middle">{formatDateShort(new Date(tick.timestamp).toISOString())}</text>)}</svg></div></section>;
+  return <section className="panel history-chart-card"><div className="panel-heading"><div><h2>{title}</h2><p>Pass rate and normalized mean score across the selected {windowDays}-day window</p></div><div className="chart-heading-actions"><label className="chart-label-toggle"><input type="checkbox" checked={showPercentLabels} onChange={(event) => onShowPercentLabelsChange(event.target.checked)} /><span>Show % labels</span></label><div className="history-legend"><span><i />Pass rate</span><span><i />Mean score</span><span><i />90% gate</span></div></div></div><div className="history-chart" role="img" aria-label={`${title} ${windowDays}-day historical trend`}><svg viewBox={`0 0 ${width} 180`} preserveAspectRatio="xMidYMid meet"><g className="history-grid">{[100,75,50,25,0].map((value) => <g key={value}><line x1={plotLeft} x2={plotRight} y1={y(value)} y2={y(value)}/><text x="7" y={y(value)+3}>{value}%</text></g>)}</g><line className="gate-line" x1={plotLeft} x2={plotRight} y1={y(90)} y2={y(90)}/>{points.length > 1 && <><polyline className="history-pass-line" points={passPoints}/><polyline className="history-score-line" points={scorePoints}/></>}{points.map((point) => <g key={point.id}><circle className="history-pass-dot" cx={x(point.startedAt)} cy={y(point.passRatePct)} r="4"><title>{point.passRatePct.toFixed(1)}% pass rate · {formatTime(point.startedAt)}</title></circle><circle className="history-score-dot" cx={x(point.startedAt)} cy={y((point.meanScore/5)*100)} r="3"><title>{point.meanScore.toFixed(2)} mean score · {formatTime(point.startedAt)}</title></circle>{showPercentLabels && <text className="point-value" x={x(point.startedAt)} y={Math.max(12,y(point.passRatePct)-10)} textAnchor="middle">{point.passRatePct.toFixed(point.passRatePct % 1 ? 1 : 0)}%</text>}</g>)}{dateTicks.map((tick) => <text key={tick.timestamp} className="point-date" x={tick.x} y="169" textAnchor="middle">{formatDateShort(new Date(tick.timestamp).toISOString())}</text>)}</svg></div></section>;
 }
 
 function HistoryView({ initialFocus, runs, openingRunId, onOpenRun }: { initialFocus: HistoryFocus; runs: EvalRun[]; openingRunId: string | null; onOpenRun: (runId: string, evalType: EvalType) => void }) {
@@ -738,7 +738,7 @@ function HistoryView({ initialFocus, runs, openingRunId, onOpenRun }: { initialF
   const [target, setTarget] = useState(initialFocus?.target && stageTargets.includes(initialFocus.target) ? initialFocus.target : "all");
   const [skillId, setSkillId] = useState(initialSkill);
   const [environment, setEnvironment] = useState(initialFocus?.environment ?? "all");
-  const [range, setRange] = useState<"7d" | "30d" | "90d">("30d");
+  const [range, setRange] = useState<"7d" | "30d" | "90d">("7d");
   const [showPercentLabels, setShowPercentLabels] = useState(false);
 
   const rangeDays: 7 | 30 | 90 = range === "7d" ? 7 : range === "30d" ? 30 : 90;
