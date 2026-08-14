@@ -54,9 +54,11 @@ test("never substitutes operational demo data", async () => {
 test("applies the selected Evaluation History time window", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 
-  assert.match(page, /const rangeDays = range === "7d" \? 7 : range === "30d" \? 30 : 90/);
+  assert.match(page, /const rangeDays: 7 \| 30 \| 90 = range === "7d" \? 7 : range === "30d" \? 30 : 90/);
   assert.match(page, /timestamp >= rangeStart && timestamp <= referenceTime/);
   assert.match(page, /e2eSource\.filter\(\(point\) => inRange\(point\.startedAt\) && point\.stage === stage\)/);
   assert.match(page, /unitSource\.filter\(\(point\) => inRange\(point\.startedAt\)/);
+  assert.match(page, /const x = \(startedAt: string\)/);
+  assert.match(page, /windowDays=\{rangeDays\} windowEnd=\{referenceTime\}/);
   assert.match(page, /No historical runs in the selected \{rangeDays\}-day window/);
 });
