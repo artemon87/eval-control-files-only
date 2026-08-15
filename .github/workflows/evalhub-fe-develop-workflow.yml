@@ -1,0 +1,117 @@
+name: EvalHub FE Develop Build and Deploy
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch: {}
+
+concurrency:
+  group: evalhub-fe-develop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  IS_PIPELINE: "true"
+  TEMPLATE_TYPE: app
+  PROJECT_NAME: ds-service-evalhub-fe
+  PIPELINE_NAME: ds-service-evalhub-fe
+
+  # Configure these as GitHub repository variables.
+  IMAGE_REGISTRY_HOSTNAME: ${{ vars.IMAGE_REGISTRY_HOSTNAME }}
+  IMAGE_BASE_PATH: ${{ vars.IMAGE_BASE_PATH }}
+  HELM_APP_NAME_FILTER: ${{ vars.HELM_APP_NAME_FILTER }}
+
+  # Build-time Next.js public values.
+  NEXT_PUBLIC_EVAL_API_URL: ${{ vars.NEXT_PUBLIC_EVAL_API_URL_DEV }}
+  NEXT_PUBLIC_GITHUB_MANIFEST_BASE_URL: ${{ vars.NEXT_PUBLIC_GITHUB_MANIFEST_BASE_URL }}
+
+jobs:
+  build:
+    name: Build, Publish and Deploy
+    runs-on:
+      - garm
+      - dlas1
+      - vm
+      - linux
+      - mega
+      - large
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update Quark Foundry packages
+        run: fnd update
+
+      - name: Report started status to Quark
+        run: fnd tanagra:status:report --pipeline_status=STARTED
+
+      - name: WIF GSM auth
+        uses: UKGEPIC/sl-actions/gcp-util/svc-wif-gsm-foundry@v0+svc-wif-gsm-foundry
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint:ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Package application
+        run: |
+          fnd tanagra:build:package \
+            --environment_json='{}'
+
+      - name: Project scan
+        run: |
+          fnd tanagra:build:project-scan \
+            --launch_darkly.token= \
+            --launch_darkly.project_key= \
+            --launch_darkly.default_branch=
+
+      - name: GAR auth
+        id: gar-auth
+        uses: UKGEPIC/sl-actions/gcp-util/svc-wif-gar@v0+svc-wif-gar
+
+      - name: Publish Docker image
+        id: publish-docker-image
+        run: |
+          fnd tanagra:deploy:docker-image \
+            --docker_host=unix:///var/run/docker.sock \
+            --registry_hostname="${{ env.IMAGE_REGISTRY_HOSTNAME }}" \
+            --registry_project_root="${{ env.IMAGE_BASE_PATH }}" \
+            --registry_username=oauth2accesstoken \
+            --registry_password="${{ steps.gar-auth.outputs.access_token }}" \
+            --environment_json='{}'
+
+      - name: Trigger Helm deployment to dev
+        if: github.ref == 'refs/heads/develop'
+        uses: UKGEPIC/sl-actions/quark/helm-trigger-deploy@v3+helm-trigger-deploy
+        with:
+          app_name_filter: ${{ env.HELM_APP_NAME_FILTER }}
+          quark_flight_plans_deploy_key: ${{ secrets.QUARK_FLIGHT_PLANS_DEPLOY_KEY }}
+
+      - name: Report succeeded status to Quark
+        if: ${{ success() }}
+        run: fnd tanagra:status:report --pipeline_status=SUCCEEDED
+
+      - name: Report failed status to Quark
+        if: ${{ failure() || cancelled() }}
+        run: fnd tanagra:status:report --pipeline_status=FAILED

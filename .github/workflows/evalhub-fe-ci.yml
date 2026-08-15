@@ -1,0 +1,78 @@
+name: EvalHub FE PR CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    branches:
+      - develop
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  IS_PIPELINE: "true"
+  TEMPLATE_TYPE: app
+  PROJECT_NAME: ds-service-evalhub-fe
+  PIPELINE_NAME: ds-service-evalhub-fe
+
+jobs:
+  ci-preflight:
+    name: CI Preflight
+    runs-on:
+      - garm
+      - dlas1
+      - vm
+      - linux
+      - mega
+
+    steps:
+      - name: Update Quark Foundry packages
+        run: fnd update
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      # Keep this if your runner/repo needs UKG WIF/GSM auth.
+      - name: WIF GSM auth
+        uses: UKGEPIC/sl-actions/gcp-util/svc-wif-gsm-foundry@v0+svc-wif-gsm-foundry
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Show npm registry
+        run: npm config get registry
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint:ci
+
+      # Your current "test" script already runs `npm run build` first.
+      - name: Run tests
+        run: npm test
+        env:
+          NEXT_PUBLIC_EVAL_API_URL: ${{ vars.NEXT_PUBLIC_EVAL_API_URL_DEV }}
+          NEXT_PUBLIC_GITHUB_MANIFEST_BASE_URL: ${{ vars.NEXT_PUBLIC_GITHUB_MANIFEST_BASE_URL }}
+
+      - name: Report succeeded status to Quark
+        if: ${{ success() }}
+        run: fnd tanagra:status:report --pipeline_status=SUCCEEDED
+
+      - name: Report failed status to Quark
+        if: ${{ failure() || cancelled() }}
+        run: fnd tanagra:status:report --pipeline_status=FAILED
