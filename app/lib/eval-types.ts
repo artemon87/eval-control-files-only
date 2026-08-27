@@ -104,6 +104,7 @@ export interface EvalCase {
   responseText: string;
   explanation: string;
   scores?: Record<string, number>;
+  thresholds?: Record<string, number>;
   toolCalls?: ToolCall[];
   skillVersion?: string;
   bsaVersion?: string;

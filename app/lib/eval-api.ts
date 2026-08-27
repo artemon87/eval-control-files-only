@@ -79,6 +79,7 @@ interface UnitApiCase {
   test_type: string;
   verdict: string;
   scores?: Record<string, number> | null;
+  thresholds?: Record<string, number> | null;
   score_explanations?: Record<string, string> | null;
   tool_calls?: Array<{
     name: string;
@@ -505,6 +506,8 @@ export class EvalApi {
     return page.items.map((item) => {
       const mappedScores = item.scores ?? {};
       const scores = Object.values(mappedScores);
+      const mappedThresholds = item.thresholds ?? {};
+      const thresholds = Object.values(mappedThresholds);
       return {
         caseId: item.case_id,
         testName: item.test_name,
@@ -516,13 +519,17 @@ export class EvalApi {
         score: scores.length
           ? scores.reduce((sum, value) => sum + value, 0) / scores.length
           : 0,
-        threshold: 4,
+        threshold: thresholds.length
+          ? thresholds.reduce((sum, value) => sum + value, 0) /
+            thresholds.length
+          : 0,
         responseTimeMs: 0,
         input: item.prompt ?? item.test_name,
         responseText: item.response ?? "",
         explanation:
           "Each unit metric is gated independently; inspect the metric scores and tool calls below.",
         scores: mappedScores,
+        thresholds: mappedThresholds,
         toolCalls: mapToolCalls(item.tool_calls),
         skillVersion: item.skill_version ?? undefined,
         bsaVersion: item.bsa_version ?? undefined,

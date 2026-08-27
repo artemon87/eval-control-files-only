@@ -1475,10 +1475,9 @@ button {
 .history-controls {
   padding: 15px 17px;
   display: grid;
-  grid-template-columns: minmax(210px, 1fr) minmax(155px, 0.7fr) minmax(
-      220px,
-      1fr
-    ) auto;
+  grid-template-columns:
+    minmax(210px, 1fr) minmax(155px, 0.7fr) minmax(220px, 1fr)
+    auto;
   gap: 12px;
   align-items: end;
 }
@@ -3164,4 +3163,79 @@ button {
 .test-trend-action {
   padding: 6px 8px;
   white-space: nowrap;
+}
+.metric-gate-tags {
+  display: flex;
+  min-width: 150px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.metric-gate-tag {
+  display: inline-flex;
+  max-width: 230px;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border: 1px solid #dfe7eb;
+  border-radius: 999px;
+  background: #f5f8fa;
+  color: #617587;
+  font-size: 8px;
+  line-height: 1.2;
+}
+.metric-gate-tag span {
+  overflow-wrap: anywhere;
+}
+.metric-gate-tag b {
+  font-size: 10px;
+}
+.metric-gate-tag strong {
+  margin-left: auto;
+  font-size: 9px;
+}
+.metric-gate-tag--pass {
+  border-color: #b9dfd5;
+  background: #edf9f5;
+  color: #167b69;
+}
+.metric-gate-tag--fail {
+  border-color: #efc3c8;
+  background: #fff3f4;
+  color: #b5414e;
+}
+.metric-gate-tag--unknown {
+  border-color: #dfe7eb;
+  background: #f5f8fa;
+  color: #718394;
+}
+.metric-gate-tags--threshold .metric-gate-tag span {
+  color: inherit;
+  opacity: 0.82;
+}
+.metric-gate-empty {
+  color: #8797a5;
+  font-size: 8px;
+}
+.metric-result-gate {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.metric-result-gate em {
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: #eef3f5;
+  color: #6f8192;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 700;
+}
+.metric-result--pass .metric-result-gate em {
+  background: #e8f7f2;
+  color: #167b69;
+}
+.metric-result--fail .metric-result-gate em {
+  background: #fff0f2;
+  color: #b5414e;
 }

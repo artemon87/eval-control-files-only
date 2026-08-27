@@ -124,6 +124,61 @@ function StatusBadge({ verdict }: { verdict: Verdict }) {
   );
 }
 
+function MetricGateTags({
+  scores,
+  thresholds,
+  column,
+}: {
+  scores: Record<string, number>;
+  thresholds?: Record<string, number>;
+  column: "score" | "threshold";
+}) {
+  const entries = Object.entries(scores);
+  if (!entries.length) {
+    return <span className="metric-gate-empty">No metrics recorded</span>;
+  }
+  return (
+    <div className={`metric-gate-tags metric-gate-tags--${column}`}>
+      {entries.map(([metric, score]) => {
+        const threshold = thresholds?.[metric];
+        const hasThreshold = typeof threshold === "number";
+        const passed = hasThreshold ? score >= threshold : undefined;
+        const state =
+          passed === undefined ? "unknown" : passed ? "pass" : "fail";
+        const readableMetric = metric.replaceAll("_", " ");
+        const detail = hasThreshold
+          ? `${readableMetric}: ${score.toFixed(1)} ${passed ? "meets" : "is below"} the ${threshold.toFixed(1)} threshold`
+          : `${readableMetric}: threshold not recorded`;
+
+        return (
+          <span
+            className={`metric-gate-tag metric-gate-tag--${state}`}
+            title={detail}
+            key={metric}
+          >
+            {column === "score" ? (
+              <>
+                <b aria-hidden="true">
+                  {passed === undefined ? "?" : passed ? "✓" : "×"}
+                </b>
+                <span>{readableMetric}</span>
+                <strong>{score.toFixed(1)}</strong>
+              </>
+            ) : hasThreshold ? (
+              <>
+                <span>requires</span>
+                <strong>≥ {threshold.toFixed(1)}</strong>
+              </>
+            ) : (
+              <span>not recorded</span>
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function effectiveRunVerdict(run: EvalRun): Verdict {
   return run.executionStatus === "error" ? "blocked" : run.verdict;
 }
@@ -1932,10 +1987,11 @@ function RunSummary({
                     </td>
                     <td>
                       {item.scores ? (
-                        <strong className="score">
-                          {Object.keys(item.scores).length} metric
-                          {Object.keys(item.scores).length === 1 ? "" : "s"}
-                        </strong>
+                        <MetricGateTags
+                          scores={item.scores}
+                          thresholds={item.thresholds}
+                          column="score"
+                        />
                       ) : (
                         <strong
                           className={
@@ -1947,7 +2003,15 @@ function RunSummary({
                       )}
                     </td>
                     <td>
-                      {item.scores ? "Per metric" : item.threshold.toFixed(1)}
+                      {item.scores ? (
+                        <MetricGateTags
+                          scores={item.scores}
+                          thresholds={item.thresholds}
+                          column="threshold"
+                        />
+                      ) : (
+                        item.threshold.toFixed(1)
+                      )}
                     </td>
                     <td>
                       {item.durationMs || item.responseTimeMs
@@ -2146,6 +2210,7 @@ function CaseDrawer({
           {item.scores && (
             <ScoreBreakdown
               scores={item.scores}
+              thresholds={item.thresholds}
               explanations={item.scoreExplanations}
               failed={item.verdict === "failed"}
             />
@@ -2246,10 +2311,12 @@ function ToolCallList({ calls }: { calls: EvalCase["toolCalls"] }) {
 
 function ScoreBreakdown({
   scores,
+  thresholds,
   explanations,
   failed,
 }: {
   scores: Record<string, number>;
+  thresholds?: Record<string, number>;
   explanations?: Record<string, string>;
   failed: boolean;
 }) {
@@ -2258,15 +2325,39 @@ function ScoreBreakdown({
       className={`score-breakdown ${failed ? "score-breakdown--failed" : ""}`}
     >
       <h3>Metric results</h3>
-      {Object.entries(scores).map(([metric, score]) => (
-        <article key={metric}>
-          <div>
-            <strong>{metric.replaceAll("_", " ")}</strong>
-            <b>{score.toFixed(1)}</b>
-          </div>
-          {explanations?.[metric] && <p>{explanations[metric]}</p>}
-        </article>
-      ))}
+      {Object.entries(scores).map(([metric, score]) => {
+        const threshold = thresholds?.[metric];
+        const hasThreshold = typeof threshold === "number";
+        const passed = hasThreshold ? score >= threshold : undefined;
+        return (
+          <article
+            className={
+              passed === undefined
+                ? "metric-result--unknown"
+                : passed
+                  ? "metric-result--pass"
+                  : "metric-result--fail"
+            }
+            key={metric}
+          >
+            <div>
+              <strong>{metric.replaceAll("_", " ")}</strong>
+              <span className="metric-result-gate">
+                <b>{score.toFixed(1)}</b>
+                {hasThreshold ? (
+                  <em>
+                    {passed ? "Passed" : "Failed"} · threshold{" "}
+                    {threshold.toFixed(1)}
+                  </em>
+                ) : (
+                  <em>Threshold not recorded</em>
+                )}
+              </span>
+            </div>
+            {explanations?.[metric] && <p>{explanations[metric]}</p>}
+          </article>
+        );
+      })}
     </section>
   );
 }
