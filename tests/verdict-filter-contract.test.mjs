@@ -17,9 +17,18 @@ test("supports normalized blocked and XPASS verdicts", async () => {
 });
 
 test("exposes schema-backed advanced run filters", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
 
-  for (const label of ["Execution status", "Stage / environment", "Trigger", "Actor", "Started"]) {
+  for (const label of [
+    "Execution status",
+    "Stage / environment",
+    "Trigger",
+    "Actor",
+    "Started",
+  ]) {
     assert.match(page, new RegExp(`>${label}<`));
   }
   assert.match(page, /Clear advanced filters/);
@@ -31,7 +40,10 @@ test("loads isolated skill and case trends on demand", async () => {
     readFile(new URL("../app/lib/eval-api.ts", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /View this case over time/);
+  assert.match(
+    page,
+    /View this \{run\.evalType === "unit" \? "test" : "case"\} over time/,
+  );
   assert.match(page, /View trend/);
   assert.match(page, /api\.listTrend\(request, null, 30/);
   assert.match(api, /\/e2e\/trends\/cases/);
@@ -41,36 +53,73 @@ test("loads isolated skill and case trends on demand", async () => {
 });
 
 test("never substitutes operational demo data", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
 
-  assert.doesNotMatch(page, /demoDrilldownTrend|eval-data|eval-history|deterministic demo/i);
+  assert.doesNotMatch(
+    page,
+    /demoDrilldownTrend|eval-data|eval-history|deterministic demo/i,
+  );
   assert.doesNotMatch(page, /RecordExample|e2e-97a0f7b810|unit-fc82d1a640/);
   assert.match(page, /setRuns\(\[\]\)/);
   assert.match(page, /no dashboard data is being substituted/);
-  await assert.rejects(readFile(new URL("../app/lib/eval-data.ts", import.meta.url), "utf8"));
-  await assert.rejects(readFile(new URL("../app/lib/eval-history.ts", import.meta.url), "utf8"));
+  await assert.rejects(
+    readFile(new URL("../app/lib/eval-data.ts", import.meta.url), "utf8"),
+  );
+  await assert.rejects(
+    readFile(new URL("../app/lib/eval-history.ts", import.meta.url), "utf8"),
+  );
 });
 
 test("applies the selected Evaluation History time window", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
 
-  assert.match(page, /const rangeDays: 7 \| 30 \| 90 =[\s\S]*?range === "7d"[\s\S]*?range === "30d"/);
+  assert.match(
+    page,
+    /const rangeDays: 7 \| 30 \| 90 =[\s\S]*?range === "7d"[\s\S]*?range === "30d"/,
+  );
   assert.match(page, /timestamp >= rangeStart && timestamp <= referenceTime/);
-  assert.match(page, /e2eSource\.filter\([\s\S]*?inRange\(point\.startedAt\)[\s\S]*?point\.stage === stage/);
-  assert.match(page, /unitSource[\s\S]*?\.filter\([\s\S]*?inRange\(point\.startedAt\)/);
+  assert.match(
+    page,
+    /e2eSource\.filter\([\s\S]*?inRange\(point\.startedAt\)[\s\S]*?point\.stage === stage/,
+  );
+  assert.match(
+    page,
+    /unitSource[\s\S]*?\.filter\([\s\S]*?inRange\(point\.startedAt\)/,
+  );
   assert.match(page, /const x = \(startedAt: string\)/);
-  assert.match(page, /windowDays=\{rangeDays\}[\s\S]*?windowEnd=\{referenceTime\}/);
-  assert.match(page, /No historical runs in the selected \{rangeDays\}-day window/);
+  assert.match(
+    page,
+    /windowDays=\{rangeDays\}[\s\S]*?windowEnd=\{referenceTime\}/,
+  );
+  assert.match(
+    page,
+    /No historical runs in the selected \{rangeDays\}-day window/,
+  );
 });
 
 test("lets users toggle chart percentage annotations", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
 
   assert.match(page, /overviewShowPercentLabels/);
   assert.match(page, /showPercentLabels=\{overviewShowPercentLabels\}/);
-  assert.match(page, /const \[showPercentLabels, setShowPercentLabels\] = useState\(false\)/);
+  assert.match(
+    page,
+    /const \[showPercentLabels, setShowPercentLabels\] = useState\(false\)/,
+  );
   assert.match(page, /showPercentLabels=\{showPercentLabels\}/);
   assert.ok((page.match(/Show % labels/g) ?? []).length >= 2);
   assert.match(page, /showPercentLabels &&[\s\S]*?visibleTypes\.flatMap/);
-  assert.match(page, /\{showPercentLabels &&[\s\S]*?<text[\s\S]*?className="point-value"/);
+  assert.match(
+    page,
+    /\{showPercentLabels &&[\s\S]*?<text[\s\S]*?className="point-value"/,
+  );
 });

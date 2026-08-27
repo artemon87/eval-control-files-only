@@ -1,7 +1,7 @@
 export type EvalType = "e2e" | "unit";
 export type Trigger = "ui" | "cli" | "ci" | "schedule" | string;
 export type ExecutionStatus =
-  "queued" | "running" | "completed" | "error" | "cancelled";
+  "queued" | "running" | "completed" | "blocked" | "error" | "cancelled";
 export type Verdict = "passed" | "failed" | "blocked" | "pending" | "xpassed";
 export type CaseVerdict = "passed" | "failed" | "blocked" | "error" | "xpassed";
 

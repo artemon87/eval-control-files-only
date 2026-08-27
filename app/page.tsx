@@ -16,13 +16,14 @@ import type {
 
 type View = "overview" | "runs" | "history" | "compare" | "schema";
 
-type DrilldownTrendKind = "skill" | "case";
+type DrilldownTrendKind = "skill" | "case" | "metric";
 
 type DrilldownTrendRequest = {
   kind: DrilldownTrendKind;
   evalType: EvalType;
   skill: string;
   caseId?: string;
+  metric?: string;
   stage: string;
   target: string;
   environment: string;
@@ -379,18 +380,29 @@ function summarizeCases(run: EvalRun, items: EvalCase[]): SuiteSummary[] {
     run.evalType === "unit" &&
     cases.some((item) => item.scores && Object.keys(item.scores).length)
   ) {
-    const metrics = new Map<string, number[]>();
+    const metrics = new Map<
+      string,
+      Array<{ score: number; verdict: EvalCase["verdict"] }>
+    >();
     cases.forEach((item) =>
       Object.entries(item.scores ?? {}).forEach(([name, score]) =>
-        metrics.set(name, [...(metrics.get(name) ?? []), score]),
+        metrics.set(name, [
+          ...(metrics.get(name) ?? []),
+          { score, verdict: item.verdict },
+        ]),
       ),
     );
-    return Array.from(metrics.entries()).map(([name, scores]) => ({
+    return Array.from(metrics.entries()).map(([name, results]) => ({
       name,
-      total: scores.length,
-      passed: scores.filter((score) => score >= 4).length,
-      failed: scores.filter((score) => score < 4).length,
-      meanScore: scores.reduce((sum, score) => sum + score, 0) / scores.length,
+      total: results.length,
+      passed: results.filter(
+        (result) => result.verdict === "passed" || result.verdict === "xpassed",
+      ).length,
+      failed: results.filter(
+        (result) => result.verdict !== "passed" && result.verdict !== "xpassed",
+      ).length,
+      meanScore:
+        results.reduce((sum, result) => sum + result.score, 0) / results.length,
     }));
   }
   const groups = new Map<string, EvalCase[]>();
@@ -416,12 +428,14 @@ function drilldownRequest(
   kind: DrilldownTrendKind,
   skill: string,
   caseId?: string,
+  metric?: string,
 ): DrilldownTrendRequest {
   return {
     kind,
     evalType: run.evalType,
     skill,
     caseId,
+    metric,
     stage: run.stage,
     target: run.target,
     environment: run.unitConfig?.bsaEnvironment ?? run.stage,
@@ -1629,6 +1643,13 @@ function RunSummary({
   const scope = runScope(run);
   const scopedCases = cases.filter((item) => item.runId === run.runId);
   const suites = summarizeCases(run, scopedCases);
+  const unitMetricValues = scopedCases.flatMap((item) =>
+    Object.values(item.scores ?? {}),
+  );
+  const unitMeanScore = unitMetricValues.length
+    ? unitMetricValues.reduce((sum, score) => sum + score, 0) /
+      unitMetricValues.length
+    : run.summary.meanScore;
   const manifestUrl = run.evalType === "e2e" ? run.manifestUrl : undefined;
   return (
     <>
@@ -1761,8 +1782,14 @@ function RunSummary({
             <span>
               <small>Pass rate</small>
               <strong>
-                {run.summary.passRatePct || "—"}
-                {run.summary.passRatePct ? "%" : ""}
+                {run.evalType === "unit" ? (
+                  `${run.summary.passRatePct.toFixed(run.summary.passRatePct % 1 ? 1 : 0)}%`
+                ) : (
+                  <>
+                    {run.summary.passRatePct || "—"}
+                    {run.summary.passRatePct ? "%" : ""}
+                  </>
+                )}
               </strong>
               {run.evalType === "e2e" && (
                 <em>
@@ -1773,7 +1800,11 @@ function RunSummary({
             </span>
             <span>
               <small>Mean score</small>
-              <strong>{run.summary.meanScore || "—"}</strong>
+              <strong>
+                {run.evalType === "unit"
+                  ? unitMeanScore.toFixed(2)
+                  : run.summary.meanScore || "—"}
+              </strong>
             </span>
             <span>
               <small>Cases</small>
@@ -1827,15 +1858,17 @@ function RunSummary({
                     onTrend(
                       drilldownRequest(
                         run,
-                        "skill",
+                        run.evalType === "unit" ? "metric" : "skill",
                         run.evalType === "unit"
                           ? (run.unitConfig?.skillId ?? run.target)
                           : suite.name,
+                        undefined,
+                        run.evalType === "unit" ? suite.name : undefined,
                       ),
                     )
                   }
                 >
-                  View trend
+                  {run.evalType === "unit" ? "Metric trend" : "View trend"}
                 </button>
               </div>
             ))
@@ -1877,11 +1910,16 @@ function RunSummary({
                       <small>
                         <span title="Role or test type used to exercise this case">
                           {item.role}
-                        </span>{" "}
-                        ·{" "}
-                        <span title="Conversation-depth tier; higher tiers represent deeper or more complex flows">
-                          tier {item.tier ?? "—"}
                         </span>
+                        {run.evalType === "e2e" && (
+                          <>
+                            {" "}
+                            ·{" "}
+                            <span title="Conversation-depth tier; higher tiers represent deeper or more complex flows">
+                              tier {item.tier ?? "—"}
+                            </span>
+                          </>
+                        )}
                       </small>
                     </td>
                     <td>{item.suite}</td>
@@ -1917,12 +1955,33 @@ function RunSummary({
                         : "—"}
                     </td>
                     <td>
-                      <button
-                        className="row-arrow"
-                        aria-label={`Open ${item.caseId}`}
-                      >
-                        ›
-                      </button>
+                      {run.evalType === "unit" ? (
+                        <button
+                          className="trend-action test-trend-action"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onTrend(
+                              drilldownRequest(
+                                run,
+                                "case",
+                                run.unitConfig?.skillId ?? run.target,
+                                item.caseId,
+                              ),
+                            );
+                          }}
+                        >
+                          Test trend
+                        </button>
+                      ) : (
+                        <button
+                          className="row-arrow"
+                          aria-label={`Open ${item.caseId}`}
+                        >
+                          ›
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1993,7 +2052,7 @@ function CaseDrawer({
               )
             }
           >
-            ↗ View this case over time
+            ↗ View this {run.evalType === "unit" ? "test" : "case"} over time
           </button>
           <div className="case-summary">
             <StatusBadge
@@ -2028,7 +2087,9 @@ function CaseDrawer({
               </span>
             </div>
           )}
-          <dl className="meta-grid">
+          <dl
+            className={`meta-grid ${run.evalType === "unit" ? "meta-grid--unit" : ""}`}
+          >
             <div>
               <dt>Suite</dt>
               <dd>{item.suite}</dd>
@@ -2037,10 +2098,12 @@ function CaseDrawer({
               <dt>Role / type</dt>
               <dd>{item.role}</dd>
             </div>
-            <div>
-              <dt>Tier</dt>
-              <dd>{item.tier ?? "—"}</dd>
-            </div>
+            {run.evalType === "e2e" && (
+              <div>
+                <dt>Tier</dt>
+                <dd>{item.tier ?? "—"}</dd>
+              </div>
+            )}
             <div>
               <dt>Skill</dt>
               <dd>{item.skill}</dd>
@@ -2094,17 +2157,42 @@ function CaseDrawer({
               tone={item.verdict === "failed" ? "danger" : "default"}
             />
           )}
-          {item.expectedTrajectory != null && (
-            <EvidenceBlock
-              title="Expected trajectory"
-              content={formatEvidence(item.expectedTrajectory)}
-            />
-          )}
-          {item.predictedTrajectory != null && (
-            <EvidenceBlock
-              title="Observed trajectory"
-              content={formatEvidence(item.predictedTrajectory)}
-            />
+          {run.evalType === "unit" ? (
+            <>
+              <EvidenceBlock
+                title="Expected trajectory"
+                content={
+                  item.expectedTrajectory == null
+                    ? "Not recorded"
+                    : formatEvidence(item.expectedTrajectory)
+                }
+                tone={item.expectedTrajectory == null ? "muted" : "default"}
+              />
+              <EvidenceBlock
+                title="Predicted trajectory"
+                content={
+                  item.predictedTrajectory == null
+                    ? "Not recorded"
+                    : formatEvidence(item.predictedTrajectory)
+                }
+                tone={item.predictedTrajectory == null ? "muted" : "default"}
+              />
+            </>
+          ) : (
+            <>
+              {item.expectedTrajectory != null && (
+                <EvidenceBlock
+                  title="Expected trajectory"
+                  content={formatEvidence(item.expectedTrajectory)}
+                />
+              )}
+              {item.predictedTrajectory != null && (
+                <EvidenceBlock
+                  title="Observed trajectory"
+                  content={formatEvidence(item.predictedTrajectory)}
+                />
+              )}
+            </>
           )}
           {!item.scoreExplanations && item.explanation && (
             <EvidenceBlock
@@ -2414,7 +2502,20 @@ function DrilldownTrendDrawer({
   const nonPasses = points.filter(
     (point) => point.verdict !== "passed" && point.verdict !== "xpassed",
   ).length;
-  const title = request.kind === "case" ? request.caseId : request.skill;
+  const title =
+    request.kind === "case"
+      ? (request.caseId ?? request.skill)
+      : request.kind === "metric"
+        ? (request.metric ?? request.skill)
+        : request.skill;
+  const trendLabel =
+    request.kind === "metric"
+      ? "Metric trend"
+      : request.kind === "case" && request.evalType === "unit"
+        ? "Test trend"
+        : request.kind === "case"
+          ? "Case history"
+          : "Skill trend";
   return (
     <div
       className="drawer-layer"
@@ -2430,9 +2531,7 @@ function DrilldownTrendDrawer({
       <aside className="case-drawer trend-drawer">
         <header>
           <div>
-            <span className="eyebrow">
-              {request.kind === "case" ? "Case history" : "Skill trend"}
-            </span>
+            <span className="eyebrow">{trendLabel}</span>
             <h2>{title}</h2>
             <p>
               <TypeBadge type={request.evalType} />{" "}
@@ -2488,7 +2587,11 @@ function DrilldownTrendDrawer({
                       Matching{" "}
                       {request.evalType === "e2e"
                         ? "stage, target and suite"
-                        : "environment and skill"}
+                        : request.kind === "metric"
+                          ? "environment, skill and metric"
+                          : request.kind === "case"
+                            ? "environment, skill and test"
+                            : "environment and skill"}
                       ; points open the source run.
                     </p>
                   </div>

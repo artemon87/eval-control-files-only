@@ -77,7 +77,6 @@ interface UnitApiCase {
   skill: string;
   test_name: string;
   test_type: string;
-  tier?: number | null;
   verdict: string;
   scores?: Record<string, number> | null;
   score_explanations?: Record<string, string> | null;
@@ -141,10 +140,11 @@ interface ApiTrendPoint {
 }
 
 export interface TrendQuery {
-  kind: "skill" | "case";
+  kind: "skill" | "case" | "metric";
   evalType: EvalType;
   skill: string;
   caseId?: string;
+  metric?: string;
   stage: string;
   target: string;
   environment: string;
@@ -240,7 +240,7 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
     target: skill,
     executionStatus: run.execution_status,
     verdict:
-      run.execution_status === "error"
+      run.execution_status === "error" || run.execution_status === "blocked"
         ? "blocked"
         : normalizeVerdict(run.verdict),
     startedAt: run.started_at ?? run.created_at ?? "1970-01-01T00:00:00.000Z",
@@ -443,6 +443,9 @@ export class EvalApi {
         params.set("skill", query.skill);
         path = `/unit/trends/cases/${encodeURIComponent(query.caseId ?? "")}`;
       } else {
+        if (query.kind === "metric" && query.metric) {
+          params.set("metric", query.metric);
+        }
         path = `/unit/trends/skills/${encodeURIComponent(query.skill)}`;
       }
     }
@@ -509,7 +512,6 @@ export class EvalApi {
         suite: item.skill,
         skill: item.skill,
         role: item.test_type,
-        tier: item.tier ?? undefined,
         verdict: normalizeCaseVerdict(item.verdict),
         score: scores.length
           ? scores.reduce((sum, value) => sum + value, 0) / scores.length
