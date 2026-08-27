@@ -1,4 +1,12 @@
-import type { CaseVerdict, EvalCase, EvalRun, EvalType, ExecutionStatus, Verdict } from "./eval-types";
+import type {
+  CaseVerdict,
+  EvalCase,
+  EvalRun,
+  EvalType,
+  ExecutionStatus,
+  ToolCall,
+  Verdict,
+} from "./eval-types";
 
 export interface Page<T> {
   items: T[];
@@ -11,6 +19,7 @@ interface ApiSummary {
   failed: number;
   pass_rate_pct: number;
   mean_score?: number | null;
+  by_tier?: Record<string, unknown> | null;
 }
 
 interface BaseApiRun {
@@ -25,6 +34,11 @@ interface BaseApiRun {
   trigger?: string | null;
   actor?: string | null;
   git_sha?: string | null;
+  git_ref?: string | null;
+  github_run_id?: string | number | null;
+  github_run_attempt?: number | null;
+  github_repository?: string | null;
+  github_event?: string | null;
   manifest_url?: string | null;
   github_run_url?: string | null;
   github_job_url?: string | null;
@@ -36,12 +50,12 @@ interface UnitApiRun extends BaseApiRun {
   skill: string;
   environment: string;
   unit_config: {
-    skill_ids: [string];
+    skill_ids?: string[];
     mode?: string | null;
     metrics?: string[];
-    bsa_environment: string;
-    bsa_version: string;
-    skill_version: string;
+    bsa_environment?: string | null;
+    bsa_version?: string | null;
+    skill_version?: string | null;
   };
 }
 
@@ -65,12 +79,36 @@ interface UnitApiCase {
   test_type: string;
   tier?: number | null;
   verdict: string;
-  scores: Record<string, number>;
-  tool_calls: Array<{ name: string; parameters: Record<string, unknown>; tool_call_id?: string }>;
+  scores?: Record<string, number> | null;
+  score_explanations?: Record<string, string> | null;
+  tool_calls?: Array<{
+    name: string;
+    parameters: Record<string, unknown>;
+    tool_call_id?: string;
+  }> | null;
+  validation_result?: unknown;
+  prompt?: string | null;
+  expected_response?: string | null;
+  expected_trajectory?: unknown;
+  predicted_trajectory?: unknown;
+  turns?: Array<{
+    turn_number: number;
+    tool_calls?: Array<{
+      name: string;
+      parameters: Record<string, unknown>;
+      tool_call_id?: string;
+    }> | null;
+    response?: string | null;
+    validation_result?: unknown;
+    genai_scores?: Record<string, number> | null;
+  }> | null;
   response?: string | null;
   error?: string | null;
-  skill_version: string;
-  bsa_version: string;
+  skill_version?: string | null;
+  bsa_version?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_ms?: number | null;
 }
 
 interface E2EApiCase {
@@ -174,7 +212,22 @@ function summary(value: ApiSummary) {
     passRatePct: value.pass_rate_pct,
     meanScore: numberOrZero(value.mean_score),
     p95ResponseTimeMs: 0,
+    byTier: value.by_tier ?? null,
   };
+}
+
+function mapToolCalls(
+  calls?: Array<{
+    name: string;
+    parameters: Record<string, unknown>;
+    tool_call_id?: string;
+  }> | null,
+): ToolCall[] {
+  return (calls ?? []).map((call) => ({
+    name: call.name,
+    parameters: call.parameters ?? {},
+    toolCallId: call.tool_call_id,
+  }));
 }
 
 function mapUnitRun(run: UnitApiRun): EvalRun {
@@ -186,29 +239,46 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
     stage: run.environment,
     target: skill,
     executionStatus: run.execution_status,
-    verdict: run.execution_status === "error" ? "blocked" : normalizeVerdict(run.verdict),
+    verdict:
+      run.execution_status === "error"
+        ? "blocked"
+        : normalizeVerdict(run.verdict),
     startedAt: run.started_at ?? run.created_at ?? "1970-01-01T00:00:00.000Z",
+    createdAt: run.created_at ?? undefined,
     completedAt: run.finished_at ?? undefined,
     durationMs: run.duration_ms ?? undefined,
     trigger: run.trigger ?? "unknown",
     actor: run.actor ?? "unknown",
     gitSha: run.git_sha ?? undefined,
+    gitRef: run.git_ref ?? undefined,
+    githubRunId:
+      run.github_run_id != null ? String(run.github_run_id) : undefined,
+    githubRunAttempt: run.github_run_attempt ?? undefined,
+    githubRepository: run.github_repository ?? undefined,
+    githubEvent: run.github_event ?? undefined,
     manifestUrl: run.manifest_url ?? undefined,
     githubRunUrl: run.github_run_url ?? undefined,
     githubJobUrl: run.github_job_url ?? undefined,
     policyVersion: "unit",
-    datasetVersion: `${skill}@${run.unit_config.skill_version}`,
+    datasetVersion: `${skill}@${run.unit_config.skill_version ?? "unknown"}`,
     unitConfig: {
       kind: "skill-eval",
       skillId: skill,
-      skillVersion: run.unit_config.skill_version,
-      bsaEnvironment: run.unit_config.bsa_environment,
-      bsaVersion: run.unit_config.bsa_version,
-      mode: (run.unit_config.mode ?? "all") as "all" | "single-turn" | "multi-turn",
+      skillVersion: run.unit_config.skill_version ?? "unknown",
+      bsaEnvironment: run.unit_config.bsa_environment ?? run.environment,
+      bsaVersion: run.unit_config.bsa_version ?? "unknown",
+      mode: (run.unit_config.mode ?? "all") as
+        "all" | "single-turn" | "multi-turn",
       metrics: run.unit_config.metrics ?? [],
     },
     summary: summary(run.summary),
-    suites: [{ name: skill, ...summary(run.summary), meanScore: numberOrZero(run.summary.mean_score) }],
+    suites: [
+      {
+        name: skill,
+        ...summary(run.summary),
+        meanScore: numberOrZero(run.summary.mean_score),
+      },
+    ],
   };
 }
 
@@ -220,13 +290,23 @@ function mapE2ERun(run: E2EApiRun): EvalRun {
     stage: run.stage,
     target: run.target,
     executionStatus: run.execution_status,
-    verdict: run.execution_status === "error" ? "blocked" : normalizeVerdict(run.verdict),
+    verdict:
+      run.execution_status === "error"
+        ? "blocked"
+        : normalizeVerdict(run.verdict),
     startedAt: run.started_at ?? run.created_at ?? "1970-01-01T00:00:00.000Z",
+    createdAt: run.created_at ?? undefined,
     completedAt: run.finished_at ?? undefined,
     durationMs: run.duration_ms ?? undefined,
     trigger: run.trigger ?? "unknown",
     actor: run.actor ?? "unknown",
     gitSha: run.git_sha ?? undefined,
+    gitRef: run.git_ref ?? undefined,
+    githubRunId:
+      run.github_run_id != null ? String(run.github_run_id) : undefined,
+    githubRunAttempt: run.github_run_attempt ?? undefined,
+    githubRepository: run.github_repository ?? undefined,
+    githubEvent: run.github_event ?? undefined,
     manifestUrl: run.manifest_url ?? undefined,
     githubRunUrl: run.github_run_url ?? undefined,
     githubJobUrl: run.github_job_url ?? undefined,
@@ -258,17 +338,25 @@ export class EvalApi {
     const abortFromCaller = () => controller.abort(signal?.reason);
     if (signal?.aborted) abortFromCaller();
     else signal?.addEventListener("abort", abortFromCaller, { once: true });
-    const timeout = setTimeout(() => controller.abort("request-timeout"), 15_000);
+    const timeout = setTimeout(
+      () => controller.abort("request-timeout"),
+      15_000,
+    );
 
     try {
-      const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}${path}`, {
-        headers: { Accept: "application/json" },
-        credentials: "same-origin",
-        signal: controller.signal,
-      });
+      const response = await fetch(
+        `${this.baseUrl.replace(/\/$/, "")}${path}`,
+        {
+          headers: { Accept: "application/json" },
+          credentials: "same-origin",
+          signal: controller.signal,
+        },
+      );
       if (!response.ok) {
         const detail = await response.text().catch(() => "");
-        throw new Error(`Eval API ${response.status}: ${detail || response.statusText}`);
+        throw new Error(
+          `Eval API ${response.status}: ${detail || response.statusText}`,
+        );
       }
       return response.json() as Promise<T>;
     } catch (error) {
@@ -289,14 +377,30 @@ export class EvalApi {
   ): Promise<RunBatch> {
     const loadUnit = cursors?.unit !== null;
     const loadE2E = cursors?.e2e !== null;
-    const query = (cursor: string | undefined) => `?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const query = (cursor: string | undefined) =>
+      `?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
     const [unit, e2e] = await Promise.all([
-      loadUnit ? this.request<Page<UnitApiRun>>(`/unit/runs${query(cursors?.unit ?? undefined)}`, signal) : Promise.resolve({ items: [], next_cursor: null }),
-      loadE2E ? this.request<Page<E2EApiRun>>(`/e2e/runs${query(cursors?.e2e ?? undefined)}`, signal) : Promise.resolve({ items: [], next_cursor: null }),
+      loadUnit
+        ? this.request<Page<UnitApiRun>>(
+            `/unit/runs${query(cursors?.unit ?? undefined)}`,
+            signal,
+          )
+        : Promise.resolve({ items: [], next_cursor: null }),
+      loadE2E
+        ? this.request<Page<E2EApiRun>>(
+            `/e2e/runs${query(cursors?.e2e ?? undefined)}`,
+            signal,
+          )
+        : Promise.resolve({ items: [], next_cursor: null }),
     ]);
     return {
-      items: [...unit.items.map(mapUnitRun), ...e2e.items.map(mapE2ERun)].sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
-      nextCursors: { unit: unit.next_cursor ?? null, e2e: e2e.next_cursor ?? null },
+      items: [...unit.items.map(mapUnitRun), ...e2e.items.map(mapE2ERun)].sort(
+        (a, b) => b.startedAt.localeCompare(a.startedAt),
+      ),
+      nextCursors: {
+        unit: unit.next_cursor ?? null,
+        e2e: e2e.next_cursor ?? null,
+      },
     };
   }
 
@@ -304,14 +408,23 @@ export class EvalApi {
     return (await this.listRunBatch(undefined, 50, signal)).items;
   }
 
-  async getRun(evalType: EvalType, runId: string, signal?: AbortSignal): Promise<EvalRun> {
+  async getRun(
+    evalType: EvalType,
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<EvalRun> {
     const path = `/${evalType}/runs/${encodeURIComponent(runId)}`;
     return evalType === "e2e"
       ? mapE2ERun(await this.request<E2EApiRun>(path, signal))
       : mapUnitRun(await this.request<UnitApiRun>(path, signal));
   }
 
-  async listTrend(query: TrendQuery, cursor?: string | null, limit = 30, signal?: AbortSignal): Promise<ApiTrendPage> {
+  async listTrend(
+    query: TrendQuery,
+    cursor?: string | null,
+    limit = 30,
+    signal?: AbortSignal,
+  ): Promise<ApiTrendPage> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (cursor) params.set("cursor", cursor);
     let path: string;
@@ -333,7 +446,10 @@ export class EvalApi {
         path = `/unit/trends/skills/${encodeURIComponent(query.skill)}`;
       }
     }
-    const page = await this.request<Page<ApiTrendPoint>>(`${path}?${params}`, signal);
+    const page = await this.request<Page<ApiTrendPoint>>(
+      `${path}?${params}`,
+      signal,
+    );
     return {
       items: page.items.map((point) => ({
         runId: point.run_id,
@@ -346,7 +462,10 @@ export class EvalApi {
         responseTimeMs: numberOrZero(point.response_time_ms),
         skillVersion: point.skill_version ?? undefined,
         bsaVersion: point.bsa_version ?? undefined,
-        datasetVersion: query.evalType === "e2e" ? `e2e/${query.stage}/${query.target}` : undefined,
+        datasetVersion:
+          query.evalType === "e2e"
+            ? `e2e/${query.stage}/${query.target}`
+            : undefined,
       })),
       nextCursor: page.next_cursor ?? null,
     };
@@ -354,7 +473,10 @@ export class EvalApi {
 
   async listCases(run: EvalRun, signal?: AbortSignal): Promise<EvalCase[]> {
     if (run.evalType === "e2e") {
-      const page = await this.request<Page<E2EApiCase>>(`/e2e/runs/${encodeURIComponent(run.runId)}/cases?limit=200`, signal);
+      const page = await this.request<Page<E2EApiCase>>(
+        `/e2e/runs/${encodeURIComponent(run.runId)}/cases?limit=200`,
+        signal,
+      );
       return page.items.map((item) => ({
         caseId: item.case_id,
         runId: item.run_id,
@@ -373,28 +495,52 @@ export class EvalApi {
         bugRef: item.bug_ref ?? undefined,
       }));
     }
-    const page = await this.request<Page<UnitApiCase>>(`/unit/runs/${encodeURIComponent(run.runId)}/cases?limit=200`, signal);
+    const page = await this.request<Page<UnitApiCase>>(
+      `/unit/runs/${encodeURIComponent(run.runId)}/cases?limit=200`,
+      signal,
+    );
     return page.items.map((item) => {
-      const scores = Object.values(item.scores);
+      const mappedScores = item.scores ?? {};
+      const scores = Object.values(mappedScores);
       return {
         caseId: item.case_id,
+        testName: item.test_name,
         runId: item.run_id,
         suite: item.skill,
         skill: item.skill,
         role: item.test_type,
-        tier: item.tier ?? 0,
+        tier: item.tier ?? undefined,
         verdict: normalizeCaseVerdict(item.verdict),
-        score: scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : 0,
+        score: scores.length
+          ? scores.reduce((sum, value) => sum + value, 0) / scores.length
+          : 0,
         threshold: 4,
         responseTimeMs: 0,
-        input: item.test_name,
+        input: item.prompt ?? item.test_name,
         responseText: item.response ?? "",
-        explanation: "Each unit metric is gated independently; inspect the metric scores and tool calls below.",
-        scores: item.scores,
-        toolCalls: item.tool_calls.map((call) => ({ name: call.name, parameters: call.parameters, toolCallId: call.tool_call_id })),
-        skillVersion: item.skill_version,
-        bsaVersion: item.bsa_version,
+        explanation:
+          "Each unit metric is gated independently; inspect the metric scores and tool calls below.",
+        scores: mappedScores,
+        toolCalls: mapToolCalls(item.tool_calls),
+        skillVersion: item.skill_version ?? undefined,
+        bsaVersion: item.bsa_version ?? undefined,
         error: item.error ?? undefined,
+        expectedResponse: item.expected_response ?? undefined,
+        expectedTrajectory: item.expected_trajectory ?? undefined,
+        predictedTrajectory: item.predicted_trajectory ?? undefined,
+        scoreExplanations: item.score_explanations ?? undefined,
+        validationResult: item.validation_result ?? undefined,
+        turns:
+          item.turns?.map((turn) => ({
+            turnNumber: turn.turn_number,
+            toolCalls: mapToolCalls(turn.tool_calls),
+            response: turn.response ?? "",
+            validationResult: turn.validation_result ?? undefined,
+            scores: turn.genai_scores ?? {},
+          })) ?? undefined,
+        startedAt: item.started_at ?? undefined,
+        finishedAt: item.finished_at ?? undefined,
+        durationMs: item.duration_ms ?? undefined,
       };
     });
   }

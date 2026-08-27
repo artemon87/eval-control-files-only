@@ -1,6 +1,7 @@
 export type EvalType = "e2e" | "unit";
 export type Trigger = "ui" | "cli" | "ci" | "schedule" | string;
-export type ExecutionStatus = "queued" | "running" | "completed" | "error" | "cancelled";
+export type ExecutionStatus =
+  "queued" | "running" | "completed" | "error" | "cancelled";
 export type Verdict = "passed" | "failed" | "blocked" | "pending" | "xpassed";
 export type CaseVerdict = "passed" | "failed" | "blocked" | "error" | "xpassed";
 
@@ -11,6 +12,7 @@ export interface RunSummary {
   passRatePct: number;
   meanScore: number;
   p95ResponseTimeMs: number;
+  byTier?: Record<string, unknown> | null;
 }
 
 export interface SuiteSummary {
@@ -49,11 +51,17 @@ export interface EvalRun {
   executionStatus: ExecutionStatus;
   verdict: Verdict;
   startedAt: string;
+  createdAt?: string;
   completedAt?: string;
   durationMs?: number;
   trigger: Trigger;
   actor: string;
   gitSha?: string;
+  gitRef?: string;
+  githubRunId?: string;
+  githubRunAttempt?: number;
+  githubRepository?: string;
+  githubEvent?: string;
   manifestUrl?: string;
   githubRunUrl?: string;
   githubJobUrl?: string;
@@ -71,13 +79,22 @@ export interface ToolCall {
   toolCallId?: string;
 }
 
+export interface EvalTurn {
+  turnNumber: number;
+  toolCalls: ToolCall[];
+  response: string;
+  validationResult?: unknown;
+  scores: Record<string, number>;
+}
+
 export interface EvalCase {
   caseId: string;
+  testName?: string;
   runId: string;
   suite: string;
   skill: string;
   role: string;
-  tier: number;
+  tier?: number;
   verdict: CaseVerdict;
   score: number;
   threshold: number;
@@ -92,4 +109,13 @@ export interface EvalCase {
   bsaVersion?: string;
   error?: string;
   bugRef?: string;
+  expectedResponse?: string;
+  expectedTrajectory?: unknown;
+  predictedTrajectory?: unknown;
+  scoreExplanations?: Record<string, string>;
+  validationResult?: unknown;
+  turns?: EvalTurn[];
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
 }
