@@ -54,6 +54,9 @@ export interface EvalRun {
   trigger: Trigger;
   actor: string;
   gitSha?: string;
+  manifestUrl?: string;
+  githubRunUrl?: string;
+  githubJobUrl?: string;
   policyVersion: string;
   datasetVersion: string;
   e2eConfig?: E2ERunConfig;

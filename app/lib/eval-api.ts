@@ -25,6 +25,9 @@ interface BaseApiRun {
   trigger?: string | null;
   actor?: string | null;
   git_sha?: string | null;
+  manifest_url?: string | null;
+  github_run_url?: string | null;
+  github_job_url?: string | null;
   summary: ApiSummary;
 }
 
@@ -190,6 +193,9 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
     trigger: run.trigger ?? "unknown",
     actor: run.actor ?? "unknown",
     gitSha: run.git_sha ?? undefined,
+    manifestUrl: run.manifest_url ?? undefined,
+    githubRunUrl: run.github_run_url ?? undefined,
+    githubJobUrl: run.github_job_url ?? undefined,
     policyVersion: "unit",
     datasetVersion: `${skill}@${run.unit_config.skill_version}`,
     unitConfig: {
@@ -221,6 +227,9 @@ function mapE2ERun(run: E2EApiRun): EvalRun {
     trigger: run.trigger ?? "unknown",
     actor: run.actor ?? "unknown",
     gitSha: run.git_sha ?? undefined,
+    manifestUrl: run.manifest_url ?? undefined,
+    githubRunUrl: run.github_run_url ?? undefined,
+    githubJobUrl: run.github_job_url ?? undefined,
     policyVersion: "e2e",
     datasetVersion: `e2e/${run.stage}/${run.target}/target.yaml`,
     e2eConfig: {

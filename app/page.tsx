@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { configuredEvalApi, type EvalApi } from "./lib/eval-api";
 import type { EvalCase, EvalRun, EvalType, ExecutionStatus, SuiteSummary, Verdict } from "./lib/eval-types";
@@ -72,7 +73,11 @@ const e2eSuites = [
 
 function StatusBadge({ verdict }: { verdict: Verdict }) {
   const label = verdict === "xpassed" ? "XPASS" : verdict;
-  const title = verdict === "xpassed" ? "Unexpected pass: this known-bug/expected-failure case passed and should be reviewed" : undefined;
+  const title = verdict === "xpassed"
+    ? "Unexpected pass: this known-bug/expected-failure case passed and should be reviewed."
+    : verdict === "blocked"
+      ? "Blocked: the evaluation could not complete, usually because setup, schema validation, a dependency, or execution failed."
+      : undefined;
   return <span className={`status status--${verdict}`} title={title} aria-label={title ? `${label}: ${title}` : label}><i />{label}</span>;
 }
 
@@ -108,14 +113,6 @@ function formatPassRateThreshold(value?: number) {
   if (value === undefined || value === null) return "Not recorded";
   const percentage = value <= 1 ? value * 100 : value;
   return `${Number.isInteger(percentage) ? percentage.toFixed(0) : percentage.toFixed(1)}%`;
-}
-
-const githubManifestBaseUrl = process.env.NEXT_PUBLIC_GITHUB_MANIFEST_BASE_URL?.trim().replace(/\/+$/, "");
-
-function githubManifestUrl(manifestPath?: string) {
-  if (!githubManifestBaseUrl || !manifestPath) return null;
-  const encodedPath = manifestPath.split("/").map(encodeURIComponent).join("/");
-  return `${githubManifestBaseUrl}/${encodedPath}`;
 }
 
 function runScope(run: EvalRun) {
@@ -540,6 +537,7 @@ export default function Home() {
           <p>Manage</p>
           <button disabled title="Policy management is planned"><span>⌁</span>Policies<b className="nav-soon">soon</b></button>
           <button disabled title="Metric management is planned"><span>✣</span>Custom metrics<b className="nav-soon">soon</b></button>
+          <Link className="nav-link" href="/suggestions"><span>△</span>Suggestions</Link>
         </nav>
         <div className={`sidebar-note sidebar-note--${dataState}`}><span>Data status</span><strong><i /> {dataState === "live" ? "Live API connected" : dataState === "connecting" ? "Connecting to API" : dataState === "error" ? "API unavailable" : "API not configured"}</strong><small>FastAPI · MongoDB · read only</small></div>
         <div className="profile"><span>AK</span><div><strong>Artem Kovtunenko</strong><small>Evaluation operator</small></div><b>•••</b></div>
@@ -597,14 +595,14 @@ function RunSummary({ run, cases, onCase, onHistory, onTrend }: { run: EvalRun; 
   const scope = runScope(run);
   const scopedCases = cases.filter((item) => item.runId === run.runId);
   const suites = summarizeCases(run, scopedCases);
-  const manifestUrl = run.evalType === "e2e" ? githubManifestUrl(run.datasetVersion) : null;
+  const manifestUrl = run.evalType === "e2e" ? run.manifestUrl : undefined;
   return <>
     <div className="detail-grid">
-      <section className="panel run-hero"><div><TypeBadge type={run.evalType} /><StatusBadge verdict={effectiveRunVerdict(run)} /><span className={`execution execution--${run.executionStatus}`}>{run.executionStatus}</span></div><h2>{scope.primary}</h2><p>{scope.secondary} · triggered by <strong>{run.actor}</strong> through {run.trigger.toUpperCase()} · {run.evalType === "e2e" ? <>target manifest {manifestUrl ? <a className="manifest-link" href={manifestUrl} target="_blank" rel="noopener noreferrer">{run.datasetVersion} ↗</a> : <span title="Set NEXT_PUBLIC_GITHUB_MANIFEST_BASE_URL to enable this link">{run.datasetVersion}</span>}</> : `evalset ${run.datasetVersion}`}</p>{run.evalType === "e2e" ? <div className="scope-chips"><span>Live target</span><span>No tool mocks</span><span>{run.e2eConfig?.selectedSuites.length ?? run.suites.length} suites</span><span>Target gate ≥ {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</span><span>Max tier {run.e2eConfig?.maxTier ?? "not recorded"}</span></div> : <div className="scope-chips unit"><span>{run.unitConfig?.mode ?? "all"} turns</span><span>Per-skill mocks</span><span>Tool + response quality</span></div>}<button className="history-link" onClick={() => onHistory(run)}>View {run.evalType === "e2e" ? "target" : "skill"} history →</button><div className="detail-stats"><span><small>Pass rate</small><strong>{run.summary.passRatePct || "—"}{run.summary.passRatePct ? "%" : ""}</strong>{run.evalType === "e2e" && <em>Required: {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</em>}</span><span><small>Mean score</small><strong>{run.summary.meanScore || "—"}</strong></span><span><small>Cases</small><strong>{run.summary.total}</strong></span><span><small>Duration</small><strong>{formatDuration(run.durationMs)}</strong></span></div></section>
+      <section className="panel run-hero"><div><TypeBadge type={run.evalType} /><StatusBadge verdict={effectiveRunVerdict(run)} /><span className={`execution execution--${run.executionStatus}`}>{run.executionStatus}</span></div><h2>{scope.primary}</h2><p>{scope.secondary} · triggered by <strong>{run.actor}</strong> through {run.trigger.toUpperCase()} · {run.evalType === "e2e" ? <>target manifest {manifestUrl ? <a className="manifest-link" href={manifestUrl} target="_blank" rel="noopener noreferrer">{run.datasetVersion} ↗</a> : <span title="The API did not return manifest_url for this run">{run.datasetVersion}</span>}</> : `evalset ${run.datasetVersion}`}</p><div className="run-links">{run.githubJobUrl && <a className="manifest-link" href={run.githubJobUrl} target="_blank" rel="noopener noreferrer">Open GitHub job ↗</a>}{!run.githubJobUrl && run.githubRunUrl && <a className="manifest-link" href={run.githubRunUrl} target="_blank" rel="noopener noreferrer">Open GitHub Actions run ↗</a>}</div>{run.evalType === "e2e" ? <div className="scope-chips"><span>Live target</span><span>No tool mocks</span><span>{run.e2eConfig?.selectedSuites.length ?? run.suites.length} suites</span><span>Target gate ≥ {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</span><span title="Highest conversation-depth tier included in this run">Max tier {run.e2eConfig?.maxTier ?? "not recorded"}</span></div> : <div className="scope-chips unit"><span>{run.unitConfig?.mode ?? "all"} turns</span><span>Per-skill mocks</span><span>Tool + response quality</span></div>}<button className="history-link" onClick={() => onHistory(run)}>View {run.evalType === "e2e" ? "target" : "skill"} history →</button><div className="detail-stats"><span><small>Pass rate</small><strong>{run.summary.passRatePct || "—"}{run.summary.passRatePct ? "%" : ""}</strong>{run.evalType === "e2e" && <em>Required: {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}</em>}</span><span><small>Mean score</small><strong>{run.summary.meanScore || "—"}</strong></span><span><small>Cases</small><strong>{run.summary.total}</strong></span><span><small>Duration</small><strong>{formatDuration(run.durationMs)}</strong></span></div></section>
       <section className="panel suite-panel"><div className="panel-heading"><div><h2>{run.evalType === "e2e" ? "Suite breakdown" : "Skill / metric breakdown"}</h2><p>{run.evalType === "e2e" ? "Live conversation result by enabled suite" : "Mock-backed cases scored for this single skill"}</p></div></div>{suites.length ? suites.map((suite) => <div className="suite-row" key={suite.name}><div><strong>{suite.name}</strong><small>{suite.total ? `${suite.passed} passed · ${suite.failed} failed` : "Enabled suite · case results not available"}</small></div><div className="suite-bar"><i><b style={{ width: `${(suite.passed / Math.max(suite.total, 1)) * 100}%` }} /></i><span>{suite.total ? suite.meanScore.toFixed(2) : "—"}</span></div><button className="trend-action" onClick={() => onTrend(drilldownRequest(run, "skill", run.evalType === "unit" ? (run.unitConfig?.skillId ?? run.target) : suite.name))}>View trend</button></div>) : <div className="empty compact-empty"><strong>No results yet</strong><span>This run has not produced suite results.</span></div>}</section>
     </div>
     <section className="panel cases-panel"><div className="panel-heading"><div><h2>Evaluated cases</h2><p>Case-level verdicts, evidence and latency</p></div><span className="result-count">{scopedCases.length} results</span></div>
-      {scopedCases.length ? <div className="table-wrap"><table className="cases-table"><thead><tr><th>Case</th><th>Suite</th><th>Verdict</th><th>Score</th><th>Threshold</th><th>Latency</th><th /></tr></thead><tbody>{scopedCases.map((item) => <tr key={item.caseId} onClick={() => onCase(item)}><td><button className="run-link">{item.caseId}</button><small>{item.role} · tier {item.tier}</small></td><td>{item.suite}</td><td><StatusBadge verdict={item.verdict === "error" ? "blocked" : item.verdict} /></td><td><strong className={item.score < item.threshold ? "bad-score" : "score"}>{item.score.toFixed(1)}</strong></td><td>{item.threshold.toFixed(1)}</td><td>{(item.responseTimeMs / 1000).toFixed(1)}s</td><td><button className="row-arrow" aria-label={`Open ${item.caseId}`}>›</button></td></tr>)}</tbody></table></div> : <div className="empty"><strong>No case documents available</strong><span>No cases matching run {run.runId} were returned.</span></div>}
+      {scopedCases.length ? <div className="table-wrap"><table className="cases-table"><thead><tr><th>Case</th><th>Suite</th><th>Verdict</th><th>Score</th><th>Threshold</th><th>Latency</th><th /></tr></thead><tbody>{scopedCases.map((item) => <tr key={item.caseId} onClick={() => onCase(item)}><td><button className="run-link">{item.caseId}</button><small><span title="Role or test type used to exercise this case">{item.role}</span> · <span title="Conversation-depth tier; higher tiers represent deeper or more complex flows">tier {item.tier}</span></small></td><td>{item.suite}</td><td><StatusBadge verdict={item.verdict === "error" ? "blocked" : item.verdict} /></td><td><strong className={item.score < item.threshold ? "bad-score" : "score"}>{item.score.toFixed(1)}</strong></td><td>{item.threshold.toFixed(1)}</td><td>{(item.responseTimeMs / 1000).toFixed(1)}s</td><td><button className="row-arrow" aria-label={`Open ${item.caseId}`}>›</button></td></tr>)}</tbody></table></div> : <div className="empty"><strong>No case documents available</strong><span>No cases matching run {run.runId} were returned.</span></div>}
     </section>
   </>;
 }
@@ -765,7 +763,7 @@ function HistoryView({ initialFocus, runs, openingRunId, onOpenRun }: { initialF
   const selectedSkill = { id: skillId, label: skillId };
   const latestByTarget = stageTargets
     .map((targetId) => e2eStageInRange.filter((point) => point.target === targetId).sort((a,b)=>a.startedAt.localeCompare(b.startedAt)).at(-1))
-    .filter((point): point is E2EHistoryPoint => Boolean(point));
+    .filter((point): point is NonNullable<typeof point> => point !== undefined);
   const isBatchRollup = historyType === "e2e" && target === "all";
 
   const openHistoryRun = (runId: string) => {
