@@ -3239,3 +3239,102 @@ button {
   background: #fff0f2;
   color: #b5414e;
 }
+.case-outcome-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+.case-outcome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid #dfe7eb;
+  border-radius: 8px;
+  background: #f8fafb;
+}
+.case-outcome small {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.case-outcome strong {
+  font-size: 15px;
+}
+.case-outcome--passed {
+  border-color: #b9dfd5;
+  background: #edf9f5;
+  color: #167b69;
+}
+.case-outcome--failed {
+  border-color: #efc3c8;
+  background: #fff3f4;
+  color: #b5414e;
+}
+.case-outcome--blocked {
+  border-color: #ead4aa;
+  background: #fff8e9;
+  color: #9a691d;
+}
+.case-outcome--xpassed {
+  border-color: #d8c9ee;
+  background: #f7f2fc;
+  color: #75529d;
+}
+.run-metadata a {
+  color: #168c7b;
+  font-size: 8px;
+  font-weight: 800;
+  text-decoration: none;
+}
+.run-metadata a:hover {
+  text-decoration: underline;
+}
+.history-count {
+  position: relative;
+  overflow: hidden;
+}
+.history-count:before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: currentColor;
+  opacity: 0.7;
+}
+.history-count--passed strong {
+  color: #167b69;
+}
+.history-count--failed strong {
+  color: #b5414e;
+}
+.history-count--blocked strong {
+  color: #9a691d;
+}
+.history-count--xpassed strong {
+  color: #75529d;
+}
+.history-git-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  margin-top: 4px;
+  color: #8493a0;
+  font-size: 7px;
+}
+.history-git-meta a {
+  color: #168c7b;
+  text-decoration: none;
+}
+.history-git-meta a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 760px) {
+  .case-outcome-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

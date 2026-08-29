@@ -47,6 +47,9 @@ type DrilldownTrendPoint = {
 type E2EHistoryPoint = {
   runId: string;
   batchId?: string;
+  githubRunId?: string;
+  githubRunUrl?: string;
+  gitSha?: string;
   startedAt: string;
   stage: string;
   target: string;
@@ -181,6 +184,18 @@ function MetricGateTags({
 
 function effectiveRunVerdict(run: EvalRun): Verdict {
   return run.executionStatus === "error" ? "blocked" : run.verdict;
+}
+
+function shortGitSha(sha?: string) {
+  return sha ? sha.slice(0, 7) : "not recorded";
+}
+
+function isTerminalHistoryRun(run: EvalRun) {
+  return (
+    run.executionStatus === "completed" ||
+    run.executionStatus === "blocked" ||
+    run.executionStatus === "error"
+  );
 }
 
 function TypeBadge({ type }: { type: EvalType }) {
@@ -1706,6 +1721,16 @@ function RunSummary({
       unitMetricValues.length
     : run.summary.meanScore;
   const manifestUrl = run.evalType === "e2e" ? run.manifestUrl : undefined;
+  const caseOutcomes = scopedCases.reduce(
+    (counts, item) => {
+      if (item.verdict === "passed") counts.passed += 1;
+      if (item.verdict === "failed") counts.failed += 1;
+      if (item.verdict === "blocked") counts.blocked += 1;
+      if (item.verdict === "xpassed") counts.xpassed += 1;
+      return counts;
+    },
+    { passed: 0, failed: 0, blocked: 0, xpassed: 0 },
+  );
   return (
     <>
       <div className="detail-grid">
@@ -1744,6 +1769,16 @@ function RunSummary({
             )}
           </p>
           <div className="run-links">
+            {run.githubRunUrl && (
+              <a
+                className="manifest-link"
+                href={run.githubRunUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open GitHub Actions run ↗
+              </a>
+            )}
             {run.githubJobUrl && (
               <a
                 className="manifest-link"
@@ -1752,16 +1787,6 @@ function RunSummary({
                 rel="noopener noreferrer"
               >
                 Open GitHub job ↗
-              </a>
-            )}
-            {!run.githubJobUrl && run.githubRunUrl && (
-              <a
-                className="manifest-link"
-                href={run.githubRunUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Open GitHub Actions run ↗
               </a>
             )}
           </div>
@@ -1786,6 +1811,34 @@ function RunSummary({
               <span>
                 <small>Git ref</small>
                 <code>{run.gitRef}</code>
+              </span>
+            )}
+            {run.gitSha && (
+              <span title={run.gitSha}>
+                <small>Git SHA</small>
+                <code>{shortGitSha(run.gitSha)}</code>
+              </span>
+            )}
+            {run.githubRepository && (
+              <span>
+                <small>Repository</small>
+                <code>{run.githubRepository}</code>
+              </span>
+            )}
+            {run.githubRunId && (
+              <span>
+                <small>GitHub run</small>
+                {run.githubRunUrl ? (
+                  <a
+                    href={run.githubRunUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {run.githubRunId} ↗
+                  </a>
+                ) : (
+                  <code>{run.githubRunId}</code>
+                )}
               </span>
             )}
             {run.githubEvent && (
@@ -1833,6 +1886,27 @@ function RunSummary({
           <button className="history-link" onClick={() => onHistory(run)}>
             View {run.evalType === "e2e" ? "target" : "skill"} history →
           </button>
+          <div className="case-outcome-grid" aria-label="Case outcomes">
+            <span className="case-outcome case-outcome--passed">
+              <small>Passed</small>
+              <strong>{caseOutcomes.passed}</strong>
+            </span>
+            <span className="case-outcome case-outcome--failed">
+              <small>Failed</small>
+              <strong>{caseOutcomes.failed}</strong>
+            </span>
+            <span className="case-outcome case-outcome--blocked">
+              <small>Blocked</small>
+              <strong>{caseOutcomes.blocked}</strong>
+            </span>
+            <span
+              className="case-outcome case-outcome--xpassed"
+              title="Unexpected passes that should be reviewed"
+            >
+              <small>XPASS</small>
+              <strong>{caseOutcomes.xpassed}</strong>
+            </span>
+          </div>
           <div className="detail-stats">
             <span>
               <small>Pass rate</small>
@@ -2800,6 +2874,9 @@ type TrendPoint = {
   verdict: Verdict;
   scope: string;
   batchId?: string;
+  githubRunId?: string;
+  githubRunUrl?: string;
+  gitSha?: string;
 };
 
 function aggregateE2E(points: E2EHistoryPoint[]): TrendPoint[] {
@@ -2817,7 +2894,13 @@ function aggregateE2E(points: E2EHistoryPoint[]): TrendPoint[] {
             totalCases
           : 0;
       const passRatePct = weighted("passRatePct");
-      const verdict: Verdict = passRatePct >= 90 ? "passed" : "failed";
+      const verdict: Verdict = items.some((item) => item.verdict === "blocked")
+        ? "blocked"
+        : passRatePct < 90
+          ? "failed"
+          : items.some((item) => item.verdict === "xpassed")
+            ? "xpassed"
+            : "passed";
       return {
         id: batchId,
         batchId,
@@ -2828,6 +2911,9 @@ function aggregateE2E(points: E2EHistoryPoint[]): TrendPoint[] {
         durationMs: Math.max(...items.map((item) => item.durationMs)),
         verdict,
         scope: `${items.length} targets`,
+        githubRunId: items[0].githubRunId,
+        githubRunUrl: items[0].githubRunUrl,
+        gitSha: items[0].gitSha,
       };
     })
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
@@ -3011,12 +3097,13 @@ function HistoryView({
   onOpenRun: (runId: string, evalType: EvalType) => void;
 }) {
   const e2eSource = runs
-    .filter(
-      (run) => run.evalType === "e2e" && run.executionStatus === "completed",
-    )
+    .filter((run) => run.evalType === "e2e" && isTerminalHistoryRun(run))
     .map((run) => ({
       runId: run.runId,
       batchId: run.batchId ?? run.runId,
+      githubRunId: run.githubRunId,
+      githubRunUrl: run.githubRunUrl,
+      gitSha: run.gitSha,
       startedAt: run.startedAt,
       stage: run.stage,
       target: run.target,
@@ -3027,12 +3114,13 @@ function HistoryView({
       verdict: run.verdict,
     }));
   const unitSource = runs
-    .filter(
-      (run) => run.evalType === "unit" && run.executionStatus === "completed",
-    )
+    .filter((run) => run.evalType === "unit" && isTerminalHistoryRun(run))
     .map((run) => ({
       runId: run.runId,
       batchId: run.batchId,
+      githubRunId: run.githubRunId,
+      githubRunUrl: run.githubRunUrl,
+      gitSha: run.gitSha,
       startedAt: run.startedAt,
       skillId: run.unitConfig?.skillId ?? run.target,
       environment: run.unitConfig?.bsaEnvironment ?? run.stage,
@@ -3110,6 +3198,9 @@ function HistoryView({
             verdict: point.verdict,
             scope: point.target,
             batchId: point.batchId,
+            githubRunId: point.githubRunId,
+            githubRunUrl: point.githubRunUrl,
+            gitSha: point.gitSha,
           }))
           .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   const unitFiltered = unitSource
@@ -3130,8 +3221,21 @@ function HistoryView({
     verdict: point.verdict,
     scope: point.environment,
     batchId: point.batchId,
+    githubRunId: point.githubRunId,
+    githubRunUrl: point.githubRunUrl,
+    gitSha: point.gitSha,
   }));
   const trend = historyType === "e2e" ? e2eTrend : unitTrend;
+  const historyVerdicts = trend.reduce(
+    (counts, point) => {
+      if (point.verdict === "passed") counts.passed += 1;
+      if (point.verdict === "failed") counts.failed += 1;
+      if (point.verdict === "blocked") counts.blocked += 1;
+      if (point.verdict === "xpassed") counts.xpassed += 1;
+      return counts;
+    },
+    { passed: 0, failed: 0, blocked: 0, xpassed: 0 },
+  );
   const latest = trend.at(-1);
   const previous = trend.at(-2);
   const passDelta =
@@ -3307,6 +3411,26 @@ function HistoryView({
           </strong>
           <small>runs at or above 90%</small>
         </article>
+        <article className="panel history-count history-count--passed">
+          <span>Passed runs</span>
+          <strong>{historyVerdicts.passed}</strong>
+          <small>in the selected {rangeDays}-day window</small>
+        </article>
+        <article className="panel history-count history-count--failed">
+          <span>Failed runs</span>
+          <strong>{historyVerdicts.failed}</strong>
+          <small>in the selected {rangeDays}-day window</small>
+        </article>
+        <article className="panel history-count history-count--blocked">
+          <span>Blocked runs</span>
+          <strong>{historyVerdicts.blocked}</strong>
+          <small>in the selected {rangeDays}-day window</small>
+        </article>
+        <article className="panel history-count history-count--xpassed">
+          <span>XPASS runs</span>
+          <strong>{historyVerdicts.xpassed}</strong>
+          <small>unexpected passes requiring review</small>
+        </article>
       </section>
       {trend.length ? (
         <HistoryChart
@@ -3456,8 +3580,26 @@ function HistoryView({
                         {openingRunId === point.id ? "Opening…" : point.id}
                       </button>
                     )}
-                    {point.batchId && point.id !== point.batchId && (
-                      <small>batch {point.batchId}</small>
+                    {(point.githubRunId || point.gitSha) && (
+                      <small className="history-git-meta">
+                        {point.githubRunId && point.githubRunUrl ? (
+                          <a
+                            href={point.githubRunUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            GitHub run {point.githubRunId} ↗
+                          </a>
+                        ) : point.githubRunId ? (
+                          <span>GitHub run {point.githubRunId}</span>
+                        ) : null}
+                        {point.gitSha && (
+                          <span title={point.gitSha}>
+                            SHA {shortGitSha(point.gitSha)}
+                          </span>
+                        )}
+                      </small>
                     )}
                   </td>
                   <td>{point.scope}</td>
@@ -3697,8 +3839,8 @@ function RunPairPicker({
   const candidate = comparable.find((run) => run.runId === candidateId)!;
   const optionLabel = (run: EvalRun) =>
     unitRuns
-      ? `v${run.unitConfig?.skillVersion} · ${run.runId} · ${formatTime(run.startedAt)} · ${run.summary.passRatePct}%`
-      : `${run.runId} · ${formatTime(run.startedAt)} · ${run.summary.passRatePct}%`;
+      ? `v${run.unitConfig?.skillVersion} · ${run.runId} · ${formatTime(run.startedAt)} · SHA ${shortGitSha(run.gitSha)} · ${run.summary.passRatePct}%`
+      : `${run.runId} · ${formatTime(run.startedAt)} · SHA ${shortGitSha(run.gitSha)} · ${run.summary.passRatePct}%`;
   useEffect(() => {
     const controller = new AbortController();
     const selected =
@@ -3870,8 +4012,8 @@ function ComparisonResults({
             <h2>{unitRuns ? "Unit metric changes" : "Suite changes"}</h2>
             <p>
               {unitRuns
-                ? `v${baseline.unitConfig?.skillVersion} (${baseline.runId}) → v${candidate.unitConfig?.skillVersion} (${candidate.runId})`
-                : "Case-derived mean score and result by suite"}
+                ? `v${baseline.unitConfig?.skillVersion} (${baseline.runId}, SHA ${shortGitSha(baseline.gitSha)}) → v${candidate.unitConfig?.skillVersion} (${candidate.runId}, SHA ${shortGitSha(candidate.gitSha)})`
+                : `${baseline.runId} (SHA ${shortGitSha(baseline.gitSha)}) → ${candidate.runId} (SHA ${shortGitSha(candidate.gitSha)})`}
             </p>
           </div>
         </div>
