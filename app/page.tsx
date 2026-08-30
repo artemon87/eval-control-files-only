@@ -186,6 +186,45 @@ function effectiveRunVerdict(run: EvalRun): Verdict {
   return run.executionStatus === "error" ? "blocked" : run.verdict;
 }
 
+function isBlockedRun(run: EvalRun) {
+  return run.verdict === "blocked" || run.executionStatus === "blocked";
+}
+
+function runGateThresholdPct(run: EvalRun) {
+  const threshold = run.e2eConfig?.passRateThreshold;
+  if (threshold === undefined || threshold === null) return undefined;
+  return threshold <= 1 ? threshold * 100 : threshold;
+}
+
+function isDegradedRun(run: EvalRun) {
+  const threshold = runGateThresholdPct(run);
+  return (
+    run.executionStatus === "completed" &&
+    threshold !== undefined &&
+    run.summary.passRatePct < threshold
+  );
+}
+
+function isNeedsAttentionRun(run: EvalRun) {
+  return (
+    !isBlockedRun(run) &&
+    (run.executionStatus === "error" ||
+      run.verdict === "failed" ||
+      run.verdict === "xpassed" ||
+      isDegradedRun(run))
+  );
+}
+
+function attentionSignal(run: EvalRun) {
+  if (run.executionStatus === "error") return "Error";
+  if (run.verdict === "xpassed") return "XPASS";
+  if (isDegradedRun(run)) {
+    const threshold = runGateThresholdPct(run);
+    return `${run.summary.passRatePct}% < ${threshold}%`;
+  }
+  return `${run.summary.passRatePct}%`;
+}
+
 function shortGitSha(sha?: string) {
   return sha ? sha.slice(0, 7) : "not recorded";
 }
@@ -651,6 +690,9 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [overviewDays, setOverviewDays] = useState<7 | 30 | 90>(7);
   const [overviewType, setOverviewType] = useState<"all" | EvalType>("all");
+  const [overviewInboxTab, setOverviewInboxTab] = useState<
+    "blocked" | "attention"
+  >("blocked");
   const [overviewShowPercentLabels, setOverviewShowPercentLabels] =
     useState(false);
   const selectedRun = useMemo(
@@ -956,12 +998,8 @@ export default function Home() {
       (run) => run.executionStatus === "running",
     );
     const queuedRuns = inView.filter((run) => run.executionStatus === "queued");
-    const attention = inView.filter(
-      (run) =>
-        run.verdict === "failed" ||
-        run.verdict === "blocked" ||
-        run.executionStatus === "error",
-    );
+    const blockedRuns = inView.filter(isBlockedRun);
+    const attentionRuns = inView.filter(isNeedsAttentionRun);
     const p95 = percentile(
       completed.flatMap((run) =>
         typeof run.durationMs === "number" ? [run.durationMs] : [],
@@ -1025,15 +1063,13 @@ export default function Home() {
       passed,
       runningRuns,
       queuedRuns,
-      attention,
+      blockedRuns,
+      attentionRuns,
       p95,
       daily,
       passSpark,
       failureSpark: dailyCount(
-        (run) =>
-          run.verdict === "failed" ||
-          run.verdict === "blocked" ||
-          run.executionStatus === "error",
+        (run) => isBlockedRun(run) || isNeedsAttentionRun(run),
       ),
       progressSpark: dailyCount(
         (run) =>
@@ -1042,6 +1078,11 @@ export default function Home() {
       durationSpark: dailyDuration,
     };
   }, [overviewDays, overviewType, runs]);
+
+  const overviewInboxRuns =
+    overviewInboxTab === "blocked"
+      ? overview.blockedRuns
+      : overview.attentionRuns;
 
   const openRun = (run: EvalRun) => {
     setCases([]);
@@ -1293,9 +1334,11 @@ export default function Home() {
                   spark={overview.progressSpark}
                 />
                 <MetricCard
-                  label="Failed or blocked"
-                  value={String(overview.attention.length)}
-                  note={`${overview.attention.length} need attention`}
+                  label="Actionable runs"
+                  value={String(
+                    overview.blockedRuns.length + overview.attentionRuns.length,
+                  )}
+                  note={`${overview.blockedRuns.length} blocked · ${overview.attentionRuns.length} degraded/review`}
                   tone="red"
                   spark={overview.failureSpark}
                 />
@@ -1348,31 +1391,77 @@ export default function Home() {
                   />
                 </article>
                 <article className="panel attention-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h2>Needs attention</h2>
-                      <p>Failures, blocks and execution errors in view</p>
+                  <div className="panel-heading attention-panel-heading">
+                    <div className="attention-heading-copy">
+                      <div
+                        className="attention-tabs"
+                        role="tablist"
+                        aria-label="Overview issue category"
+                      >
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={overviewInboxTab === "blocked"}
+                          className={
+                            overviewInboxTab === "blocked" ? "active" : ""
+                          }
+                          onClick={() => setOverviewInboxTab("blocked")}
+                        >
+                          Blocked
+                          <b>{overview.blockedRuns.length}</b>
+                        </button>
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={overviewInboxTab === "attention"}
+                          className={
+                            overviewInboxTab === "attention" ? "active" : ""
+                          }
+                          onClick={() => setOverviewInboxTab("attention")}
+                        >
+                          Needs attention
+                          <b>{overview.attentionRuns.length}</b>
+                        </button>
+                      </div>
+                      <p>
+                        {overviewInboxTab === "blocked"
+                          ? "Runs stopped by setup, schema or execution blockers"
+                          : "Failed, degraded, errored or XPASS runs requiring review"}
+                      </p>
                     </div>
                     <button
                       onClick={() => {
                         setType(overviewType);
-                        setVerdict("all");
+                        setVerdict(
+                          overviewInboxTab === "blocked" ? "blocked" : "all",
+                        );
                         navigate("runs");
                       }}
                     >
-                      View all
+                      {overviewInboxTab === "blocked"
+                        ? "View blocked"
+                        : "View all runs"}
                     </button>
                   </div>
-                  <div className="attention-list">
-                    {overview.attention.slice(0, 4).map((run) => (
+                  <div
+                    className="attention-list"
+                    role="tabpanel"
+                    aria-label={
+                      overviewInboxTab === "blocked"
+                        ? "Blocked runs"
+                        : "Runs needing attention"
+                    }
+                  >
+                    {overviewInboxRuns.slice(0, 4).map((run) => (
                       <button key={run.runId} onClick={() => openRun(run)}>
                         <span
-                          className={`alert-icon ${run.executionStatus === "error" || run.verdict === "blocked" ? "blocked" : ""}`}
+                          className={`alert-icon ${overviewInboxTab === "blocked" ? "blocked" : run.verdict === "xpassed" ? "xpassed" : ""}`}
                         >
-                          {run.executionStatus === "error" ||
-                          run.verdict === "blocked"
+                          {overviewInboxTab === "blocked"
                             ? "×"
-                            : "!"}
+                            : run.verdict === "xpassed"
+                              ? "↗"
+                              : "!"}
                         </span>
                         <div>
                           <strong>{runScope(run).primary}</strong>
@@ -1381,17 +1470,23 @@ export default function Home() {
                           </small>
                         </div>
                         <b>
-                          {run.executionStatus === "error"
-                            ? "Error"
-                            : `${run.summary.passRatePct}%`}
+                          {overviewInboxTab === "blocked"
+                            ? "Blocked"
+                            : attentionSignal(run)}
                         </b>
                       </button>
                     ))}
-                    {!overview.attention.length && (
+                    {!overviewInboxRuns.length && (
                       <div className="attention-empty">
-                        <strong>No failures in view</strong>
+                        <strong>
+                          {overviewInboxTab === "blocked"
+                            ? "No blocked runs in view"
+                            : "No degraded runs need review"}
+                        </strong>
                         <span>
-                          Completed runs in this window do not need attention.
+                          {overviewInboxTab === "blocked"
+                            ? "No runs were blocked during this time window."
+                            : "Completed runs in this window meet their expected quality."}
                         </span>
                       </div>
                     )}

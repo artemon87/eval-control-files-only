@@ -651,6 +651,70 @@ button {
 .attention-list {
   padding: 4px 0;
 }
+.attention-panel {
+  overflow: hidden;
+}
+.attention-panel-heading {
+  align-items: flex-start;
+  gap: 12px;
+}
+.attention-heading-copy {
+  min-width: 0;
+}
+.attention-heading-copy > p {
+  margin-top: 8px;
+}
+.attention-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid #e3e9ed;
+  border-radius: 8px;
+  background: #f5f8fa;
+}
+.attention-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: #758695;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.attention-tabs button b {
+  min-width: 17px;
+  padding: 2px 5px;
+  border-radius: 99px;
+  background: #e8edf1;
+  color: #6d7d8b;
+  font-size: 8px;
+  text-align: center;
+}
+.attention-tabs button.active {
+  background: white;
+  color: #263b4e;
+  box-shadow: 0 1px 4px rgba(20, 50, 70, 0.1);
+}
+.attention-tabs button:first-child.active {
+  color: #a66a1d;
+}
+.attention-tabs button:first-child.active b {
+  background: #fff0d8;
+  color: #9a691d;
+}
+.attention-tabs button:last-child.active {
+  color: #b5414e;
+}
+.attention-tabs button:last-child.active b {
+  background: #fff0f2;
+  color: #b5414e;
+}
+.attention-panel-heading > button {
+  flex: 0 0 auto;
+  padding-top: 7px;
+  white-space: nowrap;
+}
 .attention-list button {
   width: 100%;
   padding: 15px 18px;
@@ -700,6 +764,10 @@ button {
 .alert-icon.blocked {
   color: #df7a3b;
   background: #fff4ea;
+}
+.alert-icon.xpassed {
+  color: #75529d;
+  background: #f7f2fc;
 }
 .attention-empty {
   min-height: 170px;
@@ -3239,6 +3307,7 @@ button {
   background: #fff0f2;
   color: #b5414e;
 }
+
 .case-outcome-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
