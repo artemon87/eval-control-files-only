@@ -273,6 +273,32 @@
   color: #9a3348;
 }
 
+.status.pending {
+  background: #fff1d9;
+  color: #8a5911;
+}
+
+.status.approved {
+  background: #e9edfb;
+  color: #455aa0;
+}
+
+.status.fulfilled {
+  background: #ddf5e7;
+  color: #176a3c;
+}
+
+.status.rejected,
+.status.cancelled {
+  background: #f5e5e8;
+  color: #9a3348;
+}
+
+.reasonCell {
+  max-width: 360px;
+  white-space: normal;
+}
+
 .actions {
   text-align: right;
   white-space: nowrap;

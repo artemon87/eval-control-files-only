@@ -1,18 +1,20 @@
 export type EntraRole = "EvalHub.Viewer" | "EvalHub.Editor" | "EvalHub.Admin";
-export type PlatformRole = "moderator" | "evaluation_admin" | "platform_admin";
-export type Permission =
-  | "suggestions.moderate"
-  | "runs.override"
-  | "policies.manage"
-  | "metrics.manage"
-  | "access.manage"
-  | "audit.read";
-export type ScopeType = "global" | "repository" | "skill" | "environment";
+export type RequestedEntraRole = "EvalHub.Editor" | "EvalHub.Admin";
+export type PlatformRole = "platform_admin";
+export type Permission = "access.manage" | "audit.read";
+export type ScopeType = "global";
 export type AssignmentStatus = "active" | "expired" | "revoked";
+export type AccessRequestStatus =
+  | "pending"
+  | "approved"
+  | "fulfilled"
+  | "rejected"
+  | "cancelled";
+export type AccessRequestAction = "approve" | "fulfill" | "reject";
 
 export interface AuthorizationScope {
   type: ScopeType;
-  id: string;
+  id: "*";
 }
 
 export interface ActorReference {
@@ -49,14 +51,33 @@ export interface AccessUser {
   last_login_at: string;
 }
 
+export interface AccessRequestRecord {
+  _id: string;
+  tenant_id: string;
+  principal_id: string;
+  display_name: string;
+  email?: string | null;
+  requested_role: RequestedEntraRole;
+  business_reason: string;
+  status: AccessRequestStatus;
+  created_at: string;
+  updated_at: string;
+  decided_at?: string | null;
+  decided_by?: ActorReference | null;
+  decision_note?: string | null;
+  fulfilled_at?: string | null;
+}
+
 export interface AuditEvent {
   _id: string;
   event_type: string;
   actor: ActorReference;
   target: ActorReference;
-  assignment_id: string;
-  local_role: PlatformRole;
-  scope: AuthorizationScope;
+  assignment_id?: string | null;
+  access_request_id?: string | null;
+  local_role?: PlatformRole | null;
+  requested_role?: RequestedEntraRole | null;
+  scope?: AuthorizationScope | null;
   reason: string;
   occurred_at: string;
   request_id?: string | null;

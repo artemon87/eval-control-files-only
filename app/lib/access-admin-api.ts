@@ -1,14 +1,19 @@
 import type {
   AccessUser,
+  AccessRequestAction,
+  AccessRequestRecord,
+  AccessRequestStatus,
   AssignmentCreate,
   AssignmentRecord,
   AuditEvent,
   AuthorizationContext,
   Page,
+  RequestedEntraRole,
 } from "./access-admin-types";
 
-const API_ROOT = "/api/eval/v1/admin/access";
-const EVAL_API_ROOT = "/api/eval/v1";
+const API_ROOT = "/api/eval/admin/access";
+const EVAL_API_ROOT = "/api/eval";
+const ACCESS_REQUEST_ROOT = "/api/eval/access-requests";
 
 export class AccessApiError extends Error {
   constructor(
@@ -99,6 +104,66 @@ export function revokeAssignment(
     {
       method: "POST",
       body: JSON.stringify({ reason }),
+    },
+  );
+}
+
+export function createAccessRequest(
+  requestedRole: RequestedEntraRole,
+  businessReason: string,
+): Promise<AccessRequestRecord> {
+  return request<AccessRequestRecord>(
+    "",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        requested_role: requestedRole,
+        business_reason: businessReason,
+      }),
+    },
+    ACCESS_REQUEST_ROOT,
+  );
+}
+
+export function listMyAccessRequests(
+  signal?: AbortSignal,
+): Promise<Page<AccessRequestRecord>> {
+  return request<Page<AccessRequestRecord>>(
+    "/me?limit=50&offset=0",
+    { signal },
+    ACCESS_REQUEST_ROOT,
+  );
+}
+
+export function cancelAccessRequest(
+  accessRequestId: string,
+): Promise<AccessRequestRecord> {
+  return request<AccessRequestRecord>(
+    `/${encodeURIComponent(accessRequestId)}/cancel`,
+    { method: "POST" },
+    ACCESS_REQUEST_ROOT,
+  );
+}
+
+export function listAdminAccessRequests(
+  status?: AccessRequestStatus,
+  signal?: AbortSignal,
+): Promise<Page<AccessRequestRecord>> {
+  const params = new URLSearchParams({ limit: "100", offset: "0" });
+  if (status) params.set("request_status", status);
+  return request<Page<AccessRequestRecord>>(`/requests?${params}`, { signal });
+}
+
+export function decideAccessRequest(
+  accessRequestId: string,
+  action: AccessRequestAction,
+  note: string,
+): Promise<AccessRequestRecord> {
+  return request<AccessRequestRecord>(
+    `/requests/${encodeURIComponent(accessRequestId)}/decision`,
+    {
+      method: "POST",
+      body: JSON.stringify({ action, note }),
     },
   );
 }

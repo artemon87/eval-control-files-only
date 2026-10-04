@@ -10,9 +10,5 @@ export default async function AccessAdminPage() {
   if (!session?.user) {
     redirect("/sign-in");
   }
-  if (session.user.role !== "admin") {
-    redirect("/");
-  }
-
-  return <AccessAdminClient currentPrincipalId={session.user.id} />;
+  return <AccessAdminClient currentPrincipalId={session.user.id ?? ""} />;
 }
