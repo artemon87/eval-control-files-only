@@ -30,32 +30,44 @@ const AuthorizationContext = createContext<AuthorizationContextValue>({
 });
 
 export function AuthorizationProvider({ children }: { children: ReactNode }) {
-  const { status } = useSession();
-  const [authorization, setAuthorization] = useState<AuthorizationState | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: session, status } = useSession();
+  const sessionKey =
+    status === "authenticated"
+      ? session?.user?.email ?? "authenticated"
+      : null;
+  const [resolved, setResolved] = useState<{
+    sessionKey: string;
+    authorization: AuthorizationState | null;
+  } | null>(null);
 
   useEffect(() => {
-    if (status === "loading") return;
-    if (status !== "authenticated") {
-      setAuthorization(null);
-      setLoading(false);
-      return;
-    }
+    if (status !== "authenticated" || !sessionKey) return;
 
     const controller = new AbortController();
-    setLoading(true);
     void getMyAuthorization(controller.signal)
-      .then(setAuthorization)
-      .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setAuthorization(null);
+      .then((authorization) => {
+        if (!controller.signal.aborted) {
+          setResolved({ sessionKey, authorization });
         }
       })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+      .catch((error: unknown) => {
+        if (
+          !controller.signal.aborted &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        ) {
+          setResolved({ sessionKey, authorization: null });
+        }
       });
     return () => controller.abort();
-  }, [status]);
+  }, [sessionKey, status]);
+
+  const authorization =
+    sessionKey && resolved?.sessionKey === sessionKey
+      ? resolved.authorization
+      : null;
+  const loading =
+    status === "loading" ||
+    (status === "authenticated" && resolved?.sessionKey !== sessionKey);
 
   const value = useMemo<AuthorizationContextValue>(() => {
     const permissionSet = new Set(authorization?.permissions ?? []);

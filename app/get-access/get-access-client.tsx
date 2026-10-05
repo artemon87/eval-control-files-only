@@ -51,7 +51,6 @@ export function GetAccessClient() {
   const [success, setSuccess] = useState<string | null>(null);
 
   const loadRequests = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
     try {
       const page = await listMyAccessRequests(signal);
       setRequests(page.items);
