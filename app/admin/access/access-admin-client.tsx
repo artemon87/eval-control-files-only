@@ -19,6 +19,7 @@ import type {
   AccessUser,
   AssignmentRecord,
   AuditEvent,
+  EvalHubRole,
 } from "../../lib/access-admin-types";
 import styles from "./access-admin.module.css";
 
@@ -35,7 +36,7 @@ function formatDate(value?: string | null): string {
 
 function errorMessage(error: unknown): string {
   if (error instanceof AccessApiError) {
-    if (error.status === 403) return "Platform administrator access is required.";
+    if (error.status === 403) return "EvalHub administrator access is required.";
     return error.message;
   }
   return "Something went wrong while loading access administration.";
@@ -100,23 +101,15 @@ export function AccessAdminClient({ currentPrincipalId }: { currentPrincipalId: 
           <p className={styles.eyebrow}>Administration</p>
           <h1>Access management</h1>
           <p className={styles.subtitle}>
-            Entra owns product roles. EvalHub stores only the additional platform-admin assignment.
+            EvalHub owns application roles and permissions. Microsoft Entra is used only to identify signed-in users.
           </p>
         </div>
-        <a
-          className={styles.externalLink}
-          href={process.env.NEXT_PUBLIC_ENTRA_ENTERPRISE_APP_URL ?? "https://entra.microsoft.com"}
-          target="_blank"
-          rel="noreferrer"
-        >
-          Manage Entra assignments ↗
-        </a>
       </header>
 
       <section className={styles.notice} aria-label="Authorization information">
-        <strong>Entra is the source of truth.</strong>
+        <strong>EvalHub is the authorization source of truth.</strong>
         <span>
-          Approving a request records the decision; access starts only after its Entra assignment is completed.
+          Role changes take effect on the next backend authorization check.
         </span>
       </section>
 
@@ -133,7 +126,7 @@ export function AccessAdminClient({ currentPrincipalId }: { currentPrincipalId: 
               : item === "requests"
                 ? `Requests${requests.filter((request) => request.status === "pending").length ? ` (${requests.filter((request) => request.status === "pending").length})` : ""}`
                 : item === "assignments"
-                  ? "Platform admins"
+                  ? "Assignments"
                   : "Audit"}
           </button>
         ))}
@@ -229,26 +222,27 @@ function UsersTab({ users, loading, search, currentPrincipalId, onSearch, onAssi
       </div>
       <div className={styles.tableWrap}>
         <table>
-          <thead><tr><th>User</th><th>Entra role</th><th>Platform admin</th><th>Last login</th><th /></tr></thead>
+          <thead><tr><th>User</th><th>EvalHub roles</th><th>Permissions</th><th>Last login</th><th /></tr></thead>
           <tbody>
             {loading ? <LoadingRows columns={5} /> : users.length === 0 ? (
               <EmptyRow columns={5} message="No users match this search." />
             ) : users.map((user) => {
-              const activeAssignment = user.assignments.find((assignment) => assignment.status === "active");
+              const activeAssignments = user.assignments.filter((assignment) => assignment.status === "active");
               return (
                 <tr key={`${user.tenant_id}:${user.principal_id}`}>
                   <td><UserIdentity user={user} /></td>
-                  <td><RoleBadges roles={user.entra_roles_last_seen} confirmedAt={user.entra_roles_last_confirmed_at} /></td>
-                  <td>{activeAssignment ? <span className={styles.assignmentChip}>Platform admin</span> : <span className={styles.muted}>No</span>}</td>
+                  <td><RoleBadges roles={user.roles} /></td>
+                  <td>{user.effective_permissions.length ? user.effective_permissions.join(", ") : <span className={styles.muted}>None</span>}</td>
                   <td>{formatDate(user.last_login_at)}</td>
                   <td className={styles.actions}>
-                    {!activeAssignment ? (
-                      <button className={styles.primaryButton} type="button" disabled={user.principal_id === currentPrincipalId || !user.entra_roles_last_seen.includes("EvalHub.Admin")} onClick={() => onAssign(user)}>
-                        Make platform admin
+                    {user.principal_id !== currentPrincipalId && user.roles.length < 2 && (
+                      <button className={styles.primaryButton} type="button" onClick={() => onAssign(user)}>
+                        Assign role
                       </button>
-                    ) : user.principal_id !== currentPrincipalId ? (
-                      <button className={styles.dangerButton} type="button" onClick={() => onRevoke(activeAssignment)}>Revoke</button>
-                    ) : null}
+                    )}
+                    {activeAssignments.length === 1 && user.principal_id !== currentPrincipalId && (
+                      <button className={styles.dangerButton} type="button" onClick={() => onRevoke(activeAssignments[0])}>Revoke</button>
+                    )}
                   </td>
                 </tr>
               );
@@ -268,7 +262,7 @@ function RequestsTab({ requests, loading, onDecision }: {
   return (
     <section className={styles.panel}>
       <div className={styles.toolbar}>
-        <div><h2>Entra access requests</h2><p>Review requests, then complete approved assignments in Microsoft Entra.</p></div>
+        <div><h2>EvalHub access requests</h2><p>Approving a request grants the selected EvalHub role immediately.</p></div>
       </div>
       <div className={styles.tableWrap}>
         <table>
@@ -279,16 +273,13 @@ function RequestsTab({ requests, loading, onDecision }: {
             ) : requests.map((request) => (
               <tr key={request._id}>
                 <td><strong>{request.display_name}</strong><small className={styles.block}>{request.email ?? request.principal_id}</small></td>
-                <td><span className={styles.entraBadge}>{request.requested_role.replace("EvalHub.", "")}</span></td>
+                <td><span className={styles.entraBadge}>{request.requested_role}</span></td>
                 <td className={styles.reasonCell}>{request.business_reason}</td>
                 <td><StatusBadge status={request.status} /></td>
                 <td>{formatDate(request.created_at)}</td>
                 <td className={styles.actions}>
                   {request.status === "pending" && (
                     <><button className={styles.primaryButton} type="button" onClick={() => onDecision(request, "approve")}>Approve</button>{" "}<button className={styles.dangerButton} type="button" onClick={() => onDecision(request, "reject")}>Reject</button></>
-                  )}
-                  {request.status === "approved" && (
-                    <button className={styles.primaryButton} type="button" onClick={() => onDecision(request, "fulfill")}>Mark fulfilled</button>
                   )}
                 </td>
               </tr>
@@ -309,19 +300,19 @@ function AssignmentsTab({ assignments, users, loading, currentPrincipalId, onRev
 }) {
   return (
     <section className={styles.panel}>
-      <div className={styles.toolbar}><div><h2>Platform administrators</h2><p>Current and historical exceptional platform access.</p></div></div>
+      <div className={styles.toolbar}><div><h2>Role assignments</h2><p>Current and historical EvalHub access.</p></div></div>
       <div className={styles.tableWrap}>
         <table>
           <thead><tr><th>User</th><th>Status</th><th>Granted</th><th>Expires</th><th>Reason</th><th /></tr></thead>
           <tbody>
             {loading ? <LoadingRows columns={6} /> : assignments.length === 0 ? (
-              <EmptyRow columns={6} message="No platform-admin assignments exist." />
+              <EmptyRow columns={6} message="No EvalHub role assignments exist." />
             ) : assignments.map((assignment) => {
               const user = users.get(assignment.principal_id);
               return (
                 <tr key={assignment._id}>
                   <td><strong>{user?.display_name ?? assignment.principal_id}</strong><small className={styles.block}>{user?.email}</small></td>
-                  <td><StatusBadge status={assignment.status} /></td>
+                  <td><span className={styles.assignmentChip}>{assignment.local_role}</span><StatusBadge status={assignment.status} /></td>
                   <td>{formatDate(assignment.created_at)}<small className={styles.block}>by {assignment.granted_by.display_name ?? assignment.granted_by.principal_id}</small></td>
                   <td>{formatDate(assignment.expires_at)}</td>
                   <td className={styles.reasonCell}>{assignment.reason}</td>
@@ -348,7 +339,7 @@ function AuditTab({ events, loading }: { events: AuditEvent[]; loading: boolean 
               <tr key={event._id}>
                 <td>{formatDate(event.occurred_at)}</td><td>{event.event_type.split(".").at(-1)}</td>
                 <td>{event.actor.display_name ?? event.actor.principal_id}</td><td>{event.target.display_name ?? event.target.principal_id}</td>
-                <td>{event.requested_role?.replace("EvalHub.", "") ?? (event.local_role ? "Platform admin" : "—")}</td>
+                <td>{event.requested_role ?? event.local_role ?? "—"}</td>
                 <td className={styles.reasonCell}>{event.reason}</td>
               </tr>
             ))}
@@ -363,11 +354,12 @@ function UserIdentity({ user }: { user: AccessUser }) {
   return <div className={styles.userCell}><span className={styles.avatar} aria-hidden="true">{user.display_name.charAt(0).toUpperCase()}</span><span><strong>{user.display_name}</strong><small>{user.email ?? user.principal_id}</small></span></div>;
 }
 
-function RoleBadges({ roles, confirmedAt }: { roles: string[]; confirmedAt: string }) {
-  return <div className={styles.stack}>{roles.length ? roles.map((role) => <span className={styles.entraBadge} key={role}>{role.replace("EvalHub.", "")}</span>) : <span className={styles.muted}>No role observed</span>}<small>Confirmed {formatDate(confirmedAt)}</small></div>;
+function RoleBadges({ roles }: { roles: EvalHubRole[] }) {
+  return <div className={styles.stack}>{roles.length ? roles.map((role) => <span className={styles.entraBadge} key={role}>{role}</span>) : <span className={styles.muted}>No role assigned</span>}</div>;
 }
 
 function AssignmentDialog({ user, onClose, onSaved }: { user: AccessUser; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [role, setRole] = useState<EvalHubRole>(user.roles.includes("editor") ? "admin" : "editor");
   const [reason, setReason] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [saving, setSaving] = useState(false);
@@ -375,17 +367,18 @@ function AssignmentDialog({ user, onClose, onSaved }: { user: AccessUser; onClos
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setError(null);
     try {
-      await createAssignment({ tenant_id: user.tenant_id, principal_id: user.principal_id, local_role: "platform_admin", scope: { type: "global", id: "*" }, reason: reason.trim(), expires_at: expiresAt ? new Date(expiresAt).toISOString() : null });
+      await createAssignment({ tenant_id: user.tenant_id, principal_id: user.principal_id, local_role: role, scope: { type: "global", id: "*" }, reason: reason.trim(), expires_at: expiresAt ? new Date(expiresAt).toISOString() : null });
       await onSaved();
     } catch (saveError) { setError(errorMessage(saveError)); } finally { setSaving(false); }
   }
-  return <Dialog title={`Make ${user.display_name} a platform admin`} eyebrow="Exceptional access" onClose={onClose}>
+  return <Dialog title={`Assign a role to ${user.display_name}`} eyebrow="EvalHub access" onClose={onClose}>
     <form onSubmit={submit} className={styles.form}>
-      <p>This adds only EvalHub platform administration. The user must already have Entra Admin.</p>
+      <p>The role is stored and enforced by EvalHub. No Entra app role is required.</p>
+      <label>Role<select value={role} onChange={(event) => setRole(event.target.value as EvalHubRole)}>{!user.roles.includes("editor") && <option value="editor">Editor</option>}{!user.roles.includes("admin") && <option value="admin">Admin</option>}</select></label>
       <label>Expiration (optional)<input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
       <label>Business reason<textarea required minLength={5} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
       {error && <p className={styles.formError} role="alert">{error}</p>}
-      <DialogActions onClose={onClose} saving={saving} disabled={reason.trim().length < 5} action="Assign platform admin" />
+      <DialogActions onClose={onClose} saving={saving} disabled={reason.trim().length < 5} action="Assign role" />
     </form>
   </Dialog>;
 }
@@ -393,14 +386,14 @@ function AssignmentDialog({ user, onClose, onSaved }: { user: AccessUser; onClos
 function RevokeDialog({ assignment, onClose, onRevoked }: { assignment: AssignmentRecord; onClose: () => void; onRevoked: () => Promise<void> }) {
   const [reason, setReason] = useState(""); const [saving, setSaving] = useState(false); const [error, setError] = useState<string | null>(null);
   async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setSaving(true); setError(null); try { await revokeAssignment(assignment._id, reason.trim()); await onRevoked(); } catch (revokeError) { setError(errorMessage(revokeError)); } finally { setSaving(false); } }
-  return <Dialog title="Revoke platform administrator?" eyebrow="Confirm revocation" onClose={onClose}><form onSubmit={submit} className={styles.form}><p>This takes effect on the next authorization check.</p><label>Revocation reason<textarea required minLength={5} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} /></label>{error && <p className={styles.formError} role="alert">{error}</p>}<DialogActions onClose={onClose} saving={saving} disabled={reason.trim().length < 5} action="Revoke access" danger /></form></Dialog>;
+  return <Dialog title={`Revoke ${assignment.local_role} role?`} eyebrow="Confirm revocation" onClose={onClose}><form onSubmit={submit} className={styles.form}><p>This takes effect on the next authorization check.</p><label>Revocation reason<textarea required minLength={5} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} /></label>{error && <p className={styles.formError} role="alert">{error}</p>}<DialogActions onClose={onClose} saving={saving} disabled={reason.trim().length < 5} action="Revoke access" danger /></form></Dialog>;
 }
 
 function DecisionDialog({ request, action, onClose, onSaved }: { request: AccessRequestRecord; action: AccessRequestAction; onClose: () => void; onSaved: () => Promise<void> }) {
   const [note, setNote] = useState(""); const [saving, setSaving] = useState(false); const [error, setError] = useState<string | null>(null);
-  const title = action === "approve" ? "Approve access request?" : action === "fulfill" ? "Mark request fulfilled?" : "Reject access request?";
+  const title = action === "approve" ? "Approve access request?" : "Reject access request?";
   async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setSaving(true); setError(null); try { await decideAccessRequest(request._id, action, note.trim()); await onSaved(); } catch (decisionError) { setError(errorMessage(decisionError)); } finally { setSaving(false); } }
-  return <Dialog title={title} eyebrow="Entra access request" onClose={onClose}><form onSubmit={submit} className={styles.form}><p><strong>{request.display_name}</strong> requested {request.requested_role.replace("EvalHub.", "")}.</p>{action === "fulfill" && <p>Confirm that the role was assigned in Microsoft Entra before continuing.</p>}<label>Decision note<textarea required minLength={5} maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} /></label>{error && <p className={styles.formError} role="alert">{error}</p>}<DialogActions onClose={onClose} saving={saving} disabled={note.trim().length < 5} action={action === "fulfill" ? "Confirm fulfilled" : `${action.charAt(0).toUpperCase()}${action.slice(1)} request`} danger={action === "reject"} /></form></Dialog>;
+  return <Dialog title={title} eyebrow="EvalHub access request" onClose={onClose}><form onSubmit={submit} className={styles.form}><p><strong>{request.display_name}</strong> requested {request.requested_role}.</p>{action === "approve" && <p>Approval grants this EvalHub role immediately.</p>}<label>Decision note<textarea required minLength={5} maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} /></label>{error && <p className={styles.formError} role="alert">{error}</p>}<DialogActions onClose={onClose} saving={saving} disabled={note.trim().length < 5} action={`${action.charAt(0).toUpperCase()}${action.slice(1)} request`} danger={action === "reject"} /></form></Dialog>;
 }
 
 function Dialog({ title, eyebrow, onClose, children }: { title: string; eyebrow: string; onClose: () => void; children: ReactNode }) {

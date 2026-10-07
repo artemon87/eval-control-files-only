@@ -28,14 +28,14 @@ test("both access pages require an authenticated session", () => {
 });
 
 test("Get Access supports Editor and Admin requests with a business reason", () => {
-  assert.match(getAccess, /"EvalHub\.Editor"/);
-  assert.match(getAccess, /"EvalHub\.Admin"/);
+  assert.match(getAccess, /editor:/);
+  assert.match(getAccess, /admin:/);
   assert.match(getAccess, /Business reason/);
   assert.match(getAccess, /minLength=\{10\}/);
   assert.match(getAccess, /createAccessRequest\(requestedRole, reason\.trim\(\)\)/);
   assert.match(getAccess, /cancelAccessRequest\(requestId\)/);
-  assert.match(getAccess, /\["pending", "approved"\]\.includes\(request\.status\)/);
-  assert.match(getAccess, /Access begins only after the role is assigned in Microsoft Entra/);
+  assert.match(getAccess, /request\.status === "pending"/);
+  assert.match(getAccess, /Approved access is granted directly by EvalHub/);
 });
 
 test("Get Access handles loading, aborts and API failures", () => {
@@ -51,34 +51,32 @@ test("Get Access handles loading, aborts and API failures", () => {
   );
 });
 
-test("Access Management exposes users, requests, platform admins and audit", () => {
+test("Access Management exposes users, requests, assignments and audit", () => {
   for (const label of [
     "Known EvalHub users",
-    "Entra access requests",
-    "Platform administrators",
+    "EvalHub access requests",
+    "Role assignments",
     "Authorization audit",
   ]) {
     assert.match(admin, new RegExp(label));
   }
   assert.match(admin, /type Tab = "users" \| "requests" \| "assignments" \| "audit"/);
-  assert.match(admin, /NEXT_PUBLIC_ENTRA_ENTERPRISE_APP_URL/);
-  assert.match(admin, /Entra is the source of truth/);
+  assert.doesNotMatch(admin, /NEXT_PUBLIC_ENTRA_ENTERPRISE_APP_URL/);
+  assert.match(admin, /EvalHub is the authorization source of truth/);
 });
 
-test("administrators can approve, reject and fulfill without granting Entra locally", () => {
+test("administrators can approve or reject local EvalHub access", () => {
   assert.match(admin, /onDecision\(request, "approve"\)/);
   assert.match(admin, /onDecision\(request, "reject"\)/);
-  assert.match(admin, /onDecision\(request, "fulfill"\)/);
-  assert.match(admin, /Mark fulfilled/);
-  assert.match(admin, /role was assigned in Microsoft Entra/);
+  assert.doesNotMatch(admin, /onDecision\(request, "fulfill"\)/);
+  assert.match(admin, /Approval grants this EvalHub role immediately/);
   assert.doesNotMatch(admin, /assignEntraRole|grantEntraRole|graph\.microsoft/);
 });
 
-test("platform-admin assignment requires observed Entra Admin and prevents self-management", () => {
-  assert.match(admin, /!user\.entra_roles_last_seen\.includes\("EvalHub\.Admin"\)/);
-  assert.match(admin, /user\.principal_id === currentPrincipalId/);
-  assert.match(admin, /local_role: "platform_admin"/);
+test("role assignment is local and prevents self-management", () => {
+  assert.doesNotMatch(admin, /entra_roles_last_seen|EvalHub\.Admin/);
+  assert.match(admin, /user\.principal_id !== currentPrincipalId/);
+  assert.match(admin, /local_role: role/);
   assert.match(admin, /scope: \{ type: "global", id: "\*" \}/);
-  assert.match(admin, /user must already have Entra Admin/);
-  assert.doesNotMatch(admin, /evaluation_admin|moderator/);
+  assert.match(admin, /No Entra app role is required/);
 });

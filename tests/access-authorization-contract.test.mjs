@@ -15,15 +15,18 @@ const provider = await readFile(
   "utf8",
 );
 
-test("authorization types keep Entra as product-role authority", () => {
-  assert.match(types, /type EntraRole = "EvalHub\.Viewer" \| "EvalHub\.Editor" \| "EvalHub\.Admin"/);
-  assert.match(types, /type PlatformRole = "platform_admin"/);
-  assert.doesNotMatch(types, /evaluation_admin|moderator/);
+test("authorization types keep roles and permissions inside EvalHub", () => {
+  assert.match(types, /type EvalHubRole = "editor" \| "admin"/);
+  assert.match(types, /"evals\.annotate"/);
+  assert.match(types, /"evals\.edit"/);
+  assert.match(types, /"access\.manage"/);
+  assert.doesNotMatch(types, /type EntraRole|RequestedEntraRole|PlatformRole/);
   assert.match(types, /"pending"/);
   assert.match(types, /"approved"/);
   assert.match(types, /"fulfilled"/);
   assert.match(types, /"rejected"/);
   assert.match(types, /"cancelled"/);
+  assert.match(types, /type AccessRequestAction = "approve" \| "reject"/);
 });
 
 test("API client uses gateway-safe routes and secure request defaults", () => {

@@ -7,8 +7,8 @@ import type {
   AssignmentRecord,
   AuditEvent,
   AuthorizationContext,
+  EvalHubRole,
   Page,
-  RequestedEntraRole,
 } from "./access-admin-types";
 
 const API_ROOT = "/api/eval/admin/access";
@@ -109,7 +109,7 @@ export function revokeAssignment(
 }
 
 export function createAccessRequest(
-  requestedRole: RequestedEntraRole,
+  requestedRole: EvalHubRole,
   businessReason: string,
 ): Promise<AccessRequestRecord> {
   return request<AccessRequestRecord>(

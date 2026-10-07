@@ -1,7 +1,10 @@
-export type EntraRole = "EvalHub.Viewer" | "EvalHub.Editor" | "EvalHub.Admin";
-export type RequestedEntraRole = "EvalHub.Editor" | "EvalHub.Admin";
-export type PlatformRole = "platform_admin";
-export type Permission = "access.manage" | "audit.read";
+export type EvalHubRole = "editor" | "admin";
+export type Permission =
+  | "evals.annotate"
+  | "evals.edit"
+  | "suggestions.moderate"
+  | "access.manage"
+  | "audit.read";
 export type ScopeType = "global";
 export type AssignmentStatus = "active" | "expired" | "revoked";
 export type AccessRequestStatus =
@@ -10,7 +13,7 @@ export type AccessRequestStatus =
   | "fulfilled"
   | "rejected"
   | "cancelled";
-export type AccessRequestAction = "approve" | "fulfill" | "reject";
+export type AccessRequestAction = "approve" | "reject";
 
 export interface AuthorizationScope {
   type: ScopeType;
@@ -27,7 +30,7 @@ export interface AssignmentRecord {
   _id: string;
   tenant_id: string;
   principal_id: string;
-  local_role: PlatformRole;
+  local_role: EvalHubRole;
   scope: AuthorizationScope;
   status: AssignmentStatus;
   reason: string;
@@ -44,8 +47,7 @@ export interface AccessUser {
   principal_id: string;
   display_name: string;
   email?: string | null;
-  entra_roles_last_seen: string[];
-  entra_roles_last_confirmed_at: string;
+  roles: EvalHubRole[];
   assignments: AssignmentRecord[];
   effective_permissions: Permission[];
   last_login_at: string;
@@ -57,7 +59,7 @@ export interface AccessRequestRecord {
   principal_id: string;
   display_name: string;
   email?: string | null;
-  requested_role: RequestedEntraRole;
+  requested_role: EvalHubRole;
   business_reason: string;
   status: AccessRequestStatus;
   created_at: string;
@@ -75,8 +77,8 @@ export interface AuditEvent {
   target: ActorReference;
   assignment_id?: string | null;
   access_request_id?: string | null;
-  local_role?: PlatformRole | null;
-  requested_role?: RequestedEntraRole | null;
+  local_role?: EvalHubRole | null;
+  requested_role?: EvalHubRole | null;
   scope?: AuthorizationScope | null;
   reason: string;
   occurred_at: string;
@@ -93,7 +95,7 @@ export interface Page<T> {
 export interface AssignmentCreate {
   tenant_id: string;
   principal_id: string;
-  local_role: PlatformRole;
+  local_role: EvalHubRole;
   scope: AuthorizationScope;
   reason: string;
   expires_at?: string | null;
@@ -102,7 +104,6 @@ export interface AssignmentCreate {
 export interface AuthorizationContext {
   tenant_id: string;
   principal_id: string;
-  entra_roles: string[];
-  local_roles: PlatformRole[];
+  roles: EvalHubRole[];
   permissions: Permission[];
 }
