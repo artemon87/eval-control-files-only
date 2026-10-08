@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
+import { useAuthorization } from "../../components/authorization-provider";
 import {
   AccessApiError,
   createAssignment,
@@ -19,6 +20,8 @@ import type {
   AccessUser,
   AssignmentRecord,
   AuditEvent,
+  AuthorizationScope,
+  EvaluationType,
   EvalHubRole,
 } from "../../lib/access-admin-types";
 import styles from "./access-admin.module.css";
@@ -36,13 +39,14 @@ function formatDate(value?: string | null): string {
 
 function errorMessage(error: unknown): string {
   if (error instanceof AccessApiError) {
-    if (error.status === 403) return "EvalHub administrator access is required.";
     return error.message;
   }
   return "Something went wrong while loading access administration.";
 }
 
-export function AccessAdminClient({ currentPrincipalId }: { currentPrincipalId: string }) {
+export function AccessAdminClient() {
+  const { authorization } = useAuthorization();
+  const currentPrincipalId = authorization?.principal_id ?? "";
   const [tab, setTab] = useState<Tab>("requests");
   const [search, setSearch] = useState("");
   const [users, setUsers] = useState<AccessUser[]>([]);
@@ -222,25 +226,32 @@ function UsersTab({ users, loading, search, currentPrincipalId, onSearch, onAssi
       </div>
       <div className={styles.tableWrap}>
         <table>
-          <thead><tr><th>User</th><th>EvalHub roles</th><th>Permissions</th><th>Last login</th><th /></tr></thead>
+          <thead><tr><th>User</th><th>EvalHub access</th><th>Permissions</th><th>Last login</th><th /></tr></thead>
           <tbody>
             {loading ? <LoadingRows columns={5} /> : users.length === 0 ? (
               <EmptyRow columns={5} message="No users match this search." />
             ) : users.map((user) => {
               const activeAssignments = user.assignments.filter((assignment) => assignment.status === "active");
+              const isCurrentUser =
+                !currentPrincipalId || user.principal_id === currentPrincipalId;
+              const hasUnrestrictedAccess = activeAssignments.some(
+                (assignment) =>
+                  assignment.local_role === "admin" ||
+                  (assignment.local_role === "editor" && assignment.scope.type === "global"),
+              );
               return (
                 <tr key={`${user.tenant_id}:${user.principal_id}`}>
                   <td><UserIdentity user={user} /></td>
-                  <td><RoleBadges roles={user.roles} /></td>
+                  <td><AssignmentBadges assignments={activeAssignments} /></td>
                   <td>{user.effective_permissions.length ? user.effective_permissions.join(", ") : <span className={styles.muted}>None</span>}</td>
                   <td>{formatDate(user.last_login_at)}</td>
                   <td className={styles.actions}>
-                    {user.principal_id !== currentPrincipalId && user.roles.length < 2 && (
+                    {!isCurrentUser && !hasUnrestrictedAccess && (
                       <button className={styles.primaryButton} type="button" onClick={() => onAssign(user)}>
                         Assign role
                       </button>
                     )}
-                    {activeAssignments.length === 1 && user.principal_id !== currentPrincipalId && (
+                    {activeAssignments.length === 1 && !isCurrentUser && (
                       <button className={styles.dangerButton} type="button" onClick={() => onRevoke(activeAssignments[0])}>Revoke</button>
                     )}
                   </td>
@@ -303,20 +314,24 @@ function AssignmentsTab({ assignments, users, loading, currentPrincipalId, onRev
       <div className={styles.toolbar}><div><h2>Role assignments</h2><p>Current and historical EvalHub access.</p></div></div>
       <div className={styles.tableWrap}>
         <table>
-          <thead><tr><th>User</th><th>Status</th><th>Granted</th><th>Expires</th><th>Reason</th><th /></tr></thead>
+          <thead><tr><th>User</th><th>Role</th><th>Scope</th><th>Status</th><th>Granted</th><th>Expires</th><th>Reason</th><th /></tr></thead>
           <tbody>
-            {loading ? <LoadingRows columns={6} /> : assignments.length === 0 ? (
-              <EmptyRow columns={6} message="No EvalHub role assignments exist." />
+            {loading ? <LoadingRows columns={8} /> : assignments.length === 0 ? (
+              <EmptyRow columns={8} message="No EvalHub role assignments exist." />
             ) : assignments.map((assignment) => {
               const user = users.get(assignment.principal_id);
+              const isCurrentUser =
+                !currentPrincipalId || assignment.principal_id === currentPrincipalId;
               return (
                 <tr key={assignment._id}>
                   <td><strong>{user?.display_name ?? assignment.principal_id}</strong><small className={styles.block}>{user?.email}</small></td>
-                  <td><span className={styles.assignmentChip}>{assignment.local_role}</span><StatusBadge status={assignment.status} /></td>
+                  <td><span className={styles.assignmentChip}>{assignment.local_role}</span></td>
+                  <td><ScopeLabel scope={assignment.scope} /></td>
+                  <td><StatusBadge status={assignment.status} /></td>
                   <td>{formatDate(assignment.created_at)}<small className={styles.block}>by {assignment.granted_by.display_name ?? assignment.granted_by.principal_id}</small></td>
                   <td>{formatDate(assignment.expires_at)}</td>
                   <td className={styles.reasonCell}>{assignment.reason}</td>
-                  <td className={styles.actions}>{assignment.status === "active" && assignment.principal_id !== currentPrincipalId && <button className={styles.dangerButton} type="button" onClick={() => onRevoke(assignment)}>Revoke</button>}</td>
+                  <td className={styles.actions}>{assignment.status === "active" && !isCurrentUser && <button className={styles.dangerButton} type="button" onClick={() => onRevoke(assignment)}>Revoke</button>}</td>
                 </tr>
               );
             })}
@@ -354,12 +369,24 @@ function UserIdentity({ user }: { user: AccessUser }) {
   return <div className={styles.userCell}><span className={styles.avatar} aria-hidden="true">{user.display_name.charAt(0).toUpperCase()}</span><span><strong>{user.display_name}</strong><small>{user.email ?? user.principal_id}</small></span></div>;
 }
 
-function RoleBadges({ roles }: { roles: EvalHubRole[] }) {
-  return <div className={styles.stack}>{roles.length ? roles.map((role) => <span className={styles.entraBadge} key={role}>{role}</span>) : <span className={styles.muted}>No role assigned</span>}</div>;
+function AssignmentBadges({ assignments }: { assignments: AssignmentRecord[] }) {
+  return <div className={styles.stack}>{assignments.length ? assignments.map((assignment) => <span className={styles.entraBadge} key={assignment._id}>{assignment.local_role} · {formatScope(assignment.scope)}</span>) : <span className={styles.muted}>No role assigned</span>}</div>;
+}
+
+function formatScope(scope: AuthorizationScope): string {
+  if (scope.type === "global") return "All EvalHub";
+  const evalTypes = scope.constraints.eval_type;
+  if (!evalTypes?.length) return "All evaluations";
+  return `${evalTypes.map((value) => value.toUpperCase()).join(", ")} evaluations`;
+}
+
+function ScopeLabel({ scope }: { scope: AuthorizationScope }) {
+  return <span className={styles.assignmentChip}>{formatScope(scope)}</span>;
 }
 
 function AssignmentDialog({ user, onClose, onSaved }: { user: AccessUser; onClose: () => void; onSaved: () => Promise<void> }) {
-  const [role, setRole] = useState<EvalHubRole>(user.roles.includes("editor") ? "admin" : "editor");
+  const [role, setRole] = useState<EvalHubRole>("editor");
+  const [evaluationType, setEvaluationType] = useState<"all" | EvaluationType>("all");
   const [reason, setReason] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [saving, setSaving] = useState(false);
@@ -367,14 +394,22 @@ function AssignmentDialog({ user, onClose, onSaved }: { user: AccessUser; onClos
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setError(null);
     try {
-      await createAssignment({ tenant_id: user.tenant_id, principal_id: user.principal_id, local_role: role, scope: { type: "global", id: "*" }, reason: reason.trim(), expires_at: expiresAt ? new Date(expiresAt).toISOString() : null });
+      const scope: AuthorizationScope = role === "admin"
+        ? { type: "global", resource: null, constraints: {} }
+        : {
+            type: "resource",
+            resource: "evaluation",
+            constraints: evaluationType === "all" ? {} : { eval_type: [evaluationType] },
+          };
+      await createAssignment({ tenant_id: user.tenant_id, principal_id: user.principal_id, local_role: role, scope, reason: reason.trim(), expires_at: expiresAt ? new Date(expiresAt).toISOString() : null });
       await onSaved();
     } catch (saveError) { setError(errorMessage(saveError)); } finally { setSaving(false); }
   }
   return <Dialog title={`Assign a role to ${user.display_name}`} eyebrow="EvalHub access" onClose={onClose}>
     <form onSubmit={submit} className={styles.form}>
       <p>The role is stored and enforced by EvalHub. No Entra app role is required.</p>
-      <label>Role<select value={role} onChange={(event) => setRole(event.target.value as EvalHubRole)}>{!user.roles.includes("editor") && <option value="editor">Editor</option>}{!user.roles.includes("admin") && <option value="admin">Admin</option>}</select></label>
+      <label>Role<select value={role} onChange={(event) => setRole(event.target.value as EvalHubRole)}><option value="editor">Editor</option>{!user.roles.includes("admin") && <option value="admin">Admin</option>}</select></label>
+      {role === "editor" && <label>Evaluation access<select value={evaluationType} onChange={(event) => setEvaluationType(event.target.value as "all" | EvaluationType)}><option value="all">All evaluations</option><option value="unit">Unit evaluations only</option><option value="e2e">E2E evaluations only</option></select></label>}
       <label>Expiration (optional)<input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
       <label>Business reason<textarea required minLength={5} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
       {error && <p className={styles.formError} role="alert">{error}</p>}

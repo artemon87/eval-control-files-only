@@ -10,5 +10,5 @@ export default async function AccessAdminPage() {
   if (!session?.user) {
     redirect("/sign-in");
   }
-  return <AccessAdminClient currentPrincipalId={session.user.id ?? ""} />;
+  return <AccessAdminClient />;
 }

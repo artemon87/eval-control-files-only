@@ -5,7 +5,9 @@ export type Permission =
   | "suggestions.moderate"
   | "access.manage"
   | "audit.read";
-export type ScopeType = "global";
+export type ResourceType = "evaluation" | "suggestion" | "access" | "audit";
+export type ScopeType = "global" | "resource";
+export type EvaluationType = "unit" | "e2e";
 export type AssignmentStatus = "active" | "expired" | "revoked";
 export type AccessRequestStatus =
   | "pending"
@@ -17,7 +19,8 @@ export type AccessRequestAction = "approve" | "reject";
 
 export interface AuthorizationScope {
   type: ScopeType;
-  id: "*";
+  resource: ResourceType | null;
+  constraints: Record<string, string[]>;
 }
 
 export interface ActorReference {
