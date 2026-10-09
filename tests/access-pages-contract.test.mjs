@@ -75,7 +75,12 @@ test("administrators can approve or reject local EvalHub access", () => {
 
 test("role assignment is local and prevents self-management", () => {
   assert.doesNotMatch(admin, /entra_roles_last_seen|EvalHub\.Admin/);
-  assert.match(admin, /user\.principal_id !== currentPrincipalId/);
+  assert.match(
+    admin,
+    /const isCurrentUser\s*=\s*!currentPrincipalId\s*\|\|\s*user\.principal_id\s*===\s*currentPrincipalId/,
+  );
+
+  assert.match(admin, /!isCurrentUser\s*&&\s*!hasUnrestrictedAccess/);
   assert.match(admin, /local_role: role/);
   assert.match(admin, /scope: \{ type: "global", id: "\*" \}/);
   assert.match(admin, /No Entra app role is required/);
