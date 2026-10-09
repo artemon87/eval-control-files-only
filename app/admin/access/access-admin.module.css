@@ -15,25 +15,33 @@
   gap: 24px;
 }
 
-.header h1,
 .toolbar h2,
 .dialog h2 {
   margin: 0;
 }
 
 .header h1 {
-  font-size: clamp(2rem, 4vw, 3.25rem);
-  letter-spacing: -0.045em;
-  line-height: 1.04;
+  margin: 6px 0;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: normal;
+  line-height: 1.2;
 }
 
 .eyebrow {
-  color: #18756f;
-  font-size: 0.72rem;
+  margin: 0;
+  color: #168c7b;
+  font-size: 11px;
   font-weight: 800;
-  letter-spacing: 0.14em;
-  margin: 0 0 10px;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
+}
+
+.header p {
+  margin: 0;
+  color: #718294;
+  line-height: 1.5;
+  white-space: nowrap;
 }
 
 .subtitle,
