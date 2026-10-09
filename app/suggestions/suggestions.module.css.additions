@@ -1,0 +1,125 @@
+/* Merge these rules into the existing app/suggestions/suggestions.module.css. */
+
+.optional {
+  color: #8998a5;
+  font-weight: 500;
+  text-transform: none;
+}
+
+.form input[type="file"] {
+  width: 100%;
+  padding: 9px;
+  border: 1px dashed #b8c8d1;
+  border-radius: 7px;
+  background: #f8fafb;
+  color: #637789;
+  cursor: pointer;
+}
+
+.form label > small {
+  color: #8998a5;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.selectedImages {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.selectedImage {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1;
+  border: 1px solid #dbe4e9;
+  border-radius: 8px;
+  background: #eef3f5;
+}
+
+.selectedImage img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.heicPlaceholder {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 5px;
+  color: #637789;
+  text-align: center;
+}
+
+.heicPlaceholder strong {
+  color: #168c7b;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.heicPlaceholder small {
+  overflow: hidden;
+  width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectedImage button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  place-items: center;
+  background: rgba(27, 42, 54, 0.82);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.attachmentGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.attachmentGrid a {
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  border: 1px solid #dbe4e9;
+  border-radius: 8px;
+  background: #eef3f5;
+}
+
+.attachmentGrid img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 140ms ease;
+}
+
+.attachmentGrid a:hover img,
+.attachmentGrid a:focus-visible img {
+  transform: scale(1.025);
+}
+
+@media (max-width: 520px) {
+  .selectedImages {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .attachmentGrid {
+    grid-template-columns: 1fr;
+  }
+}
