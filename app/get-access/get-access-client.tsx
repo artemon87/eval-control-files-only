@@ -65,9 +65,32 @@ export function GetAccessClient() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadRequests(controller.signal);
+
+    void listMyAccessRequests(controller.signal)
+      .then((page) => {
+        if (!controller.signal.aborted) {
+          setRequests(page.items);
+        }
+      })
+      .catch((loadError: unknown) => {
+        if (
+          !controller.signal.aborted &&
+          !(
+            loadError instanceof DOMException &&
+            loadError.name === "AbortError"
+          )
+        ) {
+          setError(messageFor(loadError));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
+
     return () => controller.abort();
-  }, [loadRequests]);
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
