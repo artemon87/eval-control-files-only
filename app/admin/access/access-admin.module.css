@@ -1,11 +1,11 @@
 .page {
+  box-sizing: border-box;
   color: #17252a;
   margin: 0 auto;
-  max-width: 1500px;
+  max-width: 1192px;
   padding: 42px 36px 72px;
 }
 
-.header,
 .toolbar,
 .dialogHeader,
 .dialogActions {
@@ -20,39 +20,39 @@
   margin: 0;
 }
 
+.header {
+  display: block;
+  margin: 0 0 24px;
+}
+
 .header h1 {
-  margin: 6px 0;
   font-size: 32px;
   font-weight: 700;
   letter-spacing: normal;
   line-height: 1.2;
+  margin: 6px 0;
 }
 
 .eyebrow {
-  margin: 0;
   color: #168c7b;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.header p {
   margin: 0;
-  color: #718294;
-  line-height: 1.5;
-  white-space: nowrap;
+  text-transform: uppercase;
 }
 
 .subtitle,
 .toolbar p,
 .muted,
 .form small {
-  color: #66777c;
+  color: #718294;
 }
 
 .subtitle {
-  margin: 12px 0 0;
+  line-height: normal;
+  margin: 0;
+  white-space: normal;
 }
 
 .externalLink {

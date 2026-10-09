@@ -1,9 +1,10 @@
-.page { color: #17252a; margin: 0 auto; max-width: 1180px; padding: 48px 36px 72px; }
-.page h1 { font-size: clamp(2rem, 4vw, 3.25rem); letter-spacing: -.045em; margin: 0; }
-.eyebrow { color: #18756f; font-size: .72rem; font-weight: 800; letter-spacing: .14em; margin: 0 0 10px; text-transform: uppercase; }
-.subtitle, .muted { color: #66777c; }
-.subtitle { line-height: 1.6; max-width: 760px; }
-.layout { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr) minmax(320px, .8fr); margin-top: 32px; }
+.page { box-sizing: border-box; color: #17252a; margin: 0 auto; max-width: 1192px; padding: 42px 36px 72px; }
+.header { margin: 0 0 24px; }
+.header h1 { font-size: 32px; font-weight: 700; letter-spacing: normal; line-height: 1.2; margin: 6px 0; }
+.eyebrow { color: #168c7b; font-size: 11px; font-weight: 800; letter-spacing: .09em; margin: 0; text-transform: uppercase; }
+.subtitle, .muted { color: #718294; }
+.subtitle { line-height: normal; margin: 0; max-width: none; white-space: normal; }
+.layout { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr) minmax(320px, .8fr); margin-top: 0; }
 .card { background: #fff; border: 1px solid #dde6e8; border-radius: 16px; box-shadow: 0 12px 40px rgb(21 52 59 / 7%); padding: 26px; }
 .card h2 { margin: 0 0 20px; }
 .form, .requestList { display: grid; gap: 16px; }
