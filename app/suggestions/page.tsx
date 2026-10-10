@@ -441,6 +441,136 @@ export default function SuggestionsPage() {
           )}
         </section>
       </section>
+      {lightbox && (() => {
+        const selectedIndex = Math.max(
+          0,
+          lightbox.attachments.findIndex(
+            (attachment) => attachment.id === lightbox.selectedId,
+          ),
+        );
+
+        const selectedAttachment =
+          lightbox.attachments[selectedIndex];
+
+        const selectedSource =
+          `/api/eval/suggestions/${encodeURIComponent(lightbox.suggestionId)}` +
+          `/attachments/${encodeURIComponent(selectedAttachment.id)}`;
+
+        const selectImage = (index: number) => {
+          const attachment = lightbox.attachments[index];
+
+          setLightbox({
+            ...lightbox,
+            selectedId: attachment.id,
+          });
+        };
+
+        return (
+          <div
+            className={styles.lightboxBackdrop}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Suggestion attachments"
+            onClick={() => setLightbox(null)}
+          >
+            <div
+              className={styles.lightbox}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                className={styles.lightboxClose}
+                aria-label="Close image viewer"
+                onClick={() => setLightbox(null)}
+              >
+                ×
+              </button>
+
+              {lightbox.attachments.length > 1 && (
+                <button
+                  type="button"
+                  className={`${styles.lightboxArrow} ${styles.lightboxPrevious}`}
+                  aria-label="Previous image"
+                  onClick={() =>
+                    selectImage(
+                      (selectedIndex - 1 + lightbox.attachments.length) %
+                        lightbox.attachments.length,
+                    )
+                  }
+                >
+                  ‹
+                </button>
+              )}
+
+              <img
+                className={styles.lightboxImage}
+                src={selectedSource}
+                alt={selectedAttachment.filename}
+              />
+
+              {lightbox.attachments.length > 1 && (
+                <button
+                  type="button"
+                  className={`${styles.lightboxArrow} ${styles.lightboxNext}`}
+                  aria-label="Next image"
+                  onClick={() =>
+                    selectImage(
+                      (selectedIndex + 1) %
+                        lightbox.attachments.length,
+                    )
+                  }
+                >
+                  ›
+                </button>
+              )}
+
+              <div className={styles.lightboxFooter}>
+                <span>{selectedAttachment.filename}</span>
+
+                {lightbox.attachments.length > 1 && (
+                  <span>
+                    {selectedIndex + 1} / {lightbox.attachments.length}
+                  </span>
+                )}
+              </div>
+
+              {lightbox.attachments.length > 1 && (
+                <div className={styles.lightboxThumbnails}>
+                  {lightbox.attachments.map((attachment) => {
+                    const thumbnailSource =
+                      `/api/eval/suggestions/${encodeURIComponent(
+                        lightbox.suggestionId,
+                      )}/attachments/${encodeURIComponent(attachment.id)}`;
+
+                    return (
+                      <button
+                        type="button"
+                        key={attachment.id}
+                        className={
+                          attachment.id === lightbox.selectedId
+                            ? styles.lightboxThumbnailActive
+                            : styles.lightboxThumbnail
+                        }
+                        onClick={() =>
+                          setLightbox({
+                            ...lightbox,
+                            selectedId: attachment.id,
+                          })
+                        }
+                      >
+                        <img
+                          src={thumbnailSource}
+                          alt={attachment.filename}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </main>
   );
 }
