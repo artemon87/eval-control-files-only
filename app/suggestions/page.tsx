@@ -320,6 +320,58 @@ export default function SuggestionsPage() {
     }
     await load();
   }
+  async function updateSuggestionStatus(
+    suggestionId: string,
+    nextStatus: SuggestionStatus,
+  ) {
+    setUpdatingStatusId(suggestionId);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `/api/eval/suggestions/${encodeURIComponent(
+          suggestionId,
+        )}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            status: nextStatus,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const message = await response.text();
+
+        throw new Error(
+          message ||
+            `Status update failed (${response.status})`,
+        );
+      }
+
+      const updatedSuggestion: Suggestion =
+        await response.json();
+
+      setItems((currentItems) =>
+        currentItems.map((item) =>
+          item.id === updatedSuggestion.id
+            ? updatedSuggestion
+            : item,
+        ),
+      );
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to update suggestion status",
+      );
+    } finally {
+      setUpdatingStatusId(null);
+    }
+  }
 
   return (
     <main className={styles.page}>
