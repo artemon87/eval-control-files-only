@@ -99,7 +99,13 @@ export default function SuggestionsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const objectUrlsRef = useRef(new Set<string>());
+  //new
+  const [updatingStatusId, setUpdatingStatusId] =
+    useState<string | null>(null);
 
+  const [canManageSuggestions, setCanManageSuggestions] =
+    useState(false);
+ //end
   const statusCounts = useMemo(
     () =>
       items.reduce<Record<SuggestionStatus, number>>(
@@ -171,7 +177,46 @@ export default function SuggestionsPage() {
 
     return () => controller.abort();
   }, []);
+ //new
+  useEffect(() => {
+    let cancelled = false;
 
+    async function loadSuggestionAuthorization() {
+      try {
+        const response = await fetch("/api/eval/auth/me", {
+          headers: {
+            Accept: "application/json",
+          },
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const authorization = await response.json();
+
+        if (!cancelled) {
+          setCanManageSuggestions(
+            authorization.permissions?.includes(
+              "suggestion:manage",
+            ) ?? false,
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setCanManageSuggestions(false);
+        }
+      }
+    }
+
+    void loadSuggestionAuthorization();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+//end
   useEffect(
     () => () => {
       objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -401,9 +446,38 @@ export default function SuggestionsPage() {
                 </button>
                 <div>
                   <div className={styles.cardStatus}>
-                    <span className={`${styles.status} ${statusClassNames[item.status]}`}>
-                      {statusLabels[item.status]}
-                    </span>
+                    //new
+                    {canManageSuggestions ? (
+                      <select
+                        className={`${styles.statusSelect} ${
+                          statusClassNames[item.status]
+                        }`}
+                        value={item.status}
+                        disabled={updatingStatusId === item.id}
+                        aria-label={`Update status for ${item.title}`}
+                        onChange={(event) =>
+                          void updateSuggestionStatus(
+                            item.id,
+                            event.target.value as SuggestionStatus,
+                          )
+                        }
+                      >
+                        <option value="open">Open</option>
+                        <option value="planned">Planned</option>
+                        <option value="completed">Completed</option>
+                        <option value="declined">Declined</option>
+                      </select>
+                    ) : (
+                      <span
+                        className={`${styles.status} ${
+                          statusClassNames[item.status]
+                        }`}
+                      >
+                        {statusLabels[item.status]}
+                      </span>
+                    )}
+                    // end
+
                     <small>{statusDescriptions[item.status]}</small>
                   </div>
                   <h3>{item.title}</h3>
