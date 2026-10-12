@@ -16,6 +16,15 @@ import {
 import { markSuggestionIdsSeen } from "../lib/suggestion-notifications";
 import styles from "./suggestions.module.css";
 
+import {
+  getSuggestions,
+  getSuggestionManagePermission,
+  createSuggestion,
+  setSuggestionVote,
+  patchSuggestionStatus,
+} from "../lib/suggestion-api";
+
+
 type SuggestionStatus = "open" | "planned" | "completed" | "declined";
 type StatusFilter = "all" | SuggestionStatus;
 
@@ -133,75 +142,44 @@ export default function SuggestionsPage() {
     [items.length, statusCounts],
   );
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
+
     try {
-      const response = await fetch("/api/eval/suggestions?limit=100", {
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok) throw new Error(`Suggestions API ${response.status}`);
-      const payload = (await response.json()) as { items: Suggestion[] };
-      const suggestions = payload.items ?? [];
+      const suggestions = await getSuggestions(signal);
+
+      if (signal?.aborted) return;
+
       setItems(suggestions);
-      markSuggestionIdsSeen(suggestions.map((item) => item.id));
+
+      markSuggestionIdsSeen(
+        suggestions.map((item) => item.id),
+      );
     } catch (reason) {
-      setError(errorMessage(reason, "Unable to load suggestions"));
+      if (!signal?.aborted) {
+        setError(
+          errorMessage(reason, "Unable to load suggestions"),
+        );
+      }
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
   }, []);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetch("/api/eval/suggestions?limit=100", {
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Suggestions API ${response.status}`);
-        return response.json() as Promise<{ items: Suggestion[] }>;
-      })
-      .then((payload) => {
-        const suggestions = payload.items ?? [];
-        setItems(suggestions);
-        markSuggestionIdsSeen(suggestions.map((item) => item.id));
-        setError(null);
-      })
-      .catch((reason: unknown) => {
-        if (!controller.signal.aborted) setError(errorMessage(reason, "Unable to load suggestions"));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
 
-    return () => controller.abort();
-  }, []);
- //new
   useEffect(() => {
     let cancelled = false;
 
     async function loadSuggestionAuthorization() {
       try {
-        const response = await fetch("/api/eval/auth/me", {
-          headers: {
-            Accept: "application/json",
-          },
-          cache: "no-store",
-        });
-
-        if (!response.ok) {
-          return;
-        }
-
-        const authorization = await response.json();
+        const allowed =
+          await getSuggestionManagePermission();
 
         if (!cancelled) {
-          setCanManageSuggestions(
-            authorization.permissions?.includes(
-              "suggestion:manage",
-            ) ?? false,
-          );
+          setCanManageSuggestions(allowed);
         }
       } catch {
         if (!cancelled) {
@@ -216,7 +194,8 @@ export default function SuggestionsPage() {
       cancelled = true;
     };
   }, []);
-//end
+
+
   useEffect(
     () => () => {
       objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -279,46 +258,53 @@ export default function SuggestionsPage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
-    if (!title.trim() || !description.trim()) return;
 
-    const formData = new FormData();
-    formData.set("title", title.trim());
-    formData.set("description", description.trim());
-    images.forEach(({ file }) => formData.append("images", file, file.name));
+    if (!title.trim() || !description.trim()) return;
 
     setSaving(true);
     setError(null);
+
     try {
-      const response = await fetch("/api/eval/suggestions", {
-        method: "POST",
-        body: formData,
-      });
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
-        throw new Error(payload?.detail ?? `Suggestions API ${response.status}`);
-      }
+      await createSuggestion(
+        title.trim(),
+        description.trim(),
+        images.map((image) => image.file),
+      );
+
       setTitle("");
       setDescription("");
+
       clearImages();
+
       await load();
     } catch (reason) {
-      setError(errorMessage(reason, "Unable to create suggestion"));
+      setError(
+        errorMessage(reason, "Unable to create suggestion"),
+      );
     } finally {
       setSaving(false);
     }
   }
 
   async function toggleVote(item: Suggestion) {
-    const response = await fetch(`/api/eval/suggestions/${encodeURIComponent(item.id)}/vote`, {
-      method: item.viewer_has_voted ? "DELETE" : "PUT",
-    });
-    if (!response.ok) {
-      setError(`Vote failed (${response.status})`);
-      return;
+    setError(null);
+
+    try {
+      await setSuggestionVote(
+        item.id,
+        item.viewer_has_voted,
+      );
+
+      await load();
+    } catch (reason) {
+      setError(
+        errorMessage(reason, "Unable to update vote"),
+      );
     }
-    await load();
   }
   async function updateSuggestionStatus(
     suggestionId: string,
@@ -328,32 +314,11 @@ export default function SuggestionsPage() {
     setError(null);
 
     try {
-      const response = await fetch(
-        `/api/eval/suggestions/${encodeURIComponent(
+      const updatedSuggestion =
+        await patchSuggestionStatus(
           suggestionId,
-        )}/status`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            status: nextStatus,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        const message = await response.text();
-
-        throw new Error(
-          message ||
-            `Status update failed (${response.status})`,
+          nextStatus,
         );
-      }
-
-      const updatedSuggestion: Suggestion =
-        await response.json();
 
       setItems((currentItems) =>
         currentItems.map((item) =>
@@ -362,11 +327,12 @@ export default function SuggestionsPage() {
             : item,
         ),
       );
-    } catch (caughtError) {
+    } catch (reason) {
       setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Unable to update suggestion status",
+        errorMessage(
+          reason,
+          "Unable to update suggestion status",
+        ),
       );
     } finally {
       setUpdatingStatusId(null);
