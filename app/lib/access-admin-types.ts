@@ -4,7 +4,8 @@ export type Permission =
   | "evals.edit"
   | "suggestions.moderate"
   | "access.manage"
-  | "audit.read";
+  | "audit.read"
+  | "product_updates.manage";
 export type ResourceType = "evaluation" | "suggestion" | "access" | "audit";
 export type ScopeType = "global" | "resource";
 export type EvaluationType = "unit" | "e2e";
