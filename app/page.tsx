@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 37926)
-Total output lines: 4572
-
 "use client";
 
 import Image from "next/image";
@@ -1798,7 +1795,977 @@ function RunSummary({
     (counts, item) => {
       if (item.verdict === "passed") counts.passed += 1;
       if (item.verdict === "failed") counts.failed += 1;
-      if (item.verdict === …7926 tokens truncated…      <div>
+      if (item.verdict === "blocked") counts.blocked += 1;
+      if (item.verdict === "xpassed") counts.xpassed += 1;
+      return counts;
+    },
+    { passed: 0, failed: 0, blocked: 0, xpassed: 0 },
+  );
+  return (
+    <>
+      <div className="detail-grid">
+        <section className="panel run-hero">
+          <div>
+            <TypeBadge type={run.evalType} />
+            <StatusBadge verdict={effectiveRunVerdict(run)} />
+            <span className={`execution execution--${run.executionStatus}`}>
+              {run.executionStatus}
+            </span>
+          </div>
+          <h2>{scope.primary}</h2>
+          <p>
+            {scope.secondary} · triggered by <strong>{run.actor}</strong>{" "}
+            through {run.trigger.toUpperCase()} ·{" "}
+            {run.evalType === "e2e" ? (
+              <>
+                target manifest{" "}
+                {manifestUrl ? (
+                  <a
+                    className="manifest-link"
+                    href={manifestUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {run.datasetVersion} ↗
+                  </a>
+                ) : (
+                  <span title="The API did not return manifest_url for this run">
+                    {run.datasetVersion}
+                  </span>
+                )}
+              </>
+            ) : (
+              `evalset ${run.datasetVersion}`
+            )}
+          </p>
+          <div className="run-links">
+            {run.githubRunUrl && (
+              <a
+                className="manifest-link"
+                href={run.githubRunUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open GitHub Actions run ↗
+              </a>
+            )}
+            {run.githubJobUrl && (
+              <a
+                className="manifest-link"
+                href={run.githubJobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open GitHub job ↗
+              </a>
+            )}
+          </div>
+          <div className="run-metadata">
+            {run.createdAt && (
+              <span>
+                <small>Created</small>
+                {formatTime(run.createdAt)}
+              </span>
+            )}
+            <span>
+              <small>Started</small>
+              {formatTime(run.startedAt)}
+            </span>
+            {run.completedAt && (
+              <span>
+                <small>Finished</small>
+                {formatTime(run.completedAt)}
+              </span>
+            )}
+            {run.gitRef && (
+              <span>
+                <small>Git ref</small>
+                <code>{run.gitRef}</code>
+              </span>
+            )}
+            {run.gitSha && (
+              <span title={run.gitSha}>
+                <small>Git SHA</small>
+                <code>{shortGitSha(run.gitSha)}</code>
+              </span>
+            )}
+            {run.githubRepository && (
+              <span>
+                <small>Repository</small>
+                <code>{run.githubRepository}</code>
+              </span>
+            )}
+            {run.githubRunId && (
+              <span>
+                <small>GitHub run</small>
+                {run.githubRunUrl ? (
+                  <a
+                    href={run.githubRunUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {run.githubRunId} ↗
+                  </a>
+                ) : (
+                  <code>{run.githubRunId}</code>
+                )}
+              </span>
+            )}
+            {run.githubEvent && (
+              <span>
+                <small>GitHub event</small>
+                {run.githubEvent}
+              </span>
+            )}
+            {run.githubRunAttempt && (
+              <span>
+                <small>Run attempt</small>
+                {run.githubRunAttempt}
+              </span>
+            )}
+          </div>
+          {run.evalType === "e2e" ? (
+            <div className="scope-chips">
+              <span>Live target</span>
+              <span>No tool mocks</span>
+              <span>
+                {run.e2eConfig?.selectedSuites.length ?? run.suites.length}{" "}
+                suites
+              </span>
+              <span>
+                Target gate ≥{" "}
+                {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}
+              </span>
+              <span title="Highest conversation-depth tier included in this run">
+                Max tier {run.e2eConfig?.maxTier ?? "not recorded"}
+              </span>
+            </div>
+          ) : (
+            <div className="scope-chips unit">
+              <span>
+                {run.unitConfig?.mode === "single-turn"
+                  ? "Single-turn only"
+                  : run.unitConfig?.mode === "multi-turn"
+                    ? "Multi-turn only"
+                    : "All configured test types"}
+              </span>
+              <span>Per-skill mocks</span>
+              <span>Tool + response quality</span>
+            </div>
+          )}
+          <button className="history-link" onClick={() => onHistory(run)}>
+            View {run.evalType === "e2e" ? "target" : "skill"} history →
+          </button>
+          <div className="case-outcome-grid" aria-label="Case outcomes">
+            <span className="case-outcome case-outcome--passed">
+              <small>Passed</small>
+              <strong>{caseOutcomes.passed}</strong>
+            </span>
+            <span className="case-outcome case-outcome--failed">
+              <small>Failed</small>
+              <strong>{caseOutcomes.failed}</strong>
+            </span>
+            <span className="case-outcome case-outcome--blocked">
+              <small>Blocked</small>
+              <strong>{caseOutcomes.blocked}</strong>
+            </span>
+            <span
+              className="case-outcome case-outcome--xpassed"
+              title="Unexpected passes that should be reviewed"
+            >
+              <small>XPASS</small>
+              <strong>{caseOutcomes.xpassed}</strong>
+            </span>
+          </div>
+          <div className="detail-stats">
+            <span>
+              <small>Pass rate</small>
+              <strong>
+                {run.evalType === "unit" ? (
+                  `${run.summary.passRatePct.toFixed(run.summary.passRatePct % 1 ? 1 : 0)}%`
+                ) : (
+                  <>
+                    {run.summary.passRatePct || "—"}
+                    {run.summary.passRatePct ? "%" : ""}
+                  </>
+                )}
+              </strong>
+              {run.evalType === "e2e" && (
+                <em>
+                  Required:{" "}
+                  {formatPassRateThreshold(run.e2eConfig?.passRateThreshold)}
+                </em>
+              )}
+            </span>
+            <span>
+              <small>Mean score</small>
+              <strong>
+                {run.evalType === "unit"
+                  ? unitMeanScore.toFixed(2)
+                  : run.summary.meanScore || "—"}
+              </strong>
+            </span>
+            <span>
+              <small>Cases</small>
+              <strong>{run.summary.total}</strong>
+            </span>
+            <span>
+              <small>Duration</small>
+              <strong>{formatDuration(run.durationMs)}</strong>
+            </span>
+          </div>
+        </section>
+        <section className="panel suite-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>
+                {run.evalType === "e2e"
+                  ? "Suite breakdown"
+                  : "Skill / metric breakdown"}
+              </h2>
+              <p>
+                {run.evalType === "e2e"
+                  ? "Live conversation result by enabled suite"
+                  : "Mock-backed cases scored for this single skill"}
+              </p>
+            </div>
+          </div>
+          {suites.length ? (
+            suites.map((suite) => (
+              <div className="suite-row" key={suite.name}>
+                <div>
+                  <strong>{suite.name}</strong>
+                  <small>
+                    {suite.total
+                      ? `${suite.passed} passed · ${suite.failed} failed`
+                      : "Enabled suite · case results not available"}
+                  </small>
+                </div>
+                <div className="suite-bar">
+                  <i>
+                    <b
+                      style={{
+                        width: `${(suite.passed / Math.max(suite.total, 1)) * 100}%`,
+                      }}
+                    />
+                  </i>
+                  <span>{suite.total ? suite.meanScore.toFixed(2) : "—"}</span>
+                </div>
+                <button
+                  className="trend-action"
+                  onClick={() =>
+                    onTrend(
+                      drilldownRequest(
+                        run,
+                        run.evalType === "unit" ? "metric" : "skill",
+                        run.evalType === "unit"
+                          ? (run.unitConfig?.skillId ?? run.target)
+                          : suite.name,
+                        undefined,
+                        run.evalType === "unit" ? suite.name : undefined,
+                      ),
+                    )
+                  }
+                >
+                  {run.evalType === "unit" ? "Metric trend" : "View trend"}
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className="empty compact-empty">
+              <strong>No results yet</strong>
+              <span>This run has not produced suite results.</span>
+            </div>
+          )}
+        </section>
+      </div>
+      <section className="panel cases-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Evaluated cases</h2>
+            <p>Case-level verdicts, evidence and latency</p>
+          </div>
+          <span className="result-count">{scopedCases.length} results</span>
+        </div>
+        {scopedCases.length ? (
+          <div className="table-wrap">
+            <table className="cases-table">
+              <thead>
+                <tr>
+                  <th>Case</th>
+                  <th>Suite</th>
+                  <th>Verdict</th>
+                  <th>Score</th>
+                  <th>Threshold</th>
+                  <th>Latency</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {scopedCases.map((item) => (
+                  <tr key={item.caseId} onClick={() => onCase(item)}>
+                    <td>
+                      <button className="run-link">{item.caseId}</button>
+                      <small>
+                        <span title="Role or test type used to exercise this case">
+                          {item.role}
+                        </span>
+                        {run.evalType === "e2e" && (
+                          <>
+                            {" "}
+                            ·{" "}
+                            <span title="Conversation-depth tier; higher tiers represent deeper or more complex flows">
+                              tier {item.tier ?? "—"}
+                            </span>
+                          </>
+                        )}
+                      </small>
+                    </td>
+                    <td>{item.suite}</td>
+                    <td>
+                      <StatusBadge
+                        verdict={
+                          item.verdict === "error" ? "blocked" : item.verdict
+                        }
+                      />
+                    </td>
+                    <td>
+                      {item.scores ? (
+                        <MetricGateTags
+                          scores={item.scores}
+                          thresholds={item.thresholds}
+                          column="score"
+                        />
+                      ) : (
+                        <strong
+                          className={
+                            item.score < item.threshold ? "bad-score" : "score"
+                          }
+                        >
+                          {item.score.toFixed(1)}
+                        </strong>
+                      )}
+                    </td>
+                    <td>
+                      {item.scores ? (
+                        <MetricGateTags
+                          scores={item.scores}
+                          thresholds={item.thresholds}
+                          column="threshold"
+                        />
+                      ) : (
+                        item.threshold.toFixed(1)
+                      )}
+                    </td>
+                    <td>
+                      {item.durationMs || item.responseTimeMs
+                        ? `${((item.durationMs ?? item.responseTimeMs) / 1000).toFixed(1)}s`
+                        : "—"}
+                    </td>
+                    <td>
+                      {run.evalType === "unit" ? (
+                        <button
+                          className="trend-action test-trend-action"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onTrend(
+                              drilldownRequest(
+                                run,
+                                "case",
+                                run.unitConfig?.skillId ?? run.target,
+                                item.caseId,
+                              ),
+                            );
+                          }}
+                        >
+                          Test trend
+                        </button>
+                      ) : (
+                        <button
+                          className="row-arrow"
+                          aria-label={`Open ${item.caseId}`}
+                        >
+                          ›
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty">
+            <strong>No case documents available</strong>
+            <span>No cases matching run {run.runId} were returned.</span>
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+function CaseDrawer({
+  item,
+  run,
+  onClose,
+  onTrend,
+}: {
+  item: EvalCase;
+  run: EvalRun;
+  onClose: () => void;
+  onTrend: (request: DrilldownTrendRequest) => void;
+}) {
+  const prompt =
+    item.input ??
+    "Not captured in this run result. The prompt remains defined in the authored stage suite.";
+  const isMultiTurn = Boolean(item.turns?.length);
+  const caseDurationMs = item.durationMs ?? item.responseTimeMs;
+  return (
+    <div
+      className="drawer-layer"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Evaluation case ${item.caseId}`}
+    >
+      <button
+        className="drawer-backdrop"
+        onClick={onClose}
+        aria-label="Close case detail"
+      />
+      <aside className="case-drawer">
+        <header>
+          <div>
+            <span className="eyebrow">Case evidence</span>
+            <h2>{item.testName || item.caseId}</h2>
+            {item.testName && <p className="drawer-case-id">{item.caseId}</p>}
+          </div>
+          <button onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </header>
+        <div className="drawer-body">
+          <button
+            className="case-trend-button"
+            onClick={() =>
+              onTrend(
+                drilldownRequest(
+                  run,
+                  "case",
+                  item.skill || item.suite,
+                  item.caseId,
+                ),
+              )
+            }
+          >
+            ↗ View this {run.evalType === "unit" ? "test" : "case"} over time
+          </button>
+          <div className="case-summary">
+            <StatusBadge
+              verdict={item.verdict === "error" ? "blocked" : item.verdict}
+            />
+            <span>
+              {item.scores ? (
+                <>
+                  <strong>{Object.keys(item.scores).length}</strong> case-level
+                  metric{Object.keys(item.scores).length === 1 ? "" : "s"}
+                </>
+              ) : (
+                <>
+                  Score <strong>{item.score.toFixed(1)}</strong> / case
+                  threshold {item.threshold.toFixed(1)}
+                </>
+              )}
+            </span>
+            <span>
+              {caseDurationMs
+                ? `${(caseDurationMs / 1000).toFixed(2)}s`
+                : "duration not recorded"}
+            </span>
+          </div>
+          {item.verdict === "xpassed" && (
+            <div className="xpass-note">
+              <strong>Unexpected pass</strong>
+              <span>
+                This case is marked as a known or expected failure, but it
+                passed. Review the known-bug marker and linked issue; the
+                expected-failure annotation may now be stale.
+              </span>
+            </div>
+          )}
+          <dl
+            className={`meta-grid ${run.evalType === "unit" ? "meta-grid--unit" : ""}`}
+          >
+            <div>
+              <dt>Suite</dt>
+              <dd>{item.suite}</dd>
+            </div>
+            <div>
+              <dt>Role / type</dt>
+              <dd>{item.role}</dd>
+            </div>
+            {run.evalType === "e2e" && (
+              <div>
+                <dt>Tier</dt>
+                <dd>{item.tier ?? "—"}</dd>
+              </div>
+            )}
+            <div>
+              <dt>Skill</dt>
+              <dd>{item.skill}</dd>
+            </div>
+          </dl>
+          {item.startedAt && (
+            <div className="case-timing">
+              <span>Started {formatTime(item.startedAt)}</span>
+              {item.finishedAt && (
+                <span>Finished {formatTime(item.finishedAt)}</span>
+              )}
+            </div>
+          )}
+
+          {isMultiTurn ? (
+            <TurnTimeline turns={item.turns ?? []} />
+          ) : (
+            <>
+              <EvidenceBlock
+                title="Prompt"
+                content={prompt}
+                tone={item.input ? "default" : "muted"}
+              />
+              {item.expectedResponse && (
+                <EvidenceBlock
+                  title="Expected response"
+                  content={item.expectedResponse}
+                />
+              )}
+              <EvidenceBlock
+                title="Assistant response"
+                content={item.responseText || "No response stored"}
+              />
+              {item.toolCalls?.length ? (
+                <ToolCallList calls={item.toolCalls} />
+              ) : null}
+            </>
+          )}
+
+          {item.scores && (
+            <ScoreBreakdown
+              scores={item.scores}
+              thresholds={item.thresholds}
+              explanations={item.scoreExplanations}
+              failed={item.verdict === "failed"}
+            />
+          )}
+          {item.validationResult != null && (
+            <EvidenceBlock
+              title="Validation result"
+              content={formatEvidence(item.validationResult)}
+              tone={item.verdict === "failed" ? "danger" : "default"}
+            />
+          )}
+          {run.evalType === "unit" ? (
+            <>
+              <EvidenceBlock
+                title="Expected trajectory"
+                content={
+                  item.expectedTrajectory == null
+                    ? "Not recorded"
+                    : formatEvidence(item.expectedTrajectory)
+                }
+                tone={item.expectedTrajectory == null ? "muted" : "default"}
+              />
+              <EvidenceBlock
+                title="Predicted trajectory"
+                content={
+                  item.predictedTrajectory == null
+                    ? "Not recorded"
+                    : formatEvidence(item.predictedTrajectory)
+                }
+                tone={item.predictedTrajectory == null ? "muted" : "default"}
+              />
+            </>
+          ) : (
+            <>
+              {item.expectedTrajectory != null && (
+                <EvidenceBlock
+                  title="Expected trajectory"
+                  content={formatEvidence(item.expectedTrajectory)}
+                />
+              )}
+              {item.predictedTrajectory != null && (
+                <EvidenceBlock
+                  title="Observed trajectory"
+                  content={formatEvidence(item.predictedTrajectory)}
+                />
+              )}
+            </>
+          )}
+          {!item.scoreExplanations && item.explanation && (
+            <EvidenceBlock
+              title="Judge explanation"
+              content={item.explanation}
+              tone={item.verdict === "failed" ? "danger" : "default"}
+            />
+          )}
+          {item.bugRef && (
+            <div className="bug-ref">
+              <span>Linked issue</span>
+              <strong>{item.bugRef}</strong>
+            </div>
+          )}
+          {item.error && (
+            <EvidenceBlock
+              title="Execution error"
+              content={item.error}
+              tone="danger"
+            />
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function formatEvidence(value: unknown) {
+  return typeof value === "string"
+    ? value
+    : (JSON.stringify(value, null, 2) ?? String(value));
+}
+
+function ToolCallList({ calls }: { calls: EvalCase["toolCalls"] }) {
+  if (!calls?.length) return null;
+  return (
+    <section className="tool-call-list">
+      <h3>Observed tool calls</h3>
+      {calls.map((call, index) => (
+        <article key={call.toolCallId ?? `${call.name}-${index}`}>
+          <div>
+            <strong>{call.name}</strong>
+            {call.toolCallId && <code>{call.toolCallId}</code>}
+          </div>
+          <pre>{JSON.stringify(call.parameters, null, 2)}</pre>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function ScoreBreakdown({
+  scores,
+  thresholds,
+  explanations,
+  failed,
+}: {
+  scores: Record<string, number>;
+  thresholds?: Record<string, number>;
+  explanations?: Record<string, string>;
+  failed: boolean;
+}) {
+  return (
+    <section
+      className={`score-breakdown ${failed ? "score-breakdown--failed" : ""}`}
+    >
+      <h3>Metric results</h3>
+      {Object.entries(scores).map(([metric, score]) => {
+        const threshold = thresholds?.[metric];
+        const hasThreshold = typeof threshold === "number";
+        const passed = hasThreshold ? score >= threshold : undefined;
+        return (
+          <article
+            className={
+              passed === undefined
+                ? "metric-result--unknown"
+                : passed
+                  ? "metric-result--pass"
+                  : "metric-result--fail"
+            }
+            key={metric}
+          >
+            <div>
+              <strong>{metric.replaceAll("_", " ")}</strong>
+              <span className="metric-result-gate">
+                <b>{score.toFixed(1)}</b>
+                {hasThreshold ? (
+                  <em>
+                    {passed ? "Passed" : "Failed"} · threshold{" "}
+                    {threshold.toFixed(1)}
+                  </em>
+                ) : (
+                  <em>Threshold not recorded</em>
+                )}
+              </span>
+            </div>
+            {explanations?.[metric] && <p>{explanations[metric]}</p>}
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
+function TurnTimeline({ turns }: { turns: EvalTurn[] }) {
+  return (
+    <section className="turn-timeline">
+      <div className="turn-timeline-heading">
+        <div>
+          <span className="eyebrow">Multi-turn conversation</span>
+          <h3>{turns.length} recorded turns</h3>
+        </div>
+        <span>Ordered execution evidence</span>
+      </div>
+      {[...turns]
+        .sort((left, right) => left.turnNumber - right.turnNumber)
+        .map((turn) => (
+          <article className="turn-card" key={turn.turnNumber}>
+            <div className="turn-marker">
+              <span>{turn.turnNumber}</span>
+            </div>
+            <div className="turn-content">
+              <header>
+                <strong>Turn {turn.turnNumber}</strong>
+                <span>
+                  {turn.toolCalls.length} tool call
+                  {turn.toolCalls.length === 1 ? "" : "s"}
+                </span>
+              </header>
+              <div className="turn-response">
+                <span>Assistant response</span>
+                <p>{turn.response || "No response stored for this turn."}</p>
+              </div>
+              <ToolCallList calls={turn.toolCalls} />
+              {Object.keys(turn.scores).length > 0 && (
+                <ScoreBreakdown scores={turn.scores} failed={false} />
+              )}
+              {turn.validationResult != null && (
+                <EvidenceBlock
+                  title="Turn validation"
+                  content={formatEvidence(turn.validationResult)}
+                />
+              )}
+            </div>
+          </article>
+        ))}
+    </section>
+  );
+}
+
+function EvidenceBlock({
+  title,
+  content,
+  tone = "default",
+}: {
+  title: string;
+  content: string;
+  tone?: "default" | "danger" | "muted";
+}) {
+  return (
+    <section className={`evidence evidence--${tone}`}>
+      <h3>{title}</h3>
+      <p>{content}</p>
+    </section>
+  );
+}
+
+function DrilldownScoreChart({
+  points,
+  onOpenRun,
+}: {
+  points: DrilldownTrendPoint[];
+  onOpenRun: (runId: string) => void;
+}) {
+  const width = 760;
+  const left = 42;
+  const right = 728;
+  const top = 22;
+  const bottom = 178;
+  const x = (index: number) =>
+    points.length < 2
+      ? (left + right) / 2
+      : left + (index / (points.length - 1)) * (right - left);
+  const y = (score: number) => top + ((5 - score) / 5) * (bottom - top);
+  const scoreLine = points
+    .map((point, index) => `${x(index)},${y(point.score)}`)
+    .join(" ");
+  const thresholdLine = points
+    .map((point, index) => `${x(index)},${y(point.threshold)}`)
+    .join(" ");
+  return (
+    <div
+      className="drilldown-chart"
+      role="img"
+      aria-label="Score and threshold over time"
+    >
+      <svg viewBox={`0 0 ${width} 218`} preserveAspectRatio="none">
+        <g className="drilldown-grid">
+          {[5, 4, 3, 2, 1, 0].map((value) => (
+            <g key={value}>
+              <line x1={left} x2={right} y1={y(value)} y2={y(value)} />
+              <text x="12" y={y(value) + 3}>
+                {value}
+              </text>
+            </g>
+          ))}
+        </g>
+        {points.length > 1 && (
+          <>
+            <polyline
+              className="drilldown-threshold-line"
+              points={thresholdLine}
+            />
+            <polyline className="drilldown-score-line" points={scoreLine} />
+          </>
+        )}
+        {points.map((point, index) => (
+          <g
+            className="drilldown-point"
+            key={`${point.runId}-${point.startedAt}`}
+            onClick={() => onOpenRun(point.runId)}
+            role="button"
+          >
+            <circle
+              className={`drilldown-dot drilldown-dot--${point.verdict}`}
+              cx={x(index)}
+              cy={y(point.score)}
+              r="5"
+            >
+              <title>{`${formatTime(point.startedAt)} · score ${point.score.toFixed(2)} · ${point.verdict}`}</title>
+            </circle>
+            <text
+              className="drilldown-value"
+              x={x(index)}
+              y={Math.max(12, y(point.score) - 11)}
+              textAnchor="middle"
+            >
+              {point.score.toFixed(1)}
+            </text>
+            <text
+              className="point-date"
+              x={x(index)}
+              y="207"
+              textAnchor="middle"
+            >
+              {formatDateShort(point.startedAt)}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function DrilldownTrendDrawer({
+  request,
+  api,
+  onClose,
+  onOpenRun,
+}: {
+  request: DrilldownTrendRequest;
+  api: EvalApi | null;
+  onClose: () => void;
+  onOpenRun: (runId: string) => void;
+}) {
+  const [points, setPoints] = useState<DrilldownTrendPoint[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.resolve()
+      .then(() => {
+        if (controller.signal.aborted) return;
+        setLoading(true);
+        setError(null);
+        setNextCursor(null);
+        setPoints([]);
+        if (!api)
+          throw new Error(
+            "Eval API is not configured. Trend data is unavailable.",
+          );
+        return api.listTrend(request, null, 30, controller.signal);
+      })
+      .then((page) => {
+        if (controller.signal.aborted || !page) return;
+        setPoints(
+          page.items.sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
+        );
+        setNextCursor(page.nextCursor);
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted)
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "Unable to load trend data",
+          );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [api, request]);
+  const loadOlder = async () => {
+    if (!api || !nextCursor || loadingOlder) return;
+    setLoadingOlder(true);
+    setError(null);
+    try {
+      const page = await api.listTrend(request, nextCursor, 30);
+      setNextCursor(page.nextCursor);
+      setPoints((current) => {
+        const byRun = new Map(current.map((point) => [point.runId, point]));
+        page.items.forEach((point) => byRun.set(point.runId, point));
+        return Array.from(byRun.values()).sort((a, b) =>
+          a.startedAt.localeCompare(b.startedAt),
+        );
+      });
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to load older trend data",
+      );
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
+  const latest = points[points.length - 1];
+  const previous = points[points.length - 2];
+  const delta = latest && previous ? latest.score - previous.score : 0;
+  const nonPasses = points.filter(
+    (point) => point.verdict !== "passed" && point.verdict !== "xpassed",
+  ).length;
+  const title =
+    request.kind === "case"
+      ? (request.caseId ?? request.skill)
+      : request.kind === "metric"
+        ? (request.metric ?? request.skill)
+        : request.skill;
+  const trendLabel =
+    request.kind === "metric"
+      ? "Metric trend"
+      : request.kind === "case" && request.evalType === "unit"
+        ? "Test trend"
+        : request.kind === "case"
+          ? "Case history"
+          : "Skill trend";
+  return (
+    <div
+      className="drawer-layer"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${title} historical trend`}
+    >
+      <button
+        className="drawer-backdrop"
+        onClick={onClose}
+        aria-label="Close trend"
+      />
+      <aside className="case-drawer trend-drawer">
+        <header>
+          <div>
             <span className="eyebrow">{trendLabel}</span>
             <h2>{title}</h2>
             <p>
