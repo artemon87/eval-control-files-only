@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 
-import { SidebarNavigation } from "../../components/sidebar-navigation";
+import { AppPageShell } from "../../components/app-page-shell";
 import {
   createProductUpdate,
   deleteProductUpdate,
@@ -84,13 +84,12 @@ export function ProductUpdatesAdmin() {
   };
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><span className="brand-mark"><b>UKG</b></span><div><strong>EvalHub</strong><small>Quality operations</small></div></div>
-        <SidebarNavigation activePath="/admin/product-updates" />
-      </aside>
-      <main className="main">
-        <header className="topbar"><div className="breadcrumb">Administration <span>/</span> Product updates</div><Link href="/whats-new">View public page →</Link></header>
+    <AppPageShell
+      activePath="/admin/product-updates"
+      section="Administration"
+      page="Product updates"
+      action={<Link href="/whats-new">View public page →</Link>}
+    >
         <div className={styles.content}>
           <div className={styles.heading}><span>CONTENT MANAGEMENT</span><h1>Manage What&apos;s New</h1><p>Post release notes and roadmap updates. Changes appear immediately.</p></div>
           <form className={styles.form} onSubmit={submit}>
@@ -109,7 +108,6 @@ export function ProductUpdatesAdmin() {
           </form>
           <section className={styles.list}><div><h2>Published updates</h2><span>{items.length} total</span></div>{items.map((item) => <article key={item.id}><div><span>{item.status.replace("coming", "coming next")} · {item.displayDate}</span><h3>{item.title}</h3><p>{item.eyebrow} · {item.description}</p></div><div><button onClick={() => startEdit(item)}>Edit</button><button className={styles.danger} onClick={() => { if (window.confirm(`Delete “${item.title}”?`)) void deleteProductUpdate(item.id).then(load); }}>Delete</button></div></article>)}</section>
         </div>
-      </main>
-    </div>
+    </AppPageShell>
   );
 }

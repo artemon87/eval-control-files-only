@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
+import { AppPageShell } from "../../components/app-page-shell";
 import { useAuthorization } from "../../components/authorization-provider";
 import {
   AccessApiError,
@@ -99,7 +100,12 @@ export function AccessAdminClient() {
   );
 
   return (
-    <main className={styles.page}>
+    <AppPageShell
+      activePath="/admin/access"
+      section="Administration"
+      page="Access management"
+    >
+      <div className={styles.page}>
       <header className={styles.header}>
         <div>
           <p className={styles.eyebrow}>Administration</p>
@@ -202,7 +208,8 @@ export function AccessAdminClient() {
           }}
         />
       )}
-    </main>
+      </div>
+    </AppPageShell>
   );
 }
 

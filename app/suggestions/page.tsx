@@ -2,7 +2,6 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import Link from "next/link";
 import {
   ChangeEvent,
   DragEvent,
@@ -14,6 +13,7 @@ import {
   useState,
 } from "react";
 
+import { AppPageShell } from "../components/app-page-shell";
 import { markSuggestionIdsSeen } from "../lib/suggestion-notifications";
 import styles from "./suggestions.module.css";
 
@@ -387,16 +387,14 @@ export default function SuggestionsPage() {
   }
 
   return (
-    <main className={styles.page}>
+    <AppPageShell activePath="/suggestions" section="Discover" page="Suggestions">
+      <div className={styles.page}>
       <header className={styles.heading}>
         <div>
           <span>PRODUCT FEEDBACK</span>
           <h1>Suggestions</h1>
           <p>Propose EvalHub improvements and vote on the work that matters most.</p>
         </div>
-        <nav className={styles.pageNav} aria-label="Page navigation">
-          <Link href="/">← Back to EvalHub</Link>
-        </nav>
       </header>
 
       <section className={styles.layout}>
@@ -784,6 +782,7 @@ export default function SuggestionsPage() {
           </div>
         );
       })()}
-    </main>
+      </div>
+    </AppPageShell>
   );
 }
