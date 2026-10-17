@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 
+import { useAuthorization } from "./authorization-provider";
+
 export type EvaluationView = "overview" | "runs" | "history" | "compare";
 
 export const evaluationNavItems: {
@@ -32,6 +34,10 @@ export function SidebarNavigation({
   onSelectView,
   onNavigate,
 }: SidebarNavigationProps) {
+  const { can, loading: authorizationLoading } = useAuthorization();
+  const canManageAdministration =
+    !authorizationLoading && can("access.manage");
+
   return (
     <nav aria-label="Main navigation">
       <p>Evaluate</p>
@@ -90,22 +96,26 @@ export function SidebarNavigation({
         <span>＋</span>
         Request access
       </Link>
-      <Link
-        className={`nav-link ${activePath === "/admin/access" ? "active" : ""}`}
-        href="/admin/access"
-        onClick={onNavigate}
-      >
-        <span>⚙</span>
-        Access requests
-      </Link>
-      <Link
-        className={`nav-link ${activePath === "/admin/product-updates" ? "active" : ""}`}
-        href="/admin/product-updates"
-        onClick={onNavigate}
-      >
-        <span>✦</span>
-        Manage updates
-      </Link>
+      {canManageAdministration && (
+        <>
+          <Link
+            className={`nav-link ${activePath === "/admin/access" ? "active" : ""}`}
+            href="/admin/access"
+            onClick={onNavigate}
+          >
+            <span>⚙</span>
+            Access management
+          </Link>
+          <Link
+            className={`nav-link ${activePath === "/admin/product-updates" ? "active" : ""}`}
+            href="/admin/product-updates"
+            onClick={onNavigate}
+          >
+            <span>✦</span>
+            Manage updates
+          </Link>
+        </>
+      )}
       <button disabled title="Policy management is planned">
         <span>⌁</span>
         Policies
