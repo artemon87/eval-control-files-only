@@ -1,10 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-import { SidebarNavigation } from "../components/sidebar-navigation";
 import {
   productUpdates,
   type ProductUpdate,
@@ -76,7 +74,6 @@ function FeatureVisual({ update }: { update: ProductUpdate }) {
 
 export default function WhatsNewPage() {
   const [filter, setFilter] = useState<Filter>("all");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [updates, setUpdates] = useState<ProductUpdate[]>(productUpdates);
   useEffect(() => {
     const controller = new AbortController();
@@ -89,7 +86,6 @@ export default function WhatsNewPage() {
     () => filter === "all" ? updates : updates.filter((item) => item.status === filter),
     [filter, updates],
   );
-  const latest = updates[0] ?? productUpdates[0]!;
   const totals = {
     shipped: updates.filter((item) => item.status === "shipped").length,
     coming: updates.filter((item) => item.status === "coming").length,
@@ -97,34 +93,7 @@ export default function WhatsNewPage() {
   };
 
   return (
-    <div className="app-shell">
-      {sidebarOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
-      <aside className={`sidebar ${sidebarOpen ? "mobile-open" : ""}`}>
-        <div className="brand">
-          <span className="brand-mark">
-            <b aria-hidden="true">UKG</b>
-            <Image className="brand-logo" src="/ukg-rgb.png" alt="UKG" width={52} height={34} unoptimized />
-          </span>
-          <div><strong>EvalHub</strong><small>Quality operations</small></div>
-          {sidebarOpen && <button className="sidebar-close" aria-label="Close navigation" onClick={() => setSidebarOpen(false)}>×</button>}
-        </div>
-        <SidebarNavigation activePath="/whats-new" onNavigate={() => setSidebarOpen(false)} />
-        <div className="sidebar-note">
-          <span>Latest release</span>
-          <strong><i /> October product update</strong>
-          <small>Updated {latest.displayDate}</small>
-        </div>
-        <div className="profile"><span>AK</span><div><strong>Artem Kovtunenko</strong><small>Evaluation operator</small></div><b>•••</b></div>
-      </aside>
-
-      <main className="main">
-        <header className="topbar">
-          <button className="mobile-menu" aria-label="Open navigation" onClick={() => setSidebarOpen(true)}>☰</button>
-          <div className="breadcrumb">EvalHub <span>/</span> What&apos;s new</div>
-          <div className="top-actions"><Link className={styles.feedbackLink} href="/suggestions">Share feedback</Link></div>
-        </header>
-
-        <div className={styles.content}>
+    <div className={styles.content}>
           <section className={styles.hero}>
             <div className={styles.heroCopy}>
               <span className={styles.kicker}>PRODUCT UPDATES · OCTOBER 2026</span>
@@ -177,8 +146,6 @@ export default function WhatsNewPage() {
             <div><span>How this page works</span><h2>A living product history</h2></div>
             <p>Each feature is marked as shipped, coming next, or planned. Dates for future work are intentionally directional until a release is confirmed.</p>
           </aside>
-        </div>
-      </main>
     </div>
   );
 }
