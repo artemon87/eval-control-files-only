@@ -5,6 +5,7 @@
 import Link from "next/link";
 import {
   ChangeEvent,
+  DragEvent,
   FormEvent,
   useCallback,
   useEffect,
@@ -55,6 +56,7 @@ type SelectedImage = {
 
 const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const SUGGESTION_IMAGE_UPLOADS_ENABLED = false;
 const ALLOWED_IMAGE_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -104,6 +106,7 @@ export default function SuggestionsPage() {
   const [images, setImages] = useState<SelectedImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [isDraggingImages, setIsDraggingImages] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -204,9 +207,7 @@ export default function SuggestionsPage() {
     [],
   );
 
-  function selectImages(event: ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(event.target.files ?? []);
-    event.target.value = "";
+  function addImages(selected: File[]) {
     setError(null);
 
     if (images.length + selected.length > MAX_IMAGES) {
@@ -234,6 +235,27 @@ export default function SuggestionsPage() {
       return { id: crypto.randomUUID(), file, previewUrl };
     });
     setImages((current) => [...current, ...additions]);
+  }
+
+  function selectImages(event: ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    addImages(selected);
+  }
+
+  function dropImages(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setIsDraggingImages(false);
+
+    if (
+      !SUGGESTION_IMAGE_UPLOADS_ENABLED ||
+      saving ||
+      images.length >= MAX_IMAGES
+    ) {
+      return;
+    }
+
+    addImages(Array.from(event.dataTransfer.files));
   }
 
   function removeImage(id: string) {
@@ -374,18 +396,83 @@ export default function SuggestionsPage() {
               required
             />
           </label>
-          <label>
-            Images <span className={styles.optional}>(optional)</span>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/heic,image/heif,.png,.jpg,.jpeg,.heic,.heif"
-              multiple
-              onChange={selectImages}
-              disabled={saving || images.length >= MAX_IMAGES}
-            />
-            <small>PNG, JPEG, or HEIC/HEIF, up to 10 MB each, maximum {MAX_IMAGES}.</small>
-          </label>
+          <div className={styles.uploadField}>
+            <div className={styles.uploadLabel}>
+              Images <span className={styles.optional}>(optional)</span>
+            </div>
+            <div
+              className={[
+                styles.uploadDropzone,
+                isDraggingImages ? styles.uploadDropzoneActive : "",
+                !SUGGESTION_IMAGE_UPLOADS_ENABLED
+                  ? styles.uploadDropzoneDisabled
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              role="button"
+              tabIndex={SUGGESTION_IMAGE_UPLOADS_ENABLED ? 0 : -1}
+              aria-disabled={!SUGGESTION_IMAGE_UPLOADS_ENABLED}
+              aria-label={
+                SUGGESTION_IMAGE_UPLOADS_ENABLED
+                  ? "Upload suggestion images"
+                  : "Suggestion image uploads are coming soon"
+              }
+              onClick={() => {
+                if (SUGGESTION_IMAGE_UPLOADS_ENABLED) {
+                  fileInputRef.current?.click();
+                }
+              }}
+              onKeyDown={(event) => {
+                if (
+                  SUGGESTION_IMAGE_UPLOADS_ENABLED &&
+                  (event.key === "Enter" || event.key === " ")
+                ) {
+                  event.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                if (SUGGESTION_IMAGE_UPLOADS_ENABLED) {
+                  setIsDraggingImages(true);
+                }
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDragLeave={() => setIsDraggingImages(false)}
+              onDrop={dropImages}
+            >
+              <input
+                ref={fileInputRef}
+                className={styles.fileInput}
+                type="file"
+                accept="image/png,image/jpeg,image/heic,image/heif,.png,.jpg,.jpeg,.heic,.heif"
+                multiple
+                onChange={selectImages}
+                disabled={
+                  !SUGGESTION_IMAGE_UPLOADS_ENABLED ||
+                  saving ||
+                  images.length >= MAX_IMAGES
+                }
+              />
+              <span className={styles.uploadIcon} aria-hidden="true">
+                ↥
+              </span>
+              <strong>
+                {SUGGESTION_IMAGE_UPLOADS_ENABLED
+                  ? "Drag and drop images here"
+                  : "Image attachments coming soon"}
+              </strong>
+              <span>
+                {SUGGESTION_IMAGE_UPLOADS_ENABLED
+                  ? "or click to browse"
+                  : "We’re finishing the secure upload setup."}
+              </span>
+              <small>
+                PNG, JPEG, or HEIC/HEIF · Up to 10 MB each · Maximum {MAX_IMAGES}
+              </small>
+            </div>
+          </div>
 
           {images.length > 0 && (
             <div className={styles.selectedImages} aria-label="Selected image previews">
@@ -464,7 +551,6 @@ export default function SuggestionsPage() {
                 </button>
                 <div>
                   <div className={styles.cardStatus}>
-                    //new
                     {canManageSuggestions ? (
                       <select
                         className={`${styles.statusSelect} ${
@@ -494,8 +580,6 @@ export default function SuggestionsPage() {
                         {statusLabels[item.status]}
                       </span>
                     )}
-                    // end
-
                     <small>{statusDescriptions[item.status]}</small>
                   </div>
                   <h3>{item.title}</h3>
