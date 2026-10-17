@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
+import { AppPageShell } from "../components/app-page-shell";
 import { useAuthorization } from "../components/authorization-provider";
 import {
   AccessApiError,
@@ -128,7 +129,8 @@ export function GetAccessClient() {
   );
 
   return (
-    <main className={styles.page}>
+    <AppPageShell activePath="/get-access" section="Access" page="Request access">
+      <div className={styles.page}>
       <header>
         <p className={styles.eyebrow}>EvalHub access</p>
         <h1>Request access</h1>
@@ -178,6 +180,7 @@ export function GetAccessClient() {
           )}
         </section>
       </div>
-    </main>
+      </div>
+    </AppPageShell>
   );
 }
