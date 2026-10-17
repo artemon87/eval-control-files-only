@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
-import { AppPageShell } from "../../components/app-page-shell";
+import { SectionPage } from "../../components/section-page";
 import { useAuthorization } from "../../components/authorization-provider";
 import {
   AccessApiError,
@@ -100,22 +100,11 @@ export function AccessAdminClient() {
   );
 
   return (
-    <AppPageShell
-      activePath="/admin/access"
-      section="Administration"
-      page="Access management"
+    <SectionPage
+      eyebrow="Administration"
+      title="Access management"
+      description="EvalHub owns application roles and permissions. Microsoft Entra is used only to identify signed-in users."
     >
-      <div className={styles.page}>
-      <header className={styles.header}>
-        <div>
-          <p className={styles.eyebrow}>Administration</p>
-          <h1>Access management</h1>
-          <p className={styles.subtitle}>
-            EvalHub owns application roles and permissions. Microsoft Entra is used only to identify signed-in users.
-          </p>
-        </div>
-      </header>
-
       <section className={styles.notice} aria-label="Authorization information">
         <strong>EvalHub is the authorization source of truth.</strong>
         <span>
@@ -208,8 +197,7 @@ export function AccessAdminClient() {
           }}
         />
       )}
-      </div>
-    </AppPageShell>
+    </SectionPage>
   );
 }
 

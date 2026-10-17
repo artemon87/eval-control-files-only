@@ -13,7 +13,7 @@ import {
   useState,
 } from "react";
 
-import { AppPageShell } from "../components/app-page-shell";
+import { SectionPage } from "../components/section-page";
 import { markSuggestionIdsSeen } from "../lib/suggestion-notifications";
 import styles from "./suggestions.module.css";
 
@@ -387,16 +387,11 @@ export default function SuggestionsPage() {
   }
 
   return (
-    <AppPageShell activePath="/suggestions" section="Discover" page="Suggestions">
-      <div className={styles.page}>
-      <header className={styles.heading}>
-        <div>
-          <span>PRODUCT FEEDBACK</span>
-          <h1>Suggestions</h1>
-          <p>Propose EvalHub improvements and vote on the work that matters most.</p>
-        </div>
-      </header>
-
+    <SectionPage
+      eyebrow="Product feedback"
+      title="Suggestions"
+      description="Propose EvalHub improvements and vote on the work that matters most."
+    >
       <section className={styles.layout}>
         <form className={styles.form} onSubmit={submit} encType="multipart/form-data">
           <h2>Suggest an improvement</h2>
@@ -782,7 +777,6 @@ export default function SuggestionsPage() {
           </div>
         );
       })()}
-      </div>
-    </AppPageShell>
+    </SectionPage>
   );
 }
