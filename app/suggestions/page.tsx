@@ -54,6 +54,12 @@ type SelectedImage = {
   previewUrl: string | null;
 };
 
+type LightboxState = {
+  suggestionId: string;
+  attachments: SuggestionAttachment[];
+  selectedId: string;
+};
+
 const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const SUGGESTION_IMAGE_UPLOADS_ENABLED = false;
@@ -107,6 +113,7 @@ export default function SuggestionsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isDraggingImages, setIsDraggingImages] = useState(false);
+  const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -206,6 +213,24 @@ export default function SuggestionsPage() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (!lightbox) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLightbox(null);
+    };
+
+    window.addEventListener("keydown", closeOnEscape);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [lightbox]);
 
   function addImages(selected: File[]) {
     setError(null);
@@ -592,9 +617,21 @@ export default function SuggestionsPage() {
                           `/api/eval/suggestions/${encodeURIComponent(item.id)}` +
                           `/attachments/${encodeURIComponent(attachment.id)}`;
                         return (
-                          <a key={attachment.id} href={source} target="_blank" rel="noreferrer">
+                          <button
+                            type="button"
+                            key={attachment.id}
+                            className={styles.attachmentButton}
+                            aria-label={`Open ${attachment.filename}`}
+                            onClick={() =>
+                              setLightbox({
+                                suggestionId: item.id,
+                                attachments: item.attachments,
+                                selectedId: attachment.id,
+                              })
+                            }
+                          >
                             <img src={source} alt={attachment.filename} loading="lazy" />
-                          </a>
+                          </button>
                         );
                       })}
                     </div>
