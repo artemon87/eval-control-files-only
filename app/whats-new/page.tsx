@@ -31,12 +31,15 @@ const statusLabels: Record<ProductUpdateStatus, string> = {
 function FeatureVisual({ update }: { update: ProductUpdate }) {
   if (update.image) {
     return (
-      <div className={styles.visual} style={{ padding: 0, overflow: "hidden" }}>
+      <div
+        className={styles.visual}
+        style={{ alignSelf: "start", minHeight: 0, padding: 0, overflow: "hidden" }}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={productUpdateImageUrl(update.id)}
           alt={update.image.filename}
-          style={{ display: "block", width: "100%", height: "100%", minHeight: 156, objectFit: "cover" }}
+          style={{ display: "block", width: "100%", height: "auto", maxHeight: 360, objectFit: "contain" }}
         />
       </div>
     );
