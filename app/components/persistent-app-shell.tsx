@@ -8,6 +8,7 @@ import { AppPageShell } from "./app-page-shell";
 
 const routeDetails: Record<string, { section: string; page: string }> = {
   "/suggestions": { section: "Discover", page: "Suggestions" },
+  "/whats-new": { section: "Discover", page: "What's new" },
   "/get-access": { section: "Access", page: "Request access" },
   "/admin/access": { section: "Administration", page: "Access management" },
   "/admin/product-updates": {
@@ -25,6 +26,8 @@ export function PersistentAppShell({ children }: { children: ReactNode }) {
   const action =
     pathname === "/admin/product-updates" ? (
       <Link href="/whats-new">View public page →</Link>
+    ) : pathname === "/whats-new" ? (
+      <Link href="/suggestions">Share feedback</Link>
     ) : undefined;
 
   return (
