@@ -21,19 +21,20 @@
 
 .lightboxBackdrop {
   position: fixed;
-  z-index: 1000;
+  z-index: 9999;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
   background: rgb(8 18 28 / 88%);
+  backdrop-filter: blur(3px);
 }
 
 .lightbox {
   position: relative;
   display: flex;
-  width: min(1100px, 100%);
+  width: min(1100px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
   flex-direction: column;
   align-items: center;
@@ -45,6 +46,7 @@
   max-height: calc(100vh - 190px);
   border-radius: 10px;
   object-fit: contain;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 45%);
 }
 
 .lightboxClose {
@@ -54,8 +56,11 @@
   right: 8px;
   width: 42px;
   height: 42px;
+  display: grid;
+  padding: 0;
   border: 0;
   border-radius: 50%;
+  place-items: center;
   background: rgb(0 0 0 / 65%);
   color: white;
   font-size: 30px;
@@ -69,8 +74,11 @@
   top: 45%;
   width: 48px;
   height: 64px;
+  display: grid;
+  padding: 0;
   border: 0;
   border-radius: 8px;
+  place-items: center;
   background: rgb(0 0 0 / 60%);
   color: white;
   font-size: 44px;
@@ -348,6 +356,24 @@
 }
 
 @media (max-width: 520px) {
+  .lightboxBackdrop {
+    padding: 12px;
+  }
+
+  .lightbox {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+
+  .lightboxImage {
+    max-height: calc(100vh - 160px);
+  }
+
+  .lightboxArrow {
+    width: 40px;
+    height: 54px;
+  }
+
   .selectedImages {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
