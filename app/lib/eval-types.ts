@@ -2,13 +2,26 @@ export type EvalType = "e2e" | "unit";
 export type Trigger = "ui" | "cli" | "ci" | "schedule" | string;
 export type ExecutionStatus =
   "queued" | "running" | "completed" | "blocked" | "error" | "cancelled";
-export type Verdict = "passed" | "failed" | "blocked" | "pending" | "xpassed";
-export type CaseVerdict = "passed" | "failed" | "blocked" | "error" | "xpassed";
+export type Verdict =
+  | "passed"
+  | "failed"
+  | "blocked"
+  | "skipped"
+  | "pending"
+  | "xpassed";
+export type CaseVerdict =
+  | "passed"
+  | "failed"
+  | "blocked"
+  | "skipped"
+  | "error"
+  | "xpassed";
 
 export interface RunSummary {
   total: number;
   passed: number;
   failed: number;
+  skipped?: number;
   passRatePct: number;
   meanScore: number;
   p95ResponseTimeMs: number;
@@ -40,6 +53,9 @@ export interface UnitRunConfig {
   bsaVersion: string;
   mode: "all" | "single-turn" | "multi-turn";
   metrics: string[];
+  passRateThreshold?: number;
+  evaluationLayer?: string;
+  nRuns?: number;
 }
 
 export interface EvalRun {
@@ -48,12 +64,19 @@ export interface EvalRun {
   evalType: EvalType;
   stage: string;
   target: string;
+  /** Broad BSA runtime environment, for example "staging". */
+  environment?: string;
+  /** Precise deployment target, for example "5-prod-sales". */
+  targetEnvironment?: string;
+  /** Skill grouping, for example "domain-skills". */
+  category?: string;
   executionStatus: ExecutionStatus;
   verdict: Verdict;
   startedAt: string;
   createdAt?: string;
   completedAt?: string;
   durationMs?: number;
+  error?: string;
   trigger: Trigger;
   actor: string;
   gitSha?: string;
@@ -108,6 +131,10 @@ export interface EvalCase {
   toolCalls?: ToolCall[];
   skillVersion?: string;
   bsaVersion?: string;
+  environment?: string;
+  targetEnvironment?: string;
+  category?: string;
+  agentName?: string;
   error?: string;
   bugRef?: string;
   expectedResponse?: string;
