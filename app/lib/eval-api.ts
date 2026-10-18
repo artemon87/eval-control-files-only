@@ -17,6 +17,7 @@ interface ApiSummary {
   total: number;
   passed: number;
   failed: number;
+  skipped?: number;
   pass_rate_pct: number;
   mean_score?: number | null;
   by_tier?: Record<string, unknown> | null;
@@ -31,6 +32,7 @@ interface BaseApiRun {
   created_at?: string | null;
   finished_at?: string | null;
   duration_ms?: number | null;
+  error?: string | null;
   trigger?: string | null;
   actor?: string | null;
   git_sha?: string | null;
@@ -56,6 +58,9 @@ interface UnitApiRun extends BaseApiRun {
     bsa_environment?: string | null;
     bsa_version?: string | null;
     skill_version?: string | null;
+    pass_rate_threshold?: number | null;
+    evaluation_layer?: string | null;
+    n_runs?: number | null;
   };
 }
 
@@ -149,6 +154,11 @@ export interface TrendQuery {
   stage: string;
   target: string;
   environment: string;
+  evaluationLayer?: string;
+  caseSkill?: string;
+  githubRepository?: string;
+  gitRef?: string;
+  days?: number;
 }
 
 export interface ApiTrendPage {
@@ -189,6 +199,8 @@ function normalizeVerdict(value: string | null | undefined): Verdict {
     case "blocked":
     case "error":
       return "blocked";
+    case "skipped":
+      return "skipped";
     case "xpass":
     case "xpassed":
     case "unexpected_pass":
@@ -210,6 +222,7 @@ function summary(value: ApiSummary) {
     total: value.total,
     passed: value.passed,
     failed: value.failed,
+    skipped: value.skipped ?? 0,
     passRatePct: value.pass_rate_pct,
     meanScore: numberOrZero(value.mean_score),
     p95ResponseTimeMs: 0,
@@ -233,11 +246,12 @@ function mapToolCalls(
 
 function mapUnitRun(run: UnitApiRun): EvalRun {
   const skill = run.skill;
+  const environment = run.environment?.trim() || "unknown";
   return {
     runId: run.run_id,
     batchId: run.batch_id ?? undefined,
     evalType: "unit",
-    stage: run.environment,
+    stage: environment,
     target: skill,
     executionStatus: run.execution_status,
     verdict:
@@ -248,6 +262,7 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
     createdAt: run.created_at ?? undefined,
     completedAt: run.finished_at ?? undefined,
     durationMs: run.duration_ms ?? undefined,
+    error: run.error ?? undefined,
     trigger: run.trigger ?? "unknown",
     actor: run.actor ?? "unknown",
     gitSha: run.git_sha ?? undefined,
@@ -266,11 +281,14 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
       kind: "skill-eval",
       skillId: skill,
       skillVersion: run.unit_config.skill_version ?? "unknown",
-      bsaEnvironment: run.unit_config.bsa_environment ?? run.environment,
+      bsaEnvironment: environment,
       bsaVersion: run.unit_config.bsa_version ?? "unknown",
       mode: (run.unit_config.mode ?? "all") as
         "all" | "single-turn" | "multi-turn",
       metrics: run.unit_config.metrics ?? [],
+      passRateThreshold: run.unit_config.pass_rate_threshold ?? undefined,
+      evaluationLayer: run.unit_config.evaluation_layer ?? undefined,
+      nRuns: run.unit_config.n_runs ?? undefined,
     },
     summary: summary(run.summary),
     suites: [
@@ -331,6 +349,12 @@ function mapE2ERun(run: E2EApiRun): EvalRun {
   };
 }
 
+export type RunListFilters = {
+  githubRepository?: string;
+  gitRef?: string;
+  gitSha?: string;
+};
+
 export class EvalApi {
   constructor(private readonly baseUrl: string) {}
 
@@ -375,21 +399,30 @@ export class EvalApi {
     cursors?: Partial<Record<EvalType, string | null>>,
     limit = 50,
     signal?: AbortSignal,
+    filters: RunListFilters = {},
   ): Promise<RunBatch> {
     const loadUnit = cursors?.unit !== null;
     const loadE2E = cursors?.e2e !== null;
-    const query = (cursor: string | undefined) =>
-      `?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const query = (cursor: string | null | undefined): string => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (cursor) params.set("cursor", cursor);
+      if (filters.githubRepository) {
+        params.set("github_repository", filters.githubRepository);
+      }
+      if (filters.gitRef) params.set("git_ref", filters.gitRef);
+      if (filters.gitSha) params.set("git_sha", filters.gitSha);
+      return `?${params.toString()}`;
+    };
     const [unit, e2e] = await Promise.all([
       loadUnit
         ? this.request<Page<UnitApiRun>>(
-            `/unit/runs${query(cursors?.unit ?? undefined)}`,
+            `/unit/runs${query(cursors?.unit)}`,
             signal,
           )
         : Promise.resolve({ items: [], next_cursor: null }),
       loadE2E
         ? this.request<Page<E2EApiRun>>(
-            `/e2e/runs${query(cursors?.e2e ?? undefined)}`,
+            `/e2e/runs${query(cursors?.e2e)}`,
             signal,
           )
         : Promise.resolve({ items: [], next_cursor: null }),
@@ -428,6 +461,11 @@ export class EvalApi {
   ): Promise<ApiTrendPage> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (cursor) params.set("cursor", cursor);
+    if (query.githubRepository) {
+      params.set("github_repository", query.githubRepository);
+    }
+    if (query.gitRef) params.set("git_ref", query.gitRef);
+    if (query.days) params.set("days", String(query.days));
     let path: string;
     if (query.evalType === "e2e") {
       params.set("stage", query.stage);
@@ -440,6 +478,10 @@ export class EvalApi {
       }
     } else {
       params.set("environment", query.environment);
+      if (query.evaluationLayer) {
+        params.set("evaluation_layer", query.evaluationLayer);
+      }
+      if (query.caseSkill) params.set("case_skill", query.caseSkill);
       if (query.kind === "case") {
         params.set("skill", query.skill);
         path = `/unit/trends/cases/${encodeURIComponent(query.caseId ?? "")}`;
@@ -555,7 +597,6 @@ export class EvalApi {
   }
 }
 
-export function configuredEvalApi(): EvalApi | null {
-  const baseUrl = process.env.NEXT_PUBLIC_EVAL_API_URL?.trim();
-  return baseUrl ? new EvalApi(baseUrl) : null;
+export function configuredEvalApi(): EvalApi {
+  return new EvalApi("/api/eval");
 }
