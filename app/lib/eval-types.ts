@@ -2,13 +2,26 @@ export type EvalType = "e2e" | "unit";
 export type Trigger = "ui" | "cli" | "ci" | "schedule" | string;
 export type ExecutionStatus =
   "queued" | "running" | "completed" | "blocked" | "error" | "cancelled";
-export type Verdict = "passed" | "failed" | "blocked" | "pending" | "xpassed";
-export type CaseVerdict = "passed" | "failed" | "blocked" | "error" | "xpassed";
+export type Verdict =
+  | "passed"
+  | "failed"
+  | "blocked"
+  | "skipped"
+  | "pending"
+  | "xpassed";
+export type CaseVerdict =
+  | "passed"
+  | "failed"
+  | "blocked"
+  | "skipped"
+  | "error"
+  | "xpassed";
 
 export interface RunSummary {
   total: number;
   passed: number;
   failed: number;
+  skipped?: number;
   passRatePct: number;
   meanScore: number;
   p95ResponseTimeMs: number;
@@ -40,6 +53,9 @@ export interface UnitRunConfig {
   bsaVersion: string;
   mode: "all" | "single-turn" | "multi-turn";
   metrics: string[];
+  passRateThreshold?: number;
+  evaluationLayer?: string;
+  nRuns?: number;
 }
 
 export interface EvalRun {
@@ -54,6 +70,7 @@ export interface EvalRun {
   createdAt?: string;
   completedAt?: string;
   durationMs?: number;
+  error?: string;
   trigger: Trigger;
   actor: string;
   gitSha?: string;
