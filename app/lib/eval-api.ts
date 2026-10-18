@@ -51,6 +51,8 @@ interface UnitApiRun extends BaseApiRun {
   eval_type: "unit";
   skill: string;
   environment: string;
+  category?: string | null;
+  target_environment?: string | null;
   unit_config: {
     skill_ids?: string[];
     mode?: string | null;
@@ -61,6 +63,8 @@ interface UnitApiRun extends BaseApiRun {
     pass_rate_threshold?: number | null;
     evaluation_layer?: string | null;
     n_runs?: number | null;
+    category?: string | null;
+    target_environment?: string | null;
   };
 }
 
@@ -111,6 +115,10 @@ interface UnitApiCase {
   error?: string | null;
   skill_version?: string | null;
   bsa_version?: string | null;
+  environment?: string | null;
+  target_environment?: string | null;
+  category?: string | null;
+  agent_name?: string | null;
   started_at?: string | null;
   finished_at?: string | null;
   duration_ms?: number | null;
@@ -154,6 +162,8 @@ export interface TrendQuery {
   stage: string;
   target: string;
   environment: string;
+  targetEnvironment?: string;
+  category?: string;
   evaluationLayer?: string;
   caseSkill?: string;
   githubRepository?: string;
@@ -247,12 +257,21 @@ function mapToolCalls(
 function mapUnitRun(run: UnitApiRun): EvalRun {
   const skill = run.skill;
   const environment = run.environment?.trim() || "unknown";
+  const category =
+    run.category?.trim() || run.unit_config.category?.trim() || undefined;
+  const targetEnvironment =
+    run.target_environment?.trim() ||
+    run.unit_config.target_environment?.trim() ||
+    undefined;
   return {
     runId: run.run_id,
     batchId: run.batch_id ?? undefined,
     evalType: "unit",
     stage: environment,
     target: skill,
+    environment,
+    targetEnvironment,
+    category,
     executionStatus: run.execution_status,
     verdict:
       run.execution_status === "error" || run.execution_status === "blocked"
@@ -353,6 +372,9 @@ export type RunListFilters = {
   githubRepository?: string;
   gitRef?: string;
   gitSha?: string;
+  environment?: string;
+  targetEnvironment?: string;
+  category?: string;
 };
 
 export class EvalApi {
@@ -403,7 +425,10 @@ export class EvalApi {
   ): Promise<RunBatch> {
     const loadUnit = cursors?.unit !== null;
     const loadE2E = cursors?.e2e !== null;
-    const query = (cursor: string | null | undefined): string => {
+    const query = (
+      cursor: string | null | undefined,
+      evalType: EvalType,
+    ): string => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (cursor) params.set("cursor", cursor);
       if (filters.githubRepository) {
@@ -411,18 +436,29 @@ export class EvalApi {
       }
       if (filters.gitRef) params.set("git_ref", filters.gitRef);
       if (filters.gitSha) params.set("git_sha", filters.gitSha);
+
+      if (evalType === "unit") {
+        if (filters.environment) {
+          params.set("environment", filters.environment);
+        }
+        if (filters.targetEnvironment) {
+          params.set("target_environment", filters.targetEnvironment);
+        }
+        if (filters.category) params.set("category", filters.category);
+      }
+
       return `?${params.toString()}`;
     };
     const [unit, e2e] = await Promise.all([
       loadUnit
         ? this.request<Page<UnitApiRun>>(
-            `/unit/runs${query(cursors?.unit)}`,
+            `/unit/runs${query(cursors?.unit, "unit")}`,
             signal,
           )
         : Promise.resolve({ items: [], next_cursor: null }),
       loadE2E
         ? this.request<Page<E2EApiRun>>(
-            `/e2e/runs${query(cursors?.e2e)}`,
+            `/e2e/runs${query(cursors?.e2e, "e2e")}`,
             signal,
           )
         : Promise.resolve({ items: [], next_cursor: null }),
@@ -478,6 +514,10 @@ export class EvalApi {
       }
     } else {
       params.set("environment", query.environment);
+      if (query.targetEnvironment) {
+        params.set("target_environment", query.targetEnvironment);
+      }
+      if (query.category) params.set("category", query.category);
       if (query.evaluationLayer) {
         params.set("evaluation_layer", query.evaluationLayer);
       }
@@ -575,6 +615,11 @@ export class EvalApi {
         toolCalls: mapToolCalls(item.tool_calls),
         skillVersion: item.skill_version ?? undefined,
         bsaVersion: item.bsa_version ?? undefined,
+        environment: item.environment ?? run.environment,
+        targetEnvironment:
+          item.target_environment ?? run.targetEnvironment ?? undefined,
+        category: item.category ?? run.category ?? undefined,
+        agentName: item.agent_name ?? undefined,
         error: item.error ?? undefined,
         expectedResponse: item.expected_response ?? undefined,
         expectedTrajectory: item.expected_trajectory ?? undefined,
