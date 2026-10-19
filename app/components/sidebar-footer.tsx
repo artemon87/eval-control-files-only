@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { configuredEvalApi } from "../lib/eval-api";
+import { AuthControls } from "./auth-controls";
 
 export type SidebarDataState =
   | "connecting"
@@ -10,55 +11,30 @@ export type SidebarDataState =
   | "error"
   | "unconfigured";
 
-type SessionUser = {
-  name?: string | null;
-  email?: string | null;
-};
+let cachedDataState: SidebarDataState | undefined;
+let dataStateRequest: Promise<SidebarDataState> | null = null;
 
-type SessionResponse = {
-  user?: SessionUser | null;
-};
+function detectDataState() {
+  if (cachedDataState) return Promise.resolve(cachedDataState);
+  if (dataStateRequest) return dataStateRequest;
 
-function initials(user: SessionUser | null) {
-  const source = user?.name?.trim() || user?.email?.trim() || "User";
-  const parts = source.split(/\s+/).filter(Boolean);
-  return parts
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-}
+  dataStateRequest = Promise.resolve().then(async () => {
+    const api = configuredEvalApi();
+    if (!api) return "unconfigured";
 
-function useDetectedDataState(enabled: boolean) {
-  const [state, setState] = useState<SidebarDataState>("connecting");
+    try {
+      await api.listRunBatch(undefined, 1);
+      return "live";
+    } catch {
+      return "error";
+    }
+  });
 
-  useEffect(() => {
-    if (!enabled) return;
-
-    let active = true;
-    const controller = new AbortController();
-
-    void Promise.resolve().then(async () => {
-      const api = configuredEvalApi();
-      if (!api) {
-        if (active) setState("unconfigured");
-        return;
-      }
-
-      try {
-        await api.listRunBatch(undefined, 1, controller.signal);
-        if (active) setState("live");
-      } catch {
-        if (active && !controller.signal.aborted) setState("error");
-      }
-    });
-
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [enabled]);
-
-  return state;
+  return dataStateRequest.then((state) => {
+    cachedDataState = state;
+    dataStateRequest = null;
+    return state;
+  });
 }
 
 export function SidebarFooter({
@@ -66,70 +42,28 @@ export function SidebarFooter({
 }: {
   dataState?: SidebarDataState;
 }) {
-  const detectedDataState = useDetectedDataState(!suppliedDataState);
-  const dataState = suppliedDataState ?? detectedDataState;
-  const [session, setSession] = useState<SessionResponse | null>(null);
-  const [sessionResolved, setSessionResolved] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
+  const [detectedDataState, setDetectedDataState] =
+    useState<SidebarDataState>(
+      suppliedDataState ?? cachedDataState ?? "connecting",
+    );
 
   useEffect(() => {
-    const controller = new AbortController();
-
-    void fetch("/api/auth/session", {
-      cache: "no-store",
-      credentials: "same-origin",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        return (await response.json()) as SessionResponse;
-      })
-      .then((nextSession) => {
-        if (!controller.signal.aborted) {
-          setSession(nextSession);
-          setSessionResolved(true);
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setSessionResolved(true);
-      });
-
-    return () => controller.abort();
-  }, []);
-
-  const user = session?.user ?? null;
-  const userInitials = useMemo(() => initials(user), [user]);
-
-  async function signOut() {
-    setSigningOut(true);
-    try {
-      const csrfResponse = await fetch("/api/auth/csrf", {
-        cache: "no-store",
-        credentials: "same-origin",
-      });
-      const csrf = (await csrfResponse.json()) as { csrfToken?: string };
-      if (!csrf.csrfToken) throw new Error("Missing sign-out token");
-
-      const response = await fetch("/api/auth/signout", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "X-Auth-Return-Redirect": "1",
-        },
-        body: new URLSearchParams({
-          csrfToken: csrf.csrfToken,
-          callbackUrl: "/",
-        }),
-      });
-      const result = (await response.json().catch(() => null)) as
-        | { url?: string }
-        | null;
-      window.location.assign(result?.url || "/");
-    } catch {
-      window.location.assign("/api/auth/signout");
+    if (suppliedDataState) {
+      cachedDataState = suppliedDataState;
+      return;
     }
-  }
+
+    let active = true;
+    void detectDataState().then((state) => {
+      if (active) setDetectedDataState(state);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [suppliedDataState]);
+
+  const dataState = suppliedDataState ?? detectedDataState;
 
   return (
     <div className="sidebar-footer">
@@ -148,29 +82,7 @@ export function SidebarFooter({
         <small>FastAPI · MongoDB · read only</small>
       </div>
 
-      <div className="profile">
-        <span aria-hidden="true">{userInitials}</span>
-        <div>
-          <strong>
-            {user?.name || user?.email || (sessionResolved ? "Not signed in" : "Loading account…")}
-          </strong>
-          {user?.email && user.name ? <small title={user.email}>{user.email}</small> : null}
-        </div>
-        {user ? (
-          <button
-            className="profile-action"
-            type="button"
-            onClick={() => void signOut()}
-            disabled={signingOut}
-          >
-            {signingOut ? "Signing out…" : "Log out"}
-          </button>
-        ) : sessionResolved ? (
-          <a className="profile-action" href="/api/auth/signin">
-            Sign in
-          </a>
-        ) : null}
-      </div>
+      <AuthControls />
     </div>
   );
 }
