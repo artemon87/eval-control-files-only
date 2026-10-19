@@ -3467,3 +3467,84 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+
+/* Shared sidebar account controls. */
+.evalhub-auth {
+  min-width: 0;
+  padding: 13px 7px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.evalhub-auth-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+
+.evalhub-auth-avatar {
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  border-radius: 8px;
+  background: #28445c;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.evalhub-auth-details {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.evalhub-auth-details strong,
+.evalhub-auth-details small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evalhub-auth-details strong {
+  color: #d9e5ee;
+  font-size: 11px;
+}
+
+.evalhub-auth-details small {
+  color: #8fa4b7;
+  font-size: 9px;
+}
+
+.evalhub-auth-role {
+  color: #70cdb9 !important;
+  font-weight: 700;
+}
+
+.evalhub-auth-button {
+  width: 100%;
+  margin-top: 9px;
+  padding: 7px 9px;
+  border: 1px solid rgba(112, 205, 185, 0.38);
+  border-radius: 7px;
+  background: rgba(112, 205, 185, 0.12);
+  color: #a2eadb;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.evalhub-auth-button:hover {
+  border-color: rgba(162, 234, 219, 0.62);
+  background: rgba(112, 205, 185, 0.2);
+}
+
+.evalhub-auth-button-secondary {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: #b9c8d4;
+}
