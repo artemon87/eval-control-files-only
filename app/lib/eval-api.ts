@@ -264,8 +264,6 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
     stage: environment,
     target: skill,
     environment,
-    targetEnvironment,
-    category,
     executionStatus: run.execution_status,
     verdict:
       run.execution_status === "error" || run.execution_status === "blocked"
@@ -613,9 +611,6 @@ export class EvalApi {
         skillVersion: item.skill_version ?? undefined,
         bsaVersion: item.bsa_version ?? undefined,
         environment: item.environment ?? run.environment,
-        targetEnvironment: run.targetEnvironment,
-        category: run.category,
-        agentName: run.unitConfig?.agentName,
         error: item.error ?? undefined,
         expectedResponse: item.expected_response ?? undefined,
         expectedTrajectory: item.expected_trajectory ?? undefined,
