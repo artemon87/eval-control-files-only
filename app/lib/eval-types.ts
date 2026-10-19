@@ -69,10 +69,6 @@ export interface EvalRun {
   target: string;
   /** Broad BSA runtime environment, for example "staging". */
   environment?: string;
-  /** Precise deployment target, for example "5-prod-sales". */
-  targetEnvironment?: string;
-  /** Skill grouping, for example "domain-skills". */
-  category?: string;
   executionStatus: ExecutionStatus;
   verdict: Verdict;
   startedAt: string;
@@ -135,9 +131,6 @@ export interface EvalCase {
   skillVersion?: string;
   bsaVersion?: string;
   environment?: string;
-  targetEnvironment?: string;
-  category?: string;
-  agentName?: string;
   error?: string;
   bugRef?: string;
   expectedResponse?: string;
