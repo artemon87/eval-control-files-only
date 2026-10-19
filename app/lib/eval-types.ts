@@ -56,6 +56,9 @@ export interface UnitRunConfig {
   passRateThreshold?: number;
   evaluationLayer?: string;
   nRuns?: number;
+  category?: string;
+  targetEnvironment?: string;
+  agentName?: string;
 }
 
 export interface EvalRun {
