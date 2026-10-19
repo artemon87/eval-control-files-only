@@ -51,8 +51,6 @@ interface UnitApiRun extends BaseApiRun {
   eval_type: "unit";
   skill: string;
   environment: string;
-  category?: string | null;
-  target_environment?: string | null;
   unit_config: {
     skill_ids?: string[];
     mode?: string | null;
@@ -65,6 +63,7 @@ interface UnitApiRun extends BaseApiRun {
     n_runs?: number | null;
     category?: string | null;
     target_environment?: string | null;
+    agent_name?: string | null;
   };
 }
 
@@ -116,9 +115,6 @@ interface UnitApiCase {
   skill_version?: string | null;
   bsa_version?: string | null;
   environment?: string | null;
-  target_environment?: string | null;
-  category?: string | null;
-  agent_name?: string | null;
   started_at?: string | null;
   finished_at?: string | null;
   duration_ms?: number | null;
@@ -257,12 +253,10 @@ function mapToolCalls(
 function mapUnitRun(run: UnitApiRun): EvalRun {
   const skill = run.skill;
   const environment = run.environment?.trim() || "unknown";
-  const category =
-    run.category?.trim() || run.unit_config.category?.trim() || undefined;
+  const category = run.unit_config.category?.trim() || undefined;
   const targetEnvironment =
-    run.target_environment?.trim() ||
-    run.unit_config.target_environment?.trim() ||
-    undefined;
+    run.unit_config.target_environment?.trim() || undefined;
+  const agentName = run.unit_config.agent_name?.trim() || undefined;
   return {
     runId: run.run_id,
     batchId: run.batch_id ?? undefined,
@@ -308,6 +302,9 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
       passRateThreshold: run.unit_config.pass_rate_threshold ?? undefined,
       evaluationLayer: run.unit_config.evaluation_layer ?? undefined,
       nRuns: run.unit_config.n_runs ?? undefined,
+      category,
+      targetEnvironment,
+      agentName,
     },
     summary: summary(run.summary),
     suites: [
@@ -616,10 +613,9 @@ export class EvalApi {
         skillVersion: item.skill_version ?? undefined,
         bsaVersion: item.bsa_version ?? undefined,
         environment: item.environment ?? run.environment,
-        targetEnvironment:
-          item.target_environment ?? run.targetEnvironment ?? undefined,
-        category: item.category ?? run.category ?? undefined,
-        agentName: item.agent_name ?? undefined,
+        targetEnvironment: run.targetEnvironment,
+        category: run.category,
+        agentName: run.unitConfig?.agentName,
         error: item.error ?? undefined,
         expectedResponse: item.expected_response ?? undefined,
         expectedTrajectory: item.expected_trajectory ?? undefined,
