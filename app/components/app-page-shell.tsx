@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 
+import { SidebarFooter } from "./sidebar-footer";
 import { SidebarNavigation } from "./sidebar-navigation";
 
 type AppPageShellProps = {
@@ -54,6 +55,7 @@ export function AppPageShell({
           activePath={activePath}
           onNavigate={() => setSidebarOpen(false)}
         />
+        <SidebarFooter />
       </aside>
 
       <main className="main">

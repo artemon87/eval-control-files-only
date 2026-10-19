@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { SidebarFooter } from "./components/sidebar-footer";
 import {
   evaluationNavItems,
   SidebarNavigation,
@@ -1180,28 +1181,7 @@ export default function Home() {
           }}
           onNavigate={() => setSidebarOpen(false)}
         />
-        <div className={`sidebar-note sidebar-note--${dataState}`}>
-          <span>Data status</span>
-          <strong>
-            <i />{" "}
-            {dataState === "live"
-              ? "Live API connected"
-              : dataState === "connecting"
-                ? "Connecting to API"
-                : dataState === "error"
-                  ? "API unavailable"
-                  : "API not configured"}
-          </strong>
-          <small>FastAPI · MongoDB · read only</small>
-        </div>
-        <div className="profile">
-          <span>AK</span>
-          <div>
-            <strong>Artem Kovtunenko</strong>
-            <small>Evaluation operator</small>
-          </div>
-          <b>•••</b>
-        </div>
+        <SidebarFooter dataState={dataState} />
       </aside>
 
       <main className="main">
