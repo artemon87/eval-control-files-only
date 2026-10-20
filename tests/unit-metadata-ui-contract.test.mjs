@@ -23,6 +23,18 @@ test("unit metadata is filterable and visible without hiding legacy runs", () =>
   assert.match(pageSource, /"Agent not recorded"/);
 });
 
+test("unit metadata filters preserve repository, branch, and SHA scoping", () => {
+  assert.match(pageSource, /githubRepository: repositoryFilter\.trim\(\)/);
+  assert.match(pageSource, /gitRef: branchFilter\.trim\(\)/);
+  assert.match(pageSource, /gitSha: shaFilter\.trim\(\)/);
+  for (const label of ["Repository", "Branch", "Commit SHA"]) {
+    assert.match(pageSource, new RegExp(`>${label}<`));
+  }
+  assert.match(apiSource, /params\.set\("github_repository"/);
+  assert.match(apiSource, /params\.set\("git_ref"/);
+  assert.match(apiSource, /params\.set\("git_sha"/);
+});
+
 test("run history supports category scoping and multi-target comparison", () => {
   assert.match(pageSource, /aria-label="History category"/);
   assert.match(pageSource, /aria-label="Target environments"/);

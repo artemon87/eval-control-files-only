@@ -1062,7 +1062,8 @@ button {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-.advanced-filters select {
+.advanced-filters select,
+.advanced-filters input {
   height: 37px;
   padding: 0 27px 0 10px;
   border: 1px solid #dfe6ec;
@@ -1070,6 +1071,14 @@ button {
   background: white;
   color: #4e6376;
   font-size: 9px;
+}
+.advanced-filters input {
+  padding-right: 10px;
+  outline: none;
+}
+.advanced-filters input:focus {
+  border-color: #65b8a8;
+  box-shadow: 0 0 0 2px rgba(58, 171, 151, 0.08);
 }
 .advanced-filter-actions {
   grid-column: 1/-1;

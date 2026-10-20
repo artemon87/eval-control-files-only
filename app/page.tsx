@@ -678,6 +678,9 @@ export default function Home() {
   const [executionStatus, setExecutionStatus] = useState<
     "all" | ExecutionStatus
   >("all");
+  const [repositoryFilter, setRepositoryFilter] = useState("");
+  const [branchFilter, setBranchFilter] = useState("");
+  const [shaFilter, setShaFilter] = useState("");
   const [stage, setStage] = useState("all");
   const [category, setCategory] = useState("all");
   const [targetEnvironment, setTargetEnvironment] = useState("all");
@@ -725,12 +728,22 @@ export default function Home() {
   const hasOlderRuns = Boolean(runCursors.e2e || runCursors.unit);
   const runListFilters = useMemo(
     () => ({
+      githubRepository: repositoryFilter.trim() || undefined,
+      gitRef: branchFilter.trim() || undefined,
+      gitSha: shaFilter.trim() || undefined,
       category: category === "all" ? undefined : category,
       targetEnvironment:
         targetEnvironment === "all" ? undefined : targetEnvironment,
       agentName: agentName === "all" ? undefined : agentName,
     }),
-    [agentName, category, targetEnvironment],
+    [
+      agentName,
+      branchFilter,
+      category,
+      repositoryFilter,
+      shaFilter,
+      targetEnvironment,
+    ],
   );
 
   useEffect(() => {
@@ -930,6 +943,26 @@ export default function Home() {
       actors: Array.from(
         new Set(runs.map((run) => run.actor).filter(Boolean)),
       ).sort(),
+      repositories: Array.from(
+        new Set(
+          runs
+            .map((run) => run.githubRepository)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ).sort(),
+      branches: Array.from(
+        new Set(
+          runs
+            .filter(
+              (run) =>
+                !repositoryFilter ||
+                run.githubRepository?.toLowerCase() ===
+                  repositoryFilter.toLowerCase(),
+            )
+            .map((run) => run.gitRef)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ).sort(),
       categories: Array.from(
         new Set(
           runs
@@ -952,19 +985,23 @@ export default function Home() {
         ),
       ).sort(),
     }),
-    [runs],
+    [runs, repositoryFilter],
   );
 
-  const activeMoreFilterCount = [
-    executionStatus,
-    stage,
-    category,
-    targetEnvironment,
-    agentName,
-    trigger,
-    actor,
-    startedWithin,
-  ].filter((value) => value !== "all").length;
+  const activeMoreFilterCount =
+    [
+      executionStatus,
+      stage,
+      category,
+      targetEnvironment,
+      agentName,
+      trigger,
+      actor,
+      startedWithin,
+    ].filter((value) => value !== "all").length +
+    [repositoryFilter, branchFilter, shaFilter].filter((value) =>
+      Boolean(value.trim()),
+    ).length;
 
   const resetMoreFilters = () => {
     setExecutionStatus("all");
@@ -975,6 +1012,10 @@ export default function Home() {
     setTrigger("all");
     setActor("all");
     setStartedWithin("all");
+    setRepositoryFilter("");
+    setBranchFilter("");
+    setShaFilter("");
+    setRunPage(0);
   };
 
   const filteredRuns = useMemo(
@@ -1786,6 +1827,53 @@ export default function Home() {
                           <option value="7d">Last 7 days</option>
                           <option value="30d">Last 30 days</option>
                         </select>
+                      </label>
+                      <label>
+                        <span>Repository</span>
+                        <select
+                          value={repositoryFilter}
+                          onChange={(event) => {
+                            setRepositoryFilter(event.target.value);
+                            setBranchFilter("");
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="">All repositories</option>
+                          {filterOptions.repositories.map((repository) => (
+                            <option key={repository} value={repository}>
+                              {repository}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Branch</span>
+                        <select
+                          value={branchFilter}
+                          onChange={(event) => {
+                            setBranchFilter(event.target.value);
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="">All branches</option>
+                          {filterOptions.branches.map((branch) => (
+                            <option key={branch} value={branch}>
+                              {branch}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Commit SHA</span>
+                        <input
+                          type="text"
+                          value={shaFilter}
+                          placeholder="Full or short SHA"
+                          onChange={(event) => {
+                            setShaFilter(event.target.value);
+                            setRunPage(0);
+                          }}
+                        />
                       </label>
                       <div className="advanced-filter-actions">
                         <span>
