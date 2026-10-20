@@ -370,6 +370,7 @@ export type RunListFilters = {
   environment?: string;
   targetEnvironment?: string;
   category?: string;
+  agentName?: string;
 };
 
 export class EvalApi {
@@ -440,6 +441,7 @@ export class EvalApi {
           params.set("target_environment", filters.targetEnvironment);
         }
         if (filters.category) params.set("category", filters.category);
+        if (filters.agentName) params.set("agent_name", filters.agentName);
       }
 
       return `?${params.toString()}`;
