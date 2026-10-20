@@ -1045,7 +1045,7 @@ button {
 .advanced-filters {
   padding: 14px;
   display: grid;
-  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
   gap: 11px;
   border-bottom: 1px solid var(--line);
   background: #f8fafb;
@@ -1062,7 +1062,8 @@ button {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-.advanced-filters select {
+.advanced-filters select,
+.advanced-filters input {
   height: 37px;
   padding: 0 27px 0 10px;
   border: 1px solid #dfe6ec;
@@ -1070,6 +1071,14 @@ button {
   background: white;
   color: #4e6376;
   font-size: 9px;
+}
+.advanced-filters input {
+  padding-right: 10px;
+  outline: none;
+}
+.advanced-filters input:focus {
+  border-color: #65b8a8;
+  box-shadow: 0 0 0 2px rgba(58, 171, 151, 0.08);
 }
 .advanced-filter-actions {
   grid-column: 1/-1;
@@ -1609,6 +1618,11 @@ button {
   gap: 12px;
   align-items: end;
 }
+.history-controls--unit {
+  grid-template-columns:
+    minmax(210px, 1.15fr) repeat(3, minmax(145px, 0.8fr))
+    auto;
+}
 .history-control-copy {
   display: flex;
   align-items: center;
@@ -1672,6 +1686,78 @@ button {
   background: white;
   color: #168b79;
   box-shadow: 0 1px 4px rgba(20, 50, 70, 0.09);
+}
+.unit-target-selector {
+  margin-top: 12px;
+  padding: 14px 17px;
+  display: grid;
+  grid-template-columns: minmax(210px, 0.85fr) minmax(0, 2.4fr);
+  gap: 18px;
+  align-items: center;
+}
+.unit-target-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.unit-target-heading > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.unit-target-heading span {
+  color: #748596;
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.unit-target-heading strong {
+  color: #405568;
+  font-size: 10px;
+}
+.unit-target-heading small {
+  color: #8a98a5;
+  font-size: 8px;
+  white-space: nowrap;
+}
+.target-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.target-chip {
+  min-height: 31px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #dfe6ec;
+  border-radius: 999px;
+  background: #fff;
+  color: #657789;
+  font-size: 8px;
+  font-weight: 750;
+}
+.target-chip:hover {
+  border-color: #9fcfc5;
+  color: #287b6d;
+}
+.target-chip.selected {
+  border-color: #53ad9c;
+  background: #edf8f5;
+  color: #167d6d;
+  box-shadow: 0 0 0 2px rgba(58, 171, 151, 0.07);
+}
+.target-chip i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #a8b5bf;
+}
+.target-chip.selected i {
+  background: #25a78e;
 }
 .history-metrics {
   display: grid;
@@ -1773,6 +1859,35 @@ button {
   fill: white;
   stroke: #637dcb;
   stroke-width: 1.8;
+}
+.target-comparison-legend {
+  max-width: 680px;
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 13px;
+  color: #728395;
+  font-size: 8px;
+}
+.target-comparison-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.target-comparison-legend i {
+  width: 14px;
+  height: 2px;
+  border-radius: 99px;
+}
+.target-comparison-line {
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.target-comparison-dot {
+  fill: #fff;
+  stroke-width: 2.2;
 }
 .point-value {
   fill: #287668;
@@ -1887,6 +2002,12 @@ button {
 }
 .history-table table {
   min-width: 860px;
+}
+.history-scope-meta {
+  margin-top: 3px;
+  display: block;
+  color: #95a2ad;
+  font-size: 7px;
 }
 .history-link {
   margin-top: 11px;
@@ -2506,6 +2627,9 @@ button {
   .advanced-filters {
     grid-template-columns: repeat(3, minmax(130px, 1fr));
   }
+  .unit-target-selector {
+    grid-template-columns: 1fr;
+  }
 }
 @media (max-width: 760px) {
   .app-shell {
@@ -2614,8 +2738,16 @@ button {
   .history-controls,
   .history-metrics,
   .target-history-grid,
-  .unit-history-summary {
+  .unit-history-summary,
+  .unit-target-selector {
     grid-template-columns: 1fr;
+  }
+  .unit-target-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .target-comparison-legend {
+    justify-content: flex-start;
   }
   .scoring-preview > p {
     grid-column: 1;

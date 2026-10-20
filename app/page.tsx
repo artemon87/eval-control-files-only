@@ -32,6 +32,8 @@ type DrilldownTrendRequest = {
   stage: string;
   target: string;
   environment: string;
+  targetEnvironment?: string;
+  category?: string;
   sourceRunId: string;
 };
 
@@ -296,6 +298,14 @@ function formatPassRateThreshold(value?: number) {
   return `${Number.isInteger(percentage) ? percentage.toFixed(0) : percentage.toFixed(1)}%`;
 }
 
+function formatEvaluationLayer(value?: string) {
+  if (!value?.trim()) return undefined;
+  return value
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
 function runScope(run: EvalRun) {
   if (run.evalType === "e2e") {
     return {
@@ -304,9 +314,24 @@ function runScope(run: EvalRun) {
     };
   }
   const skill = run.unitConfig?.skillId ?? run.target;
+  const skillVersion = run.unitConfig?.skillVersion;
+  const evaluationLayer = formatEvaluationLayer(
+    run.unitConfig?.evaluationLayer,
+  );
   return {
     primary: skill,
-    secondary: `${run.unitConfig?.bsaEnvironment ?? run.stage} · skill v${run.unitConfig?.skillVersion ?? "unknown"} · mock-backed`,
+    secondary: [
+      run.unitConfig?.category,
+      run.unitConfig?.targetEnvironment,
+      run.unitConfig?.bsaEnvironment ?? run.stage,
+      evaluationLayer,
+      skillVersion && skillVersion.toLowerCase() !== "unknown"
+        ? `skill v${skillVersion}`
+        : undefined,
+      "mock-backed",
+    ]
+      .filter(Boolean)
+      .join(" · "),
   };
 }
 
@@ -545,6 +570,8 @@ function drilldownRequest(
     stage: run.stage,
     target: run.target,
     environment: run.unitConfig?.bsaEnvironment ?? run.stage,
+    targetEnvironment: run.unitConfig?.targetEnvironment,
+    category: run.unitConfig?.category,
     sourceRunId: run.runId,
   };
 }
@@ -668,9 +695,23 @@ export default function Home() {
   const [executionStatus, setExecutionStatus] = useState<
     "all" | ExecutionStatus
   >("all");
+  const [repositoryFilter, setRepositoryFilter] = useState("");
+  const [branchFilter, setBranchFilter] = useState("");
+  const [shaFilter, setShaFilter] = useState("");
   const [stage, setStage] = useState("all");
+  const [category, setCategory] = useState("all");
+  const [targetEnvironment, setTargetEnvironment] = useState("all");
+  const [agentName, setAgentName] = useState("all");
   const [trigger, setTrigger] = useState("all");
   const [actor, setActor] = useState("all");
+  const [sortOrder, setSortOrder] = useState<
+    | "newest"
+    | "oldest"
+    | "pass-high"
+    | "pass-low"
+    | "score-high"
+    | "score-low"
+  >("newest");
   const [startedWithin, setStartedWithin] = useState<
     "all" | "24h" | "7d" | "30d"
   >("all");
@@ -683,6 +724,8 @@ export default function Home() {
     target?: string;
     skillId?: string;
     environment?: string;
+    category?: string;
+    targetEnvironment?: string;
   } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [overviewDays, setOverviewDays] = useState<7 | 30 | 90>(7);
@@ -700,6 +743,25 @@ export default function Home() {
     [runs, selectedRunId],
   );
   const hasOlderRuns = Boolean(runCursors.e2e || runCursors.unit);
+  const runListFilters = useMemo(
+    () => ({
+      githubRepository: repositoryFilter.trim() || undefined,
+      gitRef: branchFilter.trim() || undefined,
+      gitSha: shaFilter.trim() || undefined,
+      category: category === "all" ? undefined : category,
+      targetEnvironment:
+        targetEnvironment === "all" ? undefined : targetEnvironment,
+      agentName: agentName === "all" ? undefined : agentName,
+    }),
+    [
+      agentName,
+      branchFilter,
+      category,
+      repositoryFilter,
+      shaFilter,
+      targetEnvironment,
+    ],
+  );
 
   useEffect(() => {
     let active = true;
@@ -765,7 +827,12 @@ export default function Home() {
     setLoading(true);
     setApiError(null);
     try {
-      const batch = await api.listRunBatch(undefined, 50);
+      const batch = await api.listRunBatch(
+        undefined,
+        50,
+        undefined,
+        runListFilters,
+      );
       setRuns(batch.items);
       setRunCursors(batch.nextCursors);
       setRunPage(0);
@@ -781,13 +848,13 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, runListFilters]);
 
   useEffect(() => {
     if (!api) return;
     const controller = new AbortController();
     void api
-      .listRunBatch(undefined, 50, controller.signal)
+      .listRunBatch(undefined, 50, controller.signal, runListFilters)
       .then((batch) => {
         setRuns(batch.items);
         setRunCursors(batch.nextCursors);
@@ -810,13 +877,18 @@ export default function Home() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [api]);
+  }, [api, runListFilters]);
 
   const loadOlderRuns = useCallback(async () => {
     if (!api || !hasOlderRuns || loadingMoreRuns) return 0;
     setLoadingMoreRuns(true);
     try {
-      const batch = await api.listRunBatch(runCursors, 50);
+      const batch = await api.listRunBatch(
+        runCursors,
+        50,
+        undefined,
+        runListFilters,
+      );
       setRunCursors(batch.nextCursors);
       setRuns((current) => {
         const byId = new Map(current.map((run) => [run.runId, run]));
@@ -834,7 +906,7 @@ export default function Home() {
     } finally {
       setLoadingMoreRuns(false);
     }
-  }, [api, hasOlderRuns, loadingMoreRuns, runCursors]);
+  }, [api, hasOlderRuns, loadingMoreRuns, runCursors, runListFilters]);
 
   useEffect(() => {
     if (!selectedRunId || selectedRun || !api || dataState !== "live") return;
@@ -888,31 +960,86 @@ export default function Home() {
       actors: Array.from(
         new Set(runs.map((run) => run.actor).filter(Boolean)),
       ).sort(),
+      repositories: Array.from(
+        new Set(
+          runs
+            .map((run) => run.githubRepository)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ).sort(),
+      branches: Array.from(
+        new Set(
+          runs
+            .filter(
+              (run) =>
+                !repositoryFilter ||
+                run.githubRepository?.toLowerCase() ===
+                  repositoryFilter.toLowerCase(),
+            )
+            .map((run) => run.gitRef)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ).sort(),
+      categories: Array.from(
+        new Set(
+          runs
+            .map((run) => run.unitConfig?.category)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ).sort(),
+      targetEnvironments: Array.from(
+        new Set(
+          runs
+            .map((run) => run.unitConfig?.targetEnvironment)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ).sort(),
+      agentNames: Array.from(
+        new Set(
+          runs
+            .map((run) => run.unitConfig?.agentName)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ).sort(),
     }),
-    [runs],
+    [runs, repositoryFilter],
   );
 
-  const activeMoreFilterCount = [
-    executionStatus,
-    stage,
-    trigger,
-    actor,
-    startedWithin,
-  ].filter((value) => value !== "all").length;
+  const activeMoreFilterCount =
+    [
+      executionStatus,
+      stage,
+      category,
+      targetEnvironment,
+      agentName,
+      trigger,
+      actor,
+      startedWithin,
+    ].filter((value) => value !== "all").length +
+    [repositoryFilter, branchFilter, shaFilter].filter((value) =>
+      Boolean(value.trim()),
+    ).length;
 
   const resetMoreFilters = () => {
     setExecutionStatus("all");
     setStage("all");
+    setCategory("all");
+    setTargetEnvironment("all");
+    setAgentName("all");
     setTrigger("all");
     setActor("all");
     setStartedWithin("all");
+    setRepositoryFilter("");
+    setBranchFilter("");
+    setShaFilter("");
+    setRunPage(0);
   };
 
   const filteredRuns = useMemo(
-    () =>
-      runs.filter((run) => {
+    () => {
+      const matching = runs.filter((run) => {
         const haystack =
-          `${run.runId} ${run.actor} ${run.stage} ${run.target} ${run.gitSha} ${run.unitConfig?.skillId ?? ""} ${run.unitConfig?.skillVersion ?? ""} ${run.e2eConfig?.selectedSuites.join(" ") ?? ""}`.toLowerCase();
+          `${run.runId} ${run.actor} ${run.stage} ${run.target} ${run.gitSha} ${run.unitConfig?.skillId ?? ""} ${run.unitConfig?.skillVersion ?? ""} ${run.unitConfig?.category ?? ""} ${run.unitConfig?.targetEnvironment ?? ""} ${run.unitConfig?.agentName ?? ""} ${run.e2eConfig?.selectedSuites.join(" ") ?? ""}`.toLowerCase();
         const hours =
           startedWithin === "24h"
             ? 24
@@ -937,18 +1064,43 @@ export default function Home() {
           (executionStatus === "all" ||
             run.executionStatus === executionStatus) &&
           (stage === "all" || run.stage === stage) &&
+          (category === "all" || run.unitConfig?.category === category) &&
+          (targetEnvironment === "all" ||
+            run.unitConfig?.targetEnvironment === targetEnvironment) &&
+          (agentName === "all" || run.unitConfig?.agentName === agentName) &&
           (trigger === "all" || run.trigger === trigger) &&
           (actor === "all" || run.actor === actor) &&
           startedMatches
         );
-      }),
+      });
+      return matching.sort((left, right) => {
+        switch (sortOrder) {
+          case "oldest":
+            return left.startedAt.localeCompare(right.startedAt);
+          case "pass-high":
+            return right.summary.passRatePct - left.summary.passRatePct;
+          case "pass-low":
+            return left.summary.passRatePct - right.summary.passRatePct;
+          case "score-high":
+            return right.summary.meanScore - left.summary.meanScore;
+          case "score-low":
+            return left.summary.meanScore - right.summary.meanScore;
+          default:
+            return right.startedAt.localeCompare(left.startedAt);
+        }
+      });
+    },
     [
       actor,
+      agentName,
+      category,
       executionStatus,
       runs,
       search,
+      sortOrder,
       stage,
       startedWithin,
+      targetEnvironment,
       trigger,
       type,
       verdict,
@@ -1124,6 +1276,8 @@ export default function Home() {
             type: "unit",
             skillId: run.unitConfig?.skillId ?? run.target,
             environment: run.unitConfig?.bsaEnvironment ?? run.stage,
+            category: run.unitConfig?.category,
+            targetEnvironment: run.unitConfig?.targetEnvironment,
           },
     );
     navigate("history");
@@ -1535,6 +1689,21 @@ export default function Home() {
                       <option value="xpassed">XPASS</option>
                       <option value="pending">Pending</option>
                     </select>
+                    <select
+                      value={sortOrder}
+                      onChange={(event) => {
+                        setSortOrder(event.target.value as typeof sortOrder);
+                        setRunPage(0);
+                      }}
+                      aria-label="Sort runs"
+                    >
+                      <option value="newest">Newest first</option>
+                      <option value="oldest">Oldest first</option>
+                      <option value="pass-high">Highest pass rate</option>
+                      <option value="pass-low">Lowest pass rate</option>
+                      <option value="score-high">Highest mean score</option>
+                      <option value="score-low">Lowest mean score</option>
+                    </select>
                     <button
                       className={`filter-button ${moreFiltersOpen || activeMoreFilterCount ? "active" : ""}`}
                       aria-expanded={moreFiltersOpen}
@@ -1575,6 +1744,57 @@ export default function Home() {
                         >
                           <option value="all">All stages</option>
                           {filterOptions.stages.map((value) => (
+                            <option value={value} key={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Category</span>
+                        <select
+                          value={category}
+                          onChange={(event) => {
+                            setCategory(event.target.value);
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="all">All categories</option>
+                          {filterOptions.categories.map((value) => (
+                            <option value={value} key={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Target environment</span>
+                        <select
+                          value={targetEnvironment}
+                          onChange={(event) => {
+                            setTargetEnvironment(event.target.value);
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="all">All targets</option>
+                          {filterOptions.targetEnvironments.map((value) => (
+                            <option value={value} key={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Agent</span>
+                        <select
+                          value={agentName}
+                          onChange={(event) => {
+                            setAgentName(event.target.value);
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="all">All agents</option>
+                          {filterOptions.agentNames.map((value) => (
                             <option value={value} key={value}>
                               {value}
                             </option>
@@ -1624,6 +1844,53 @@ export default function Home() {
                           <option value="7d">Last 7 days</option>
                           <option value="30d">Last 30 days</option>
                         </select>
+                      </label>
+                      <label>
+                        <span>Repository</span>
+                        <select
+                          value={repositoryFilter}
+                          onChange={(event) => {
+                            setRepositoryFilter(event.target.value);
+                            setBranchFilter("");
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="">All repositories</option>
+                          {filterOptions.repositories.map((repository) => (
+                            <option key={repository} value={repository}>
+                              {repository}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Branch</span>
+                        <select
+                          value={branchFilter}
+                          onChange={(event) => {
+                            setBranchFilter(event.target.value);
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="">All branches</option>
+                          {filterOptions.branches.map((branch) => (
+                            <option key={branch} value={branch}>
+                              {branch}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Commit SHA</span>
+                        <input
+                          type="text"
+                          value={shaFilter}
+                          placeholder="Full or short SHA"
+                          onChange={(event) => {
+                            setShaFilter(event.target.value);
+                            setRunPage(0);
+                          }}
+                        />
                       </label>
                       <div className="advanced-filter-actions">
                         <span>
@@ -1902,6 +2169,22 @@ function RunSummary({
                 <small>Run attempt</small>
                 {run.githubRunAttempt}
               </span>
+            )}
+            {run.evalType === "unit" && (
+              <>
+                <span>
+                  <small>Category</small>
+                  {run.unitConfig?.category ?? "Not recorded"}
+                </span>
+                <span>
+                  <small>Target environment</small>
+                  {run.unitConfig?.targetEnvironment ?? "Not recorded"}
+                </span>
+                <span>
+                  <small>Agent</small>
+                  {run.unitConfig?.agentName ?? "Not recorded"}
+                </span>
+              </>
             )}
           </div>
           {run.evalType === "e2e" ? (
@@ -2913,6 +3196,8 @@ type HistoryFocus = {
   target?: string;
   skillId?: string;
   environment?: string;
+  category?: string;
+  targetEnvironment?: string;
 } | null;
 type TrendPoint = {
   id: string;
@@ -2927,6 +3212,10 @@ type TrendPoint = {
   githubRunId?: string;
   githubRunUrl?: string;
   gitSha?: string;
+  category?: string;
+  targetEnvironment?: string;
+  agentName?: string;
+  skillVersion?: string;
 };
 
 function aggregateE2E(points: E2EHistoryPoint[]): TrendPoint[] {
@@ -3135,6 +3424,139 @@ function HistoryChart({
   );
 }
 
+const comparisonPalette = ["#15947f", "#637dcb", "#d88942", "#ad5b9e", "#3e8eb8"];
+
+function TargetComparisonChart({
+  points,
+  title,
+  windowDays,
+  windowEnd,
+}: {
+  points: TrendPoint[];
+  title: string;
+  windowDays: 7 | 30 | 90;
+  windowEnd: number;
+}) {
+  const width = 1400;
+  const plotLeft = 70;
+  const plotRight = 1360;
+  const plotTop = 18;
+  const plotBottom = 140;
+  const windowStart = windowEnd - windowDays * 86_400_000;
+  const windowDuration = Math.max(windowEnd - windowStart, 1);
+  const x = (startedAt: string) =>
+    plotLeft +
+    Math.min(
+      1,
+      Math.max(
+        0,
+        (new Date(startedAt).getTime() - windowStart) / windowDuration,
+      ),
+    ) *
+      (plotRight - plotLeft);
+  const y = (percent: number) =>
+    plotTop + ((100 - percent) / 100) * (plotBottom - plotTop);
+  const groups = Array.from(
+    points.reduce((byTarget, point) => {
+      byTarget.set(point.scope, [...(byTarget.get(point.scope) ?? []), point]);
+      return byTarget;
+    }, new Map<string, TrendPoint[]>()),
+  );
+  const dateTicks = Array.from({ length: 7 }, (_, index) => {
+    const timestamp = windowStart + (index / 6) * windowDuration;
+    return { timestamp, x: plotLeft + (index / 6) * (plotRight - plotLeft) };
+  });
+
+  return (
+    <section className="panel history-chart-card target-comparison-chart">
+      <div className="panel-heading">
+        <div>
+          <h2>{title}</h2>
+          <p>Pass rate by target environment · lines remain separate for comparison</p>
+        </div>
+        <div className="target-comparison-legend">
+          {groups.map(([target], index) => (
+            <span key={target}>
+              <i style={{ background: comparisonPalette[index % comparisonPalette.length] }} />
+              {target}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div
+        className="history-chart"
+        role="img"
+        aria-label={`${title} target environment comparison`}
+      >
+        <svg viewBox={`0 0 ${width} 180`} preserveAspectRatio="xMidYMid meet">
+          <g className="history-grid">
+            {[100, 75, 50, 25, 0].map((value) => (
+              <g key={value}>
+                <line x1={plotLeft} x2={plotRight} y1={y(value)} y2={y(value)} />
+                <text x="7" y={y(value) + 3}>{value}%</text>
+              </g>
+            ))}
+          </g>
+          <line
+            className="gate-line"
+            x1={plotLeft}
+            x2={plotRight}
+            y1={y(90)}
+            y2={y(90)}
+          />
+          {groups.map(([target, targetPoints], index) => {
+            const color = comparisonPalette[index % comparisonPalette.length];
+            const ordered = [...targetPoints].sort((a, b) =>
+              a.startedAt.localeCompare(b.startedAt),
+            );
+            return (
+              <g key={target}>
+                {ordered.length > 1 && (
+                  <polyline
+                    className="target-comparison-line"
+                    stroke={color}
+                    points={ordered
+                      .map(
+                        (point) =>
+                          `${x(point.startedAt)},${y(point.passRatePct)}`,
+                      )
+                      .join(" ")}
+                  />
+                )}
+                {ordered.map((point) => (
+                  <circle
+                    key={point.id}
+                    className="target-comparison-dot"
+                    stroke={color}
+                    cx={x(point.startedAt)}
+                    cy={y(point.passRatePct)}
+                    r="4"
+                  >
+                    <title>
+                      {target} · {point.passRatePct.toFixed(1)}% · {formatTime(point.startedAt)}
+                    </title>
+                  </circle>
+                ))}
+              </g>
+            );
+          })}
+          {dateTicks.map((tick) => (
+            <text
+              key={tick.timestamp}
+              className="point-date"
+              x={tick.x}
+              y="169"
+              textAnchor="middle"
+            >
+              {formatDateShort(new Date(tick.timestamp).toISOString())}
+            </text>
+          ))}
+        </svg>
+      </div>
+    </section>
+  );
+}
+
 function HistoryView({
   initialFocus,
   runs,
@@ -3174,6 +3596,11 @@ function HistoryView({
       startedAt: run.startedAt,
       skillId: run.unitConfig?.skillId ?? run.target,
       environment: run.unitConfig?.bsaEnvironment ?? run.stage,
+      category: run.unitConfig?.category?.trim() || "Uncategorized",
+      targetEnvironment:
+        run.unitConfig?.targetEnvironment?.trim() || "Target not recorded",
+      agentName: run.unitConfig?.agentName?.trim() || "Agent not recorded",
+      skillVersion: run.unitConfig?.skillVersion?.trim() || "Version not recorded",
       passRatePct: run.summary.passRatePct,
       meanScore: run.summary.meanScore,
       generalQuality: 0,
@@ -3183,15 +3610,31 @@ function HistoryView({
       verdict: run.verdict,
     }));
   const stages = Array.from(new Set(e2eSource.map((point) => point.stage)));
-  const skills = Array.from(new Set(unitSource.map((point) => point.skillId)));
+  const categories = Array.from(
+    new Set(unitSource.map((point) => point.category)),
+  ).sort();
+  const initialCategory =
+    initialFocus?.category && categories.includes(initialFocus.category)
+      ? initialFocus.category
+      : initialFocus?.skillId
+        ? (unitSource.find((point) => point.skillId === initialFocus.skillId)
+            ?.category ?? categories[0] ?? "Uncategorized")
+      : (categories[0] ?? "Uncategorized");
+  const initialCategorySkills = Array.from(
+    new Set(
+      unitSource
+        .filter((point) => point.category === initialCategory)
+        .map((point) => point.skillId),
+    ),
+  ).sort();
   const initialStage =
     initialFocus?.stage && stages.includes(initialFocus.stage)
       ? initialFocus.stage
       : (stages[0] ?? "");
   const initialSkill =
-    initialFocus?.skillId && skills.includes(initialFocus.skillId)
+    initialFocus?.skillId && initialCategorySkills.includes(initialFocus.skillId)
       ? initialFocus.skillId
-      : (skills[0] ?? "");
+      : (initialCategorySkills[0] ?? "");
   const [historyType, setHistoryType] = useState<EvalType>(
     initialFocus?.type ?? "e2e",
   );
@@ -3209,8 +3652,12 @@ function HistoryView({
       : "all",
   );
   const [skillId, setSkillId] = useState(initialSkill);
+  const [category, setCategory] = useState(initialCategory);
   const [environment, setEnvironment] = useState(
     initialFocus?.environment ?? "all",
+  );
+  const [targetEnvironments, setTargetEnvironments] = useState<string[]>(
+    initialFocus?.targetEnvironment ? [initialFocus.targetEnvironment] : [],
   );
   const [range, setRange] = useState<"7d" | "30d" | "90d">("7d");
   const [showPercentLabels, setShowPercentLabels] = useState(false);
@@ -3253,12 +3700,43 @@ function HistoryView({
             gitSha: point.gitSha,
           }))
           .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  const skills = Array.from(
+    new Set(
+      unitSource
+        .filter((point) => point.category === category)
+        .map((point) => point.skillId),
+    ),
+  ).sort();
+  const environments = Array.from(
+    new Set(
+      unitSource
+        .filter(
+          (point) => point.category === category && point.skillId === skillId,
+        )
+        .map((point) => point.environment),
+    ),
+  ).sort();
+  const availableTargetEnvironments = Array.from(
+    new Set(
+      unitSource
+        .filter(
+          (point) =>
+            point.category === category &&
+            point.skillId === skillId &&
+            (environment === "all" || point.environment === environment),
+        )
+        .map((point) => point.targetEnvironment),
+    ),
+  ).sort();
   const unitFiltered = unitSource
     .filter(
       (point) =>
         inRange(point.startedAt) &&
+        point.category === category &&
         point.skillId === skillId &&
-        (environment === "all" || point.environment === environment),
+        (environment === "all" || point.environment === environment) &&
+        (targetEnvironments.length === 0 ||
+          targetEnvironments.includes(point.targetEnvironment)),
     )
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   const unitTrend: TrendPoint[] = unitFiltered.map((point) => ({
@@ -3269,11 +3747,15 @@ function HistoryView({
     totalCases: point.totalCases,
     durationMs: point.durationMs,
     verdict: point.verdict,
-    scope: point.environment,
+    scope: point.targetEnvironment,
     batchId: point.batchId,
     githubRunId: point.githubRunId,
     githubRunUrl: point.githubRunUrl,
     gitSha: point.gitSha,
+    category: point.category,
+    targetEnvironment: point.targetEnvironment,
+    agentName: point.agentName,
+    skillVersion: point.skillVersion,
   }));
   const trend = historyType === "e2e" ? e2eTrend : unitTrend;
   const historyVerdicts = trend.reduce(
@@ -3292,6 +3774,7 @@ function HistoryView({
     latest && previous ? latest.passRatePct - previous.passRatePct : 0;
   const latestUnit = unitFiltered.at(-1);
   const selectedSkill = { id: skillId, label: skillId };
+  const unitTrendTargetCount = new Set(unitTrend.map((point) => point.scope)).size;
   const latestByTarget = stageTargets
     .map((targetId) =>
       e2eStageInRange
@@ -3332,7 +3815,9 @@ function HistoryView({
           </button>
         </div>
       </div>
-      <section className="panel history-controls">
+      <section
+        className={`panel history-controls ${historyType === "unit" ? "history-controls--unit" : ""}`}
+      >
         <div className="history-control-copy">
           <TypeBadge type={historyType} />
           <div>
@@ -3382,11 +3867,38 @@ function HistoryView({
         ) : (
           <>
             <label>
+              <span>Category</span>
+              <select
+                aria-label="History category"
+                value={category}
+                onChange={(event) => {
+                  const nextCategory = event.target.value;
+                  const nextSkill = unitSource.find(
+                    (point) => point.category === nextCategory,
+                  )?.skillId;
+                  setCategory(nextCategory);
+                  setSkillId(nextSkill ?? "");
+                  setEnvironment("all");
+                  setTargetEnvironments([]);
+                }}
+              >
+                {categories.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
               <span>Skill</span>
               <select
                 aria-label="History skill"
                 value={skillId}
-                onChange={(event) => setSkillId(event.target.value)}
+                onChange={(event) => {
+                  setSkillId(event.target.value);
+                  setEnvironment("all");
+                  setTargetEnvironments([]);
+                }}
               >
                 {skills.map((value) => (
                   <option key={value} value={value}>
@@ -3400,11 +3912,17 @@ function HistoryView({
               <select
                 aria-label="History environment"
                 value={environment}
-                onChange={(event) => setEnvironment(event.target.value)}
+                onChange={(event) => {
+                  setEnvironment(event.target.value);
+                  setTargetEnvironments([]);
+                }}
               >
                 <option value="all">All environments</option>
-                <option value="staging">Staging BSA</option>
-                <option value="dev">Development BSA</option>
+                {environments.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
               </select>
             </label>
           </>
@@ -3430,6 +3948,53 @@ function HistoryView({
           </button>
         </div>
       </section>
+      {historyType === "unit" && availableTargetEnvironments.length > 0 && (
+        <section className="panel unit-target-selector">
+          <div className="unit-target-heading">
+            <div>
+              <span>Target environments</span>
+              <strong>Compare one or several deployment targets</strong>
+            </div>
+            <small>
+              {targetEnvironments.length === 0
+                ? `All ${availableTargetEnvironments.length} targets selected`
+                : `${targetEnvironments.length} of ${availableTargetEnvironments.length} selected`}
+            </small>
+          </div>
+          <div
+            className="target-chip-list"
+            role="group"
+            aria-label="Target environments"
+          >
+            <button
+              className={`target-chip ${targetEnvironments.length === 0 ? "selected" : ""}`}
+              onClick={() => setTargetEnvironments([])}
+            >
+              All targets
+            </button>
+            {availableTargetEnvironments.map((value) => {
+              const selected = targetEnvironments.includes(value);
+              return (
+                <button
+                  key={value}
+                  className={`target-chip ${selected ? "selected" : ""}`}
+                  aria-pressed={selected}
+                  onClick={() =>
+                    setTargetEnvironments((current) =>
+                      current.includes(value)
+                        ? current.filter((item) => item !== value)
+                        : [...current, value],
+                    )
+                  }
+                >
+                  <i />
+                  {value}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
       <section className="history-metrics">
         <article className="panel">
           <span>Latest pass rate</span>
@@ -3483,20 +4048,29 @@ function HistoryView({
         </article>
       </section>
       {trend.length ? (
-        <HistoryChart
-          points={trend}
-          title={
-            historyType === "e2e"
-              ? target === "all"
-                ? `${stage} · stage rollup`
-                : target
-              : selectedSkill.label
-          }
-          windowDays={rangeDays}
-          windowEnd={referenceTime}
-          showPercentLabels={showPercentLabels}
-          onShowPercentLabelsChange={setShowPercentLabels}
-        />
+        historyType === "unit" && unitTrendTargetCount > 1 ? (
+          <TargetComparisonChart
+            points={trend}
+            title={`${selectedSkill.label} · target comparison`}
+            windowDays={rangeDays}
+            windowEnd={referenceTime}
+          />
+        ) : (
+          <HistoryChart
+            points={trend}
+            title={
+              historyType === "e2e"
+                ? target === "all"
+                  ? `${stage} · stage rollup`
+                  : target
+                : `${selectedSkill.label} · ${trend[0]?.scope ?? "history"}`
+            }
+            windowDays={rangeDays}
+            windowEnd={referenceTime}
+            showPercentLabels={showPercentLabels}
+            onShowPercentLabelsChange={setShowPercentLabels}
+          />
+        )
       ) : (
         <section className="panel empty">
           <strong>
@@ -3541,24 +4115,20 @@ function HistoryView({
             </div>
           </div>
           <div>
-            <span>History source</span>
-            <strong>Live unit evaluation runs</strong>
+            <span>Category</span>
+            <strong>{category}</strong>
           </div>
           <div>
-            <span>General quality</span>
+            <span>Target scope</span>
             <strong>
-              {latestUnit?.generalQuality
-                ? latestUnit.generalQuality.toFixed(2)
-                : "case metric"}
+              {targetEnvironments.length === 0
+                ? `${availableTargetEnvironments.length} targets`
+                : targetEnvironments.join(", ")}
             </strong>
           </div>
           <div>
-            <span>Tool use quality</span>
-            <strong>
-              {latestUnit?.toolUseQuality
-                ? latestUnit.toolUseQuality.toFixed(2)
-                : "case metric"}
-            </strong>
+            <span>Latest agent</span>
+            <strong>{latestUnit?.agentName ?? "Agent not recorded"}</strong>
           </div>
         </section>
       )}
@@ -3652,7 +4222,15 @@ function HistoryView({
                       </small>
                     )}
                   </td>
-                  <td>{point.scope}</td>
+                  <td>
+                    {point.scope}
+                    {historyType === "unit" && (
+                      <small className="history-scope-meta">
+                        {point.skillVersion}
+                        {point.agentName ? ` · ${point.agentName}` : ""}
+                      </small>
+                    )}
+                  </td>
                   <td>
                     <StatusBadge verdict={point.verdict} />
                   </td>
