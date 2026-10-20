@@ -56,3 +56,29 @@ test("run ordering offers quality and chronological choices", () => {
     assert.match(pageSource, new RegExp(label));
   }
 });
+
+
+test("advanced run requirements filter configured and observed quality", () => {
+  for (const label of [
+    "Configured gate at least",
+    "Observed pass rate at least",
+    "Mean score at least",
+  ]) {
+    assert.match(pageSource, new RegExp(label));
+  }
+  assert.match(pageSource, /configuredGatePct >= Number\(minimumGateThreshold\)/);
+  assert.match(pageSource, /run\.summary\.passRatePct >= Number\(minimumPassRate\)/);
+  assert.match(pageSource, /run\.summary\.meanScore >= Number\(minimumMeanScore\)/);
+  assert.match(pageSource, /aria-label="Active score requirements"/);
+  assert.match(cssSource, /\.active-requirement-chips/);
+});
+
+test("unit history renders clickable per-target summaries", () => {
+  assert.match(pageSource, /unitTargetSummaries/);
+  assert.match(pageSource, /className="unit-target-summary-grid"/);
+  assert.match(pageSource, /setTargetEnvironments\(isolated \? \[\] : \[summary\.targetId\]\)/);
+  assert.match(pageSource, /summary\.latest\.passRatePct/);
+  assert.match(pageSource, /summary\.latest\.meanScore/);
+  assert.match(pageSource, /summary\.passDelta/);
+  assert.match(cssSource, /\.unit-target-summary-card\.selected/);
+});
