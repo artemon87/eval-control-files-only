@@ -298,6 +298,14 @@ function formatPassRateThreshold(value?: number) {
   return `${Number.isInteger(percentage) ? percentage.toFixed(0) : percentage.toFixed(1)}%`;
 }
 
+function formatEvaluationLayer(value?: string) {
+  if (!value?.trim()) return undefined;
+  return value
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
 function runScope(run: EvalRun) {
   if (run.evalType === "e2e") {
     return {
@@ -306,15 +314,24 @@ function runScope(run: EvalRun) {
     };
   }
   const skill = run.unitConfig?.skillId ?? run.target;
-  const scope = [
-    run.unitConfig?.category,
-    run.unitConfig?.targetEnvironment,
-    run.unitConfig?.bsaEnvironment ?? run.stage,
-    `skill v${run.unitConfig?.skillVersion ?? "unknown"}`,
-  ].filter(Boolean);
+  const skillVersion = run.unitConfig?.skillVersion;
+  const evaluationLayer = formatEvaluationLayer(
+    run.unitConfig?.evaluationLayer,
+  );
   return {
     primary: skill,
-    secondary: `${scope.join(" · ")} · mock-backed`,
+    secondary: [
+      run.unitConfig?.category,
+      run.unitConfig?.targetEnvironment,
+      run.unitConfig?.bsaEnvironment ?? run.stage,
+      evaluationLayer,
+      skillVersion && skillVersion.toLowerCase() !== "unknown"
+        ? `skill v${skillVersion}`
+        : undefined,
+      "mock-backed",
+    ]
+      .filter(Boolean)
+      .join(" · "),
   };
 }
 
