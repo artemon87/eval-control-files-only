@@ -715,6 +715,9 @@ export default function Home() {
   const [startedWithin, setStartedWithin] = useState<
     "all" | "24h" | "7d" | "30d"
   >("all");
+  const [minimumGateThreshold, setMinimumGateThreshold] = useState("");
+  const [minimumPassRate, setMinimumPassRate] = useState("");
+  const [minimumMeanScore, setMinimumMeanScore] = useState("");
   const [selectedCase, setSelectedCase] = useState<EvalCase | null>(null);
   const [selectedTrend, setSelectedTrend] =
     useState<DrilldownTrendRequest | null>(null);
@@ -1018,7 +1021,9 @@ export default function Home() {
     ].filter((value) => value !== "all").length +
     [repositoryFilter, branchFilter, shaFilter].filter((value) =>
       Boolean(value.trim()),
-    ).length;
+    ).length +
+    [minimumGateThreshold, minimumPassRate, minimumMeanScore].filter(Boolean)
+      .length;
 
   const resetMoreFilters = () => {
     setExecutionStatus("all");
@@ -1032,6 +1037,9 @@ export default function Home() {
     setRepositoryFilter("");
     setBranchFilter("");
     setShaFilter("");
+    setMinimumGateThreshold("");
+    setMinimumPassRate("");
+    setMinimumMeanScore("");
     setRunPage(0);
   };
 
@@ -1057,6 +1065,26 @@ export default function Home() {
           hours === null ||
           new Date(run.startedAt).getTime() >=
             referenceTime - hours * 3_600_000;
+        const configuredGate =
+          run.evalType === "unit"
+            ? run.unitConfig?.passRateThreshold
+            : run.e2eConfig?.passRateThreshold;
+        const configuredGatePct =
+          typeof configuredGate === "number"
+            ? configuredGate <= 1
+              ? configuredGate * 100
+              : configuredGate
+            : null;
+        const gateMatches =
+          !minimumGateThreshold ||
+          (configuredGatePct !== null &&
+            configuredGatePct >= Number(minimumGateThreshold));
+        const passRateMatches =
+          !minimumPassRate ||
+          run.summary.passRatePct >= Number(minimumPassRate);
+        const meanScoreMatches =
+          !minimumMeanScore ||
+          run.summary.meanScore >= Number(minimumMeanScore);
         return (
           haystack.includes(search.toLowerCase()) &&
           (type === "all" || run.evalType === type) &&
@@ -1070,6 +1098,9 @@ export default function Home() {
           (agentName === "all" || run.unitConfig?.agentName === agentName) &&
           (trigger === "all" || run.trigger === trigger) &&
           (actor === "all" || run.actor === actor) &&
+          gateMatches &&
+          passRateMatches &&
+          meanScoreMatches &&
           startedMatches
         );
       });
@@ -1095,6 +1126,9 @@ export default function Home() {
       agentName,
       category,
       executionStatus,
+      minimumGateThreshold,
+      minimumMeanScore,
+      minimumPassRate,
       runs,
       search,
       sortOrder,
@@ -1892,6 +1926,56 @@ export default function Home() {
                           }}
                         />
                       </label>
+                      <label>
+                        <span>Configured gate at least</span>
+                        <select
+                          value={minimumGateThreshold}
+                          onChange={(event) => {
+                            setMinimumGateThreshold(event.target.value);
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="">Any gate threshold</option>
+                          <option value="70">70%</option>
+                          <option value="80">80%</option>
+                          <option value="90">90%</option>
+                          <option value="95">95%</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Observed pass rate at least</span>
+                        <select
+                          value={minimumPassRate}
+                          onChange={(event) => {
+                            setMinimumPassRate(event.target.value);
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="">Any pass rate</option>
+                          <option value="70">70%</option>
+                          <option value="80">80%</option>
+                          <option value="90">90%</option>
+                          <option value="95">95%</option>
+                          <option value="100">100%</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Mean score at least</span>
+                        <select
+                          value={minimumMeanScore}
+                          onChange={(event) => {
+                            setMinimumMeanScore(event.target.value);
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="">Any mean score</option>
+                          <option value="2">2.0</option>
+                          <option value="3">3.0</option>
+                          <option value="4">4.0</option>
+                          <option value="4.5">4.5</option>
+                          <option value="5">5.0</option>
+                        </select>
+                      </label>
                       <div className="advanced-filter-actions">
                         <span>
                           {activeMoreFilterCount
@@ -1906,6 +1990,39 @@ export default function Home() {
                           Clear advanced filters
                         </button>
                       </div>
+                    </div>
+                  )}
+                  {(minimumGateThreshold ||
+                    minimumPassRate ||
+                    minimumMeanScore) && (
+                    <div
+                      className="active-requirement-chips"
+                      aria-label="Active score requirements"
+                    >
+                      {minimumGateThreshold && (
+                        <button
+                          type="button"
+                          onClick={() => setMinimumGateThreshold("")}
+                        >
+                          Configured gate ≥ {minimumGateThreshold}% <span>×</span>
+                        </button>
+                      )}
+                      {minimumPassRate && (
+                        <button
+                          type="button"
+                          onClick={() => setMinimumPassRate("")}
+                        >
+                          Pass rate ≥ {minimumPassRate}% <span>×</span>
+                        </button>
+                      )}
+                      {minimumMeanScore && (
+                        <button
+                          type="button"
+                          onClick={() => setMinimumMeanScore("")}
+                        >
+                          Mean score ≥ {minimumMeanScore} <span>×</span>
+                        </button>
+                      )}
                     </div>
                   )}
                   <RunsTable runs={visibleRuns} onOpen={openRun} />
@@ -3593,6 +3710,7 @@ function HistoryView({
       githubRunId: run.githubRunId,
       githubRunUrl: run.githubRunUrl,
       gitSha: run.gitSha,
+      gitRef: run.gitRef,
       startedAt: run.startedAt,
       skillId: run.unitConfig?.skillId ?? run.target,
       environment: run.unitConfig?.bsaEnvironment ?? run.stage,
@@ -3775,6 +3893,31 @@ function HistoryView({
   const latestUnit = unitFiltered.at(-1);
   const selectedSkill = { id: skillId, label: skillId };
   const unitTrendTargetCount = new Set(unitTrend.map((point) => point.scope)).size;
+  const unitTargetSummaries = availableTargetEnvironments.flatMap((targetId) => {
+    const targetRuns = unitSource
+      .filter(
+        (point) =>
+          inRange(point.startedAt) &&
+          point.category === category &&
+          point.skillId === skillId &&
+          (environment === "all" || point.environment === environment) &&
+          point.targetEnvironment === targetId,
+      )
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+    const latestPoint = targetRuns.at(-1);
+    if (!latestPoint) return [];
+    const previousPoint = targetRuns.at(-2);
+    return [
+      {
+        targetId,
+        latest: latestPoint,
+        runCount: targetRuns.length,
+        passDelta: previousPoint
+          ? latestPoint.passRatePct - previousPoint.passRatePct
+          : null,
+      },
+    ];
+  });
   const latestByTarget = stageTargets
     .map((targetId) =>
       e2eStageInRange
@@ -4106,31 +4249,95 @@ function HistoryView({
           ))}
         </section>
       ) : (
-        <section className="panel unit-history-summary">
-          <div>
-            <span className="collection-icon case">S</span>
+        <>
+          {unitTargetSummaries.length > 0 && (
+            <section className="unit-target-summary-grid">
+              {unitTargetSummaries.map((summary) => {
+                const isolated =
+                  targetEnvironments.length === 1 &&
+                  targetEnvironments[0] === summary.targetId;
+                return (
+                  <button
+                    key={summary.targetId}
+                    type="button"
+                    className={`panel unit-target-summary-card ${isolated ? "selected" : ""}`}
+                    aria-pressed={isolated}
+                    onClick={() =>
+                      setTargetEnvironments(isolated ? [] : [summary.targetId])
+                    }
+                  >
+                    <div className="unit-target-summary-title">
+                      <span className="target-dot" />
+                      <div>
+                        <strong>{summary.targetId}</strong>
+                        <small>
+                          {summary.runCount} run{summary.runCount === 1 ? "" : "s"} in{" "}
+                          {rangeDays}d
+                        </small>
+                      </div>
+                    </div>
+                    <div className="unit-target-summary-metrics">
+                      <span>
+                        <small>Pass rate</small>
+                        <strong>{summary.latest.passRatePct.toFixed(1)}%</strong>
+                      </span>
+                      <span>
+                        <small>Mean score</small>
+                        <strong>{summary.latest.meanScore.toFixed(2)}</strong>
+                      </span>
+                      <span>
+                        <small>Change</small>
+                        <strong
+                          className={
+                            summary.passDelta === null || summary.passDelta >= 0
+                              ? "delta-good"
+                              : "delta-bad"
+                          }
+                        >
+                          {summary.passDelta === null
+                            ? "—"
+                            : `${summary.passDelta >= 0 ? "+" : ""}${summary.passDelta.toFixed(1)} pts`}
+                        </strong>
+                      </span>
+                    </div>
+                    <div className="unit-target-summary-meta">
+                      <span>
+                        {summary.latest.gitRef ??
+                          `skill v${summary.latest.skillVersion}`}
+                      </span>
+                      <span>{formatDateShort(summary.latest.startedAt)}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </section>
+          )}
+          <section className="panel unit-history-summary">
             <div>
-              <strong>{selectedSkill.label}</strong>
-              <small>{selectedSkill.id}</small>
+              <span className="collection-icon case">S</span>
+              <div>
+                <strong>{selectedSkill.label}</strong>
+                <small>{selectedSkill.id}</small>
+              </div>
             </div>
-          </div>
-          <div>
-            <span>Category</span>
-            <strong>{category}</strong>
-          </div>
-          <div>
-            <span>Target scope</span>
-            <strong>
-              {targetEnvironments.length === 0
-                ? `${availableTargetEnvironments.length} targets`
-                : targetEnvironments.join(", ")}
-            </strong>
-          </div>
-          <div>
-            <span>Latest agent</span>
-            <strong>{latestUnit?.agentName ?? "Agent not recorded"}</strong>
-          </div>
-        </section>
+            <div>
+              <span>Category</span>
+              <strong>{category}</strong>
+            </div>
+            <div>
+              <span>Target scope</span>
+              <strong>
+                {targetEnvironments.length === 0
+                  ? `${availableTargetEnvironments.length} targets`
+                  : targetEnvironments.join(", ")}
+              </strong>
+            </div>
+            <div>
+              <span>Latest agent</span>
+              <strong>{latestUnit?.agentName ?? "Agent not recorded"}</strong>
+            </div>
+          </section>
+        </>
       )}
       <section className="panel history-table">
         <div className="panel-heading">
