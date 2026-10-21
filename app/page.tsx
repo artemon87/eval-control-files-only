@@ -643,7 +643,9 @@ function RunsTable({
               </td>
               <td>
                 <strong className="score">
-                  {run.summary.meanScore || "—"}
+                  {run.summary.meanScoreRecorded
+                    ? run.summary.meanScore.toFixed(2)
+                    : "Not recorded"}
                 </strong>
                 <small>
                   {run.summary.total
@@ -700,6 +702,7 @@ export default function Home() {
   const [shaFilter, setShaFilter] = useState("");
   const [stage, setStage] = useState("all");
   const [category, setCategory] = useState("all");
+  const [skillFilter, setSkillFilter] = useState("all");
   const [targetEnvironment, setTargetEnvironment] = useState("all");
   const [agentName, setAgentName] = useState("all");
   const [trigger, setTrigger] = useState("all");
@@ -748,6 +751,7 @@ export default function Home() {
   const hasOlderRuns = Boolean(runCursors.e2e || runCursors.unit);
   const runListFilters = useMemo(
     () => ({
+      skill: skillFilter === "all" ? undefined : skillFilter,
       githubRepository: repositoryFilter.trim() || undefined,
       gitRef: branchFilter.trim() || undefined,
       gitSha: shaFilter.trim() || undefined,
@@ -762,6 +766,7 @@ export default function Home() {
       category,
       repositoryFilter,
       shaFilter,
+      skillFilter,
       targetEnvironment,
     ],
   );
@@ -990,9 +995,28 @@ export default function Home() {
             .filter((value): value is string => Boolean(value)),
         ),
       ).sort(),
+      skills: Array.from(
+        new Set(
+          runs
+            .filter(
+              (run) =>
+                run.evalType === "unit" &&
+                (category === "all" || run.unitConfig?.category === category),
+            )
+            .map((run) => run.unitConfig?.skillId ?? run.target)
+            .filter(Boolean),
+        ),
+      ).sort(),
       targetEnvironments: Array.from(
         new Set(
           runs
+            .filter(
+              (run) =>
+                run.evalType === "unit" &&
+                (category === "all" || run.unitConfig?.category === category) &&
+                (skillFilter === "all" ||
+                  (run.unitConfig?.skillId ?? run.target) === skillFilter),
+            )
             .map((run) => run.unitConfig?.targetEnvironment)
             .filter((value): value is string => Boolean(value)),
         ),
@@ -1000,12 +1024,27 @@ export default function Home() {
       agentNames: Array.from(
         new Set(
           runs
+            .filter(
+              (run) =>
+                run.evalType === "unit" &&
+                (category === "all" || run.unitConfig?.category === category) &&
+                (skillFilter === "all" ||
+                  (run.unitConfig?.skillId ?? run.target) === skillFilter),
+            )
             .map((run) => run.unitConfig?.agentName)
             .filter((value): value is string => Boolean(value)),
         ),
       ).sort(),
+      gateThresholds: runs.flatMap((run) => {
+        const threshold =
+          run.evalType === "unit"
+            ? run.unitConfig?.passRateThreshold
+            : run.e2eConfig?.passRateThreshold;
+        return typeof threshold === "number" ? [threshold] : [];
+      }),
+      hasMeanScores: runs.some((run) => run.summary.meanScoreRecorded),
     }),
-    [runs, repositoryFilter],
+    [runs, repositoryFilter, category, skillFilter],
   );
 
   const activeMoreFilterCount =
@@ -1013,6 +1052,7 @@ export default function Home() {
       executionStatus,
       stage,
       category,
+      skillFilter,
       targetEnvironment,
       agentName,
       trigger,
@@ -1029,6 +1069,7 @@ export default function Home() {
     setExecutionStatus("all");
     setStage("all");
     setCategory("all");
+    setSkillFilter("all");
     setTargetEnvironment("all");
     setAgentName("all");
     setTrigger("all");
@@ -1084,7 +1125,8 @@ export default function Home() {
           run.summary.passRatePct >= Number(minimumPassRate);
         const meanScoreMatches =
           !minimumMeanScore ||
-          run.summary.meanScore >= Number(minimumMeanScore);
+          (run.summary.meanScoreRecorded &&
+            run.summary.meanScore >= Number(minimumMeanScore));
         return (
           haystack.includes(search.toLowerCase()) &&
           (type === "all" || run.evalType === type) &&
@@ -1093,6 +1135,9 @@ export default function Home() {
             run.executionStatus === executionStatus) &&
           (stage === "all" || run.stage === stage) &&
           (category === "all" || run.unitConfig?.category === category) &&
+          (skillFilter === "all" ||
+            (run.evalType === "unit" &&
+              (run.unitConfig?.skillId ?? run.target) === skillFilter)) &&
           (targetEnvironment === "all" ||
             run.unitConfig?.targetEnvironment === targetEnvironment) &&
           (agentName === "all" || run.unitConfig?.agentName === agentName) &&
@@ -1131,6 +1176,7 @@ export default function Home() {
       minimumPassRate,
       runs,
       search,
+      skillFilter,
       sortOrder,
       stage,
       startedWithin,
@@ -1790,11 +1836,33 @@ export default function Home() {
                           value={category}
                           onChange={(event) => {
                             setCategory(event.target.value);
+                            setSkillFilter("all");
+                            setTargetEnvironment("all");
+                            setAgentName("all");
                             setRunPage(0);
                           }}
                         >
                           <option value="all">All categories</option>
                           {filterOptions.categories.map((value) => (
+                            <option value={value} key={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Skill</span>
+                        <select
+                          value={skillFilter}
+                          onChange={(event) => {
+                            setSkillFilter(event.target.value);
+                            setTargetEnvironment("all");
+                            setAgentName("all");
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="all">All skills</option>
+                          {filterOptions.skills.map((value) => (
                             <option value={value} key={value}>
                               {value}
                             </option>
@@ -1930,12 +1998,17 @@ export default function Home() {
                         <span>Configured gate at least</span>
                         <select
                           value={minimumGateThreshold}
+                          disabled={filterOptions.gateThresholds.length === 0}
                           onChange={(event) => {
                             setMinimumGateThreshold(event.target.value);
                             setRunPage(0);
                           }}
                         >
-                          <option value="">Any gate threshold</option>
+                          <option value="">
+                            {filterOptions.gateThresholds.length
+                              ? "Any gate threshold"
+                              : "No recorded gate thresholds"}
+                          </option>
                           <option value="70">70%</option>
                           <option value="80">80%</option>
                           <option value="90">90%</option>
@@ -1963,12 +2036,17 @@ export default function Home() {
                         <span>Mean score at least</span>
                         <select
                           value={minimumMeanScore}
+                          disabled={!filterOptions.hasMeanScores}
                           onChange={(event) => {
                             setMinimumMeanScore(event.target.value);
                             setRunPage(0);
                           }}
                         >
-                          <option value="">Any mean score</option>
+                          <option value="">
+                            {filterOptions.hasMeanScores
+                              ? "Any mean score"
+                              : "No recorded mean scores"}
+                          </option>
                           <option value="2">2.0</option>
                           <option value="3">3.0</option>
                           <option value="4">4.0</option>
