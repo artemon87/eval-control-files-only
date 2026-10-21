@@ -24,6 +24,8 @@ export interface RunSummary {
   skipped?: number;
   passRatePct: number;
   meanScore: number;
+  /** True when the API supplied an overall or per-metric mean score. */
+  meanScoreRecorded: boolean;
   p95ResponseTimeMs: number;
   byTier?: Record<string, unknown> | null;
 }
