@@ -2160,6 +2160,18 @@ button {
   border-radius: 50%;
   background: #25a78e;
 }
+.target-dot--passed {
+  background: #25a78e;
+}
+.target-dot--failed {
+  background: #b5414e;
+}
+.target-dot--blocked {
+  background: #c07a26;
+}
+.target-dot--xpassed {
+  background: #75529d;
+}
 .unit-history-summary {
   margin-top: 14px;
   padding: 16px;
