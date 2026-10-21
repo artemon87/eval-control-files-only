@@ -1856,6 +1856,17 @@ button {
 .unit-health-matrix thead th:first-child {
   width: 220px;
 }
+.unit-health-skill-column-heading {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 9px 10px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  color: #405568;
+  font-size: 9px;
+  font-weight: 800;
+}
 .unit-health-axis-button {
   box-sizing: border-box;
   width: 100%;
@@ -1876,6 +1887,9 @@ button {
 }
 .unit-health-axis-button--skill {
   min-height: 72px;
+}
+.unit-health-axis-button--target {
+  justify-content: flex-start;
 }
 .unit-health-axis-button:hover,
 .unit-health-axis-button:focus-visible {
