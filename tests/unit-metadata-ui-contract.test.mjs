@@ -93,6 +93,8 @@ test("unit history provides a clickable category health matrix", () => {
   assert.match(pageSource, /Mean not recorded/);
   assert.match(pageSource, /unit-health-axis-button--target/);
   assert.match(pageSource, /unit-health-axis-button--skill/);
+  assert.match(pageSource, /unit-health-skill-column-heading/);
+  assert.match(cssSource, /\.unit-health-skill-column-heading/);
   assert.match(cssSource, /\.unit-health-axis-button--skill/);
   assert.match(cssSource, /min-height: 72px/);
   assert.match(cssSource, /\.unit-health-cell\.passing/);
