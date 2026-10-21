@@ -58,6 +58,12 @@ test("runs separate evaluation scope filters from the grouping lens", () => {
   assert.match(cssSource, /\.run-sequence-mark--failed/);
 });
 
+test("select controls use one cross-browser chevron inset", () => {
+  assert.match(cssSource, /select:not\(\[multiple\]\)/);
+  assert.match(cssSource, /-webkit-appearance: none/);
+  assert.match(cssSource, /background-position: right 12px center/);
+});
+
 test("unit history provides a clickable category health matrix", () => {
   assert.match(pageSource, /All skills · category matrix/);
   assert.match(pageSource, /className="unit-health-matrix"/);
