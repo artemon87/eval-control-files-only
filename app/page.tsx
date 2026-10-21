@@ -669,6 +669,272 @@ function RunsTable({
   );
 }
 
+type RunGroupingLens =
+  | "adaptive"
+  | "skill"
+  | "target"
+  | "attention"
+  | "table";
+
+type ResolvedRunGrouping = "skill" | "target" | "attention";
+
+function runSkillLabel(run: EvalRun) {
+  return run.unitConfig?.skillId ?? run.target ?? "Scope not recorded";
+}
+
+function runTargetLabel(run: EvalRun) {
+  return (
+    run.unitConfig?.targetEnvironment ??
+    run.target ??
+    run.stage ??
+    "Target not recorded"
+  );
+}
+
+function runRequiresAttention(run: EvalRun) {
+  const outcome = effectiveRunVerdict(run);
+  return !["passed", "xpassed"].includes(outcome);
+}
+
+function RunGroups({
+  runs,
+  lens,
+  category,
+  skill,
+  targetEnvironment,
+  onOpen,
+}: {
+  runs: EvalRun[];
+  lens: RunGroupingLens;
+  category: string;
+  skill: string;
+  targetEnvironment: string;
+  onOpen: (run: EvalRun) => void;
+}) {
+  const resolvedLens: ResolvedRunGrouping =
+    lens !== "adaptive" && lens !== "table"
+      ? lens
+      : skill !== "all"
+        ? "target"
+        : targetEnvironment !== "all" || category !== "all"
+          ? "skill"
+          : "attention";
+  const groupingExplanation =
+    lens === "adaptive"
+      ? skill !== "all"
+        ? "A skill is selected, so targets become the primary comparison."
+        : targetEnvironment !== "all"
+          ? "A target is selected, so skills become the primary comparison."
+          : category !== "all"
+            ? "A category is selected, so skills are grouped before targets."
+            : "The broad scope is organized by attention level first."
+      : resolvedLens === "skill"
+        ? "Skills are grouped first, with target environments nested inside."
+        : resolvedLens === "target"
+          ? "Target environments are grouped first, with skills nested inside."
+          : "Failures, blocked runs, and missing quality data rise to the top.";
+  const primaryLabel =
+    resolvedLens === "skill"
+      ? "skill"
+      : resolvedLens === "target"
+        ? "target"
+        : "attention";
+  const groupKey = (run: EvalRun) => {
+    if (resolvedLens === "skill") return runSkillLabel(run);
+    if (resolvedLens === "target") return runTargetLabel(run);
+    if (runRequiresAttention(run)) return "Needs attention";
+    if (run.evalType === "unit" && !run.summary.meanScoreRecorded)
+      return "Missing quality data";
+    return "Healthy";
+  };
+  const secondaryKey = (run: EvalRun) =>
+    resolvedLens === "skill"
+      ? runTargetLabel(run)
+      : resolvedLens === "target"
+        ? runSkillLabel(run)
+        : `${runSkillLabel(run)} · ${runTargetLabel(run)}`;
+  const groupOrder = ["Needs attention", "Missing quality data", "Healthy"];
+  const groupedRuns = Array.from(
+    runs.reduce((groups, run) => {
+      const key = groupKey(run);
+      groups.set(key, [...(groups.get(key) ?? []), run]);
+      return groups;
+    }, new Map<string, EvalRun[]>()),
+  ).sort(([left], [right]) => {
+    if (resolvedLens !== "attention") return left.localeCompare(right);
+    return groupOrder.indexOf(left) - groupOrder.indexOf(right);
+  });
+  const totalCases = runs.reduce((total, run) => total + run.summary.total, 0);
+  const passedCases = runs.reduce(
+    (total, run) => total + run.summary.passed,
+    0,
+  );
+  const observedPassRate = totalCases ? (passedCases / totalCases) * 100 : 0;
+  const attentionCount = runs.filter(runRequiresAttention).length;
+  const coverageCount = new Set(
+    runs.map((run) => `${runSkillLabel(run)}::${runTargetLabel(run)}`),
+  ).size;
+
+  return (
+    <div className="run-groups-view">
+      <div className="run-grouping-context">
+        <div>
+          <span>Current organization</span>
+          <strong>
+            {resolvedLens === "attention"
+              ? "Attention first"
+              : `${resolvedLens} → ${resolvedLens === "skill" ? "target" : "skill"}`}
+          </strong>
+        </div>
+        <p>{groupingExplanation}</p>
+      </div>
+      <section className="run-group-metrics" aria-label="Grouped run summary">
+        <article className={attentionCount ? "needs-attention" : undefined}>
+          <span>Needs attention</span>
+          <strong>{attentionCount}</strong>
+          <small>failed, blocked, or incomplete runs</small>
+        </article>
+        <article>
+          <span>Observed pass rate</span>
+          <strong>{observedPassRate.toFixed(1)}%</strong>
+          <small>case-weighted in this scope</small>
+        </article>
+        <article>
+          <span>Coverage</span>
+          <strong>{coverageCount}</strong>
+          <small>skill × target combinations</small>
+        </article>
+        <article>
+          <span>Matching runs</span>
+          <strong>{runs.length}</strong>
+          <small>{groupedRuns.length} {primaryLabel} groups</small>
+        </article>
+      </section>
+      <div className="run-group-list">
+        {groupedRuns.map(([groupName, groupRuns], groupIndex) => {
+          const groupCases = groupRuns.reduce(
+            (total, run) => total + run.summary.total,
+            0,
+          );
+          const groupPassed = groupRuns.reduce(
+            (total, run) => total + run.summary.passed,
+            0,
+          );
+          const groupPassRate = groupCases
+            ? (groupPassed / groupCases) * 100
+            : 0;
+          const scoredRuns = groupRuns.filter(
+            (run) => run.summary.meanScoreRecorded,
+          );
+          const groupMean = scoredRuns.length
+            ? scoredRuns.reduce(
+                (total, run) => total + run.summary.meanScore,
+                0,
+              ) / scoredRuns.length
+            : null;
+          const groupAttention = groupRuns.filter(runRequiresAttention).length;
+          const latestRun = [...groupRuns].sort((left, right) =>
+            right.startedAt.localeCompare(left.startedAt),
+          )[0];
+          const subgroups = Array.from(
+            groupRuns.reduce((items, run) => {
+              const key = secondaryKey(run);
+              items.set(key, [...(items.get(key) ?? []), run]);
+              return items;
+            }, new Map<string, EvalRun[]>()),
+          ).sort(([left], [right]) => left.localeCompare(right));
+          const groupState = groupAttention
+            ? "attention"
+            : groupName === "Missing quality data"
+              ? "missing"
+              : "healthy";
+          return (
+            <details
+              className={`run-group run-group--${groupState}`}
+              key={groupName}
+              open={groupIndex === 0}
+            >
+              <summary>
+                <span className="run-group-marker" />
+                <span className="run-group-name">
+                  <strong>{groupName}</strong>
+                  <small>
+                    {subgroups.length} {resolvedLens === "skill" ? "targets" : "skills"} · {groupRuns.length} runs · latest {formatTime(latestRun.startedAt)}
+                  </small>
+                </span>
+                <span className="run-group-stat">
+                  <small>Pass rate</small>
+                  <strong>{groupPassRate.toFixed(1)}%</strong>
+                </span>
+                <span className="run-group-stat">
+                  <small>Mean score</small>
+                  <strong>{groupMean === null ? "—" : groupMean.toFixed(2)}</strong>
+                </span>
+                <span className="run-group-stat">
+                  <small>Attention</small>
+                  <strong>{groupAttention}</strong>
+                </span>
+                <span className="run-group-chevron">›</span>
+              </summary>
+              <div className="run-subgroup-list">
+                {subgroups.map(([subgroupName, subgroupRuns]) => {
+                  const ordered = [...subgroupRuns].sort((left, right) =>
+                    right.startedAt.localeCompare(left.startedAt),
+                  );
+                  const latest = ordered[0];
+                  return (
+                    <div className="run-subgroup" key={subgroupName}>
+                      <span className="run-subgroup-name">
+                        <strong>{subgroupName}</strong>
+                        <small>
+                          {ordered.length} run{ordered.length === 1 ? "" : "s"} · latest {effectiveRunVerdict(latest)}
+                        </small>
+                      </span>
+                      <span className="run-sequence" aria-label={`Recent results for ${subgroupName}`}>
+                        {ordered.slice(0, 6).reverse().map((run) => (
+                          <button
+                            type="button"
+                            key={run.runId}
+                            className={`run-sequence-mark run-sequence-mark--${effectiveRunVerdict(run)}`}
+                            aria-label={`Open ${run.runId}, ${effectiveRunVerdict(run)}, ${run.summary.passRatePct.toFixed(1)} percent`}
+                            title={`${run.runId} · ${run.summary.passRatePct.toFixed(1)}%`}
+                            onClick={() => onOpen(run)}
+                          />
+                        ))}
+                      </span>
+                      <span className="run-subgroup-score">
+                        <strong>{latest.summary.passRatePct.toFixed(1)}%</strong>
+                        <small>
+                          {latest.summary.meanScoreRecorded
+                            ? `mean ${latest.summary.meanScore.toFixed(2)}`
+                            : "mean not recorded"}
+                        </small>
+                      </span>
+                      <button
+                        type="button"
+                        className="run-subgroup-open"
+                        onClick={() => onOpen(latest)}
+                      >
+                        Open latest →
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          );
+        })}
+        {groupedRuns.length === 0 && (
+          <div className="empty">
+            <strong>No runs found</strong>
+            <span>Try changing your filters or search term.</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const RUNS_PAGE_SIZE = 25;
   // Resolve the public API URL after hydration. Reading a build-time public
@@ -721,6 +987,8 @@ export default function Home() {
   const [minimumGateThreshold, setMinimumGateThreshold] = useState("");
   const [minimumPassRate, setMinimumPassRate] = useState("");
   const [minimumMeanScore, setMinimumMeanScore] = useState("");
+  const [runGroupingLens, setRunGroupingLens] =
+    useState<RunGroupingLens>("adaptive");
   const [selectedCase, setSelectedCase] = useState<EvalCase | null>(null);
   const [selectedTrend, setSelectedTrend] =
     useState<DrilldownTrendRequest | null>(null);
@@ -1051,9 +1319,6 @@ export default function Home() {
     [
       executionStatus,
       stage,
-      category,
-      skillFilter,
-      targetEnvironment,
       agentName,
       trigger,
       actor,
@@ -1068,9 +1333,6 @@ export default function Home() {
   const resetMoreFilters = () => {
     setExecutionStatus("all");
     setStage("all");
-    setCategory("all");
-    setSkillFilter("all");
-    setTargetEnvironment("all");
     setAgentName("all");
     setTrigger("all");
     setActor("all");
@@ -1769,21 +2031,6 @@ export default function Home() {
                       <option value="xpassed">XPASS</option>
                       <option value="pending">Pending</option>
                     </select>
-                    <select
-                      value={sortOrder}
-                      onChange={(event) => {
-                        setSortOrder(event.target.value as typeof sortOrder);
-                        setRunPage(0);
-                      }}
-                      aria-label="Sort runs"
-                    >
-                      <option value="newest">Newest first</option>
-                      <option value="oldest">Oldest first</option>
-                      <option value="pass-high">Highest pass rate</option>
-                      <option value="pass-low">Lowest pass rate</option>
-                      <option value="score-high">Highest mean score</option>
-                      <option value="score-low">Lowest mean score</option>
-                    </select>
                     <button
                       className={`filter-button ${moreFiltersOpen || activeMoreFilterCount ? "active" : ""}`}
                       aria-expanded={moreFiltersOpen}
@@ -1795,6 +2042,86 @@ export default function Home() {
                         ? ` (${activeMoreFilterCount})`
                         : ""}
                     </button>
+                  </div>
+                  <div className="run-scope-filters" aria-label="Evaluation scope filters">
+                    <label>
+                      <span>Category</span>
+                      <select
+                        value={category}
+                        onChange={(event) => {
+                          setCategory(event.target.value);
+                          setSkillFilter("all");
+                          setTargetEnvironment("all");
+                          setAgentName("all");
+                          setRunPage(0);
+                        }}
+                      >
+                        <option value="all">All categories</option>
+                        {filterOptions.categories.map((value) => (
+                          <option value={value} key={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Skill</span>
+                      <select
+                        value={skillFilter}
+                        onChange={(event) => {
+                          setSkillFilter(event.target.value);
+                          setTargetEnvironment("all");
+                          setAgentName("all");
+                          setRunPage(0);
+                        }}
+                      >
+                        <option value="all">
+                          {category === "all"
+                            ? "All skills"
+                            : `All skills in ${category}`}
+                        </option>
+                        {filterOptions.skills.map((value) => (
+                          <option value={value} key={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Target environment</span>
+                      <select
+                        value={targetEnvironment}
+                        onChange={(event) => {
+                          setTargetEnvironment(event.target.value);
+                          setRunPage(0);
+                        }}
+                      >
+                        <option value="all">All targets</option>
+                        {filterOptions.targetEnvironments.map((value) => (
+                          <option value={value} key={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Sort within groups</span>
+                      <select
+                        value={sortOrder}
+                        onChange={(event) => {
+                          setSortOrder(event.target.value as typeof sortOrder);
+                          setRunPage(0);
+                        }}
+                        aria-label="Sort runs"
+                      >
+                        <option value="newest">Newest first</option>
+                        <option value="oldest">Oldest first</option>
+                        <option value="pass-high">Highest pass rate</option>
+                        <option value="pass-low">Lowest pass rate</option>
+                        <option value="score-high">Highest mean score</option>
+                        <option value="score-low">Lowest mean score</option>
+                      </select>
+                    </label>
                   </div>
                   {moreFiltersOpen && (
                     <div className="advanced-filters" id="advanced-run-filters">
@@ -1824,62 +2151,6 @@ export default function Home() {
                         >
                           <option value="all">All stages</option>
                           {filterOptions.stages.map((value) => (
-                            <option value={value} key={value}>
-                              {value}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span>Category</span>
-                        <select
-                          value={category}
-                          onChange={(event) => {
-                            setCategory(event.target.value);
-                            setSkillFilter("all");
-                            setTargetEnvironment("all");
-                            setAgentName("all");
-                            setRunPage(0);
-                          }}
-                        >
-                          <option value="all">All categories</option>
-                          {filterOptions.categories.map((value) => (
-                            <option value={value} key={value}>
-                              {value}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span>Skill</span>
-                        <select
-                          value={skillFilter}
-                          onChange={(event) => {
-                            setSkillFilter(event.target.value);
-                            setTargetEnvironment("all");
-                            setAgentName("all");
-                            setRunPage(0);
-                          }}
-                        >
-                          <option value="all">All skills</option>
-                          {filterOptions.skills.map((value) => (
-                            <option value={value} key={value}>
-                              {value}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span>Target environment</span>
-                        <select
-                          value={targetEnvironment}
-                          onChange={(event) => {
-                            setTargetEnvironment(event.target.value);
-                            setRunPage(0);
-                          }}
-                        >
-                          <option value="all">All targets</option>
-                          {filterOptions.targetEnvironments.map((value) => (
                             <option value={value} key={value}>
                               {value}
                             </option>
@@ -2103,48 +2374,145 @@ export default function Home() {
                       )}
                     </div>
                   )}
-                  <RunsTable runs={visibleRuns} onOpen={openRun} />
-                  <div className="table-footer">
-                    <span>
-                      Showing {visibleStart}–{visibleEnd} of{" "}
-                      {filteredRuns.length} matching · {runs.length} loaded
-                      {hasOlderRuns
-                        ? " · older runs available"
-                        : " · all available runs loaded"}
-                    </span>
-                    <div>
-                      <button
-                        disabled={activeRunPage === 0}
-                        onClick={() =>
-                          setRunPage(Math.max(0, activeRunPage - 1))
-                        }
-                      >
-                        ←
-                      </button>
-                      <button
-                        className="current"
-                        aria-label={`Page ${activeRunPage + 1} of ${runPageCount}`}
-                      >
-                        {activeRunPage + 1}
-                      </button>
-                      <button
-                        disabled={
-                          loadingMoreRuns ||
-                          (activeRunPage + 1 >= runPageCount && !hasOlderRuns)
-                        }
-                        onClick={() => {
-                          if (activeRunPage + 1 < runPageCount)
-                            setRunPage(activeRunPage + 1);
-                          else
-                            void loadOlderRuns().then((loaded) => {
-                              if (loaded) setRunPage(activeRunPage + 1);
-                            });
-                        }}
-                      >
-                        {loadingMoreRuns ? "…" : "→"}
-                      </button>
+                  {(category !== "all" ||
+                    skillFilter !== "all" ||
+                    targetEnvironment !== "all") && (
+                    <div className="active-scope-chips" aria-label="Active evaluation scope">
+                      <span>Scope</span>
+                      {category !== "all" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCategory("all");
+                            setSkillFilter("all");
+                            setTargetEnvironment("all");
+                          }}
+                        >
+                          {category} <span>×</span>
+                        </button>
+                      )}
+                      {skillFilter !== "all" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSkillFilter("all");
+                            setTargetEnvironment("all");
+                          }}
+                        >
+                          {skillFilter} <span>×</span>
+                        </button>
+                      )}
+                      {targetEnvironment !== "all" && (
+                        <button
+                          type="button"
+                          onClick={() => setTargetEnvironment("all")}
+                        >
+                          {targetEnvironment} <span>×</span>
+                        </button>
+                      )}
                     </div>
-                  </div>
+                  )}
+                  <section className="run-grouping-lens" aria-label="Organize matching runs">
+                    <div>
+                      <span>Grouping lens</span>
+                      <strong>Organize the same filtered runs</strong>
+                    </div>
+                    <div role="group" aria-label="Group runs by">
+                      {(
+                        [
+                          ["adaptive", "Adaptive"],
+                          ["skill", "Skill → target"],
+                          ["target", "Target → skill"],
+                          ["attention", "Attention"],
+                          ["table", "Flat table"],
+                        ] as Array<[RunGroupingLens, string]>
+                      ).map(([value, label]) => (
+                        <button
+                          type="button"
+                          key={value}
+                          aria-pressed={runGroupingLens === value}
+                          onClick={() => setRunGroupingLens(value)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                  {runGroupingLens === "table" ? (
+                    <>
+                      <RunsTable runs={visibleRuns} onOpen={openRun} />
+                      <div className="table-footer">
+                        <span>
+                          Showing {visibleStart}–{visibleEnd} of{" "}
+                          {filteredRuns.length} matching · {runs.length} loaded
+                          {hasOlderRuns
+                            ? " · older runs available"
+                            : " · all available runs loaded"}
+                        </span>
+                        <div>
+                          <button
+                            disabled={activeRunPage === 0}
+                            onClick={() =>
+                              setRunPage(Math.max(0, activeRunPage - 1))
+                            }
+                          >
+                            ←
+                          </button>
+                          <button
+                            className="current"
+                            aria-label={`Page ${activeRunPage + 1} of ${runPageCount}`}
+                          >
+                            {activeRunPage + 1}
+                          </button>
+                          <button
+                            disabled={
+                              loadingMoreRuns ||
+                              (activeRunPage + 1 >= runPageCount &&
+                                !hasOlderRuns)
+                            }
+                            onClick={() => {
+                              if (activeRunPage + 1 < runPageCount)
+                                setRunPage(activeRunPage + 1);
+                              else
+                                void loadOlderRuns().then((loaded) => {
+                                  if (loaded) setRunPage(activeRunPage + 1);
+                                });
+                            }}
+                          >
+                            {loadingMoreRuns ? "…" : "→"}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <RunGroups
+                        runs={filteredRuns}
+                        lens={runGroupingLens}
+                        category={category}
+                        skill={skillFilter}
+                        targetEnvironment={targetEnvironment}
+                        onOpen={openRun}
+                      />
+                      <div className="grouped-results-footer">
+                        <span>
+                          {filteredRuns.length} matching · {runs.length} loaded
+                          {hasOlderRuns
+                            ? " · older runs available"
+                            : " · all available runs loaded"}
+                        </span>
+                        {hasOlderRuns && (
+                          <button
+                            type="button"
+                            disabled={loadingMoreRuns}
+                            onClick={() => void loadOlderRuns()}
+                          >
+                            {loadingMoreRuns ? "Loading…" : "Load older runs"}
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </section>
               ) : (
                 <RunSummary
@@ -3399,6 +3767,7 @@ type TrendPoint = {
   startedAt: string;
   passRatePct: number;
   meanScore: number;
+  meanScoreRecorded?: boolean;
   totalCases: number;
   durationMs: number;
   verdict: Verdict;
@@ -3799,6 +4168,7 @@ function HistoryView({
       skillVersion: run.unitConfig?.skillVersion?.trim() || "Version not recorded",
       passRatePct: run.summary.passRatePct,
       meanScore: run.summary.meanScore,
+      meanScoreRecorded: run.summary.meanScoreRecorded,
       generalQuality: 0,
       toolUseQuality: 0,
       totalCases: run.summary.total,
@@ -3830,7 +4200,7 @@ function HistoryView({
   const initialSkill =
     initialFocus?.skillId && initialCategorySkills.includes(initialFocus.skillId)
       ? initialFocus.skillId
-      : (initialCategorySkills[0] ?? "");
+      : "all";
   const [historyType, setHistoryType] = useState<EvalType>(
     initialFocus?.type ?? "e2e",
   );
@@ -3907,7 +4277,9 @@ function HistoryView({
     new Set(
       unitSource
         .filter(
-          (point) => point.category === category && point.skillId === skillId,
+          (point) =>
+            point.category === category &&
+            (skillId === "all" || point.skillId === skillId),
         )
         .map((point) => point.environment),
     ),
@@ -3918,7 +4290,7 @@ function HistoryView({
         .filter(
           (point) =>
             point.category === category &&
-            point.skillId === skillId &&
+            (skillId === "all" || point.skillId === skillId) &&
             (environment === "all" || point.environment === environment),
         )
         .map((point) => point.targetEnvironment),
@@ -3929,7 +4301,7 @@ function HistoryView({
       (point) =>
         inRange(point.startedAt) &&
         point.category === category &&
-        point.skillId === skillId &&
+        (skillId === "all" || point.skillId === skillId) &&
         (environment === "all" || point.environment === environment) &&
         (targetEnvironments.length === 0 ||
           targetEnvironments.includes(point.targetEnvironment)),
@@ -3940,10 +4312,11 @@ function HistoryView({
     startedAt: point.startedAt,
     passRatePct: point.passRatePct,
     meanScore: point.meanScore,
+    meanScoreRecorded: point.meanScoreRecorded,
     totalCases: point.totalCases,
     durationMs: point.durationMs,
     verdict: point.verdict,
-    scope: point.targetEnvironment,
+    scope: skillId === "all" ? point.skillId : point.targetEnvironment,
     batchId: point.batchId,
     githubRunId: point.githubRunId,
     githubRunUrl: point.githubRunUrl,
@@ -3969,7 +4342,10 @@ function HistoryView({
   const passDelta =
     latest && previous ? latest.passRatePct - previous.passRatePct : 0;
   const latestUnit = unitFiltered.at(-1);
-  const selectedSkill = { id: skillId, label: skillId };
+  const selectedSkill = {
+    id: skillId,
+    label: skillId === "all" ? category : skillId,
+  };
   const unitTrendTargetCount = new Set(unitTrend.map((point) => point.scope)).size;
   const unitTargetSummaries = availableTargetEnvironments.flatMap((targetId) => {
     const targetRuns = unitSource
@@ -3996,6 +4372,50 @@ function HistoryView({
       },
     ];
   });
+  const selectedUnitTarget =
+    targetEnvironments.length === 1 ? targetEnvironments[0] : "all";
+  const matrixTargets =
+    selectedUnitTarget === "all"
+      ? availableTargetEnvironments
+      : availableTargetEnvironments.filter(
+          (targetId) => targetId === selectedUnitTarget,
+        );
+  const matrixLatestByScope = new Map<
+    string,
+    (typeof unitSource)[number]
+  >();
+  unitSource
+    .filter(
+      (point) =>
+        inRange(point.startedAt) &&
+        point.category === category &&
+        (environment === "all" || point.environment === environment) &&
+        matrixTargets.includes(point.targetEnvironment),
+    )
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+    .forEach((point) => {
+      matrixLatestByScope.set(
+        `${point.skillId}::${point.targetEnvironment}`,
+        point,
+      );
+    });
+  const matrixLatestPoints = Array.from(matrixLatestByScope.values());
+  const matrixCombinationCount = skills.length * matrixTargets.length;
+  const matrixPassingCount = matrixLatestPoints.filter((point) =>
+    ["passed", "xpassed"].includes(point.verdict),
+  ).length;
+  const matrixCaseCount = matrixLatestPoints.reduce(
+    (total, point) => total + point.totalCases,
+    0,
+  );
+  const matrixPassRate = matrixCaseCount
+    ? matrixLatestPoints.reduce(
+        (total, point) =>
+          total + point.passRatePct * point.totalCases,
+        0,
+      ) / matrixCaseCount
+    : 0;
+  const showUnitMatrix = historyType === "unit" && skillId === "all";
   const latestByTarget = stageTargets
     .map((targetId) =>
       e2eStageInRange
@@ -4094,11 +4514,8 @@ function HistoryView({
                 value={category}
                 onChange={(event) => {
                   const nextCategory = event.target.value;
-                  const nextSkill = unitSource.find(
-                    (point) => point.category === nextCategory,
-                  )?.skillId;
                   setCategory(nextCategory);
-                  setSkillId(nextSkill ?? "");
+                  setSkillId("all");
                   setEnvironment("all");
                   setTargetEnvironments([]);
                 }}
@@ -4121,7 +4538,27 @@ function HistoryView({
                   setTargetEnvironments([]);
                 }}
               >
+                <option value="all">All skills · category matrix</option>
                 {skills.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Target environment</span>
+              <select
+                aria-label="History target environment"
+                value={selectedUnitTarget}
+                onChange={(event) =>
+                  setTargetEnvironments(
+                    event.target.value === "all" ? [] : [event.target.value],
+                  )
+                }
+              >
+                <option value="all">All targets</option>
+                {availableTargetEnvironments.map((value) => (
                   <option key={value} value={value}>
                     {value}
                   </option>
@@ -4169,54 +4606,37 @@ function HistoryView({
           </button>
         </div>
       </section>
-      {historyType === "unit" && availableTargetEnvironments.length > 0 && (
-        <section className="panel unit-target-selector">
-          <div className="unit-target-heading">
-            <div>
-              <span>Target environments</span>
-              <strong>Compare one or several deployment targets</strong>
-            </div>
-            <small>
-              {targetEnvironments.length === 0
-                ? `All ${availableTargetEnvironments.length} targets selected`
-                : `${targetEnvironments.length} of ${availableTargetEnvironments.length} selected`}
-            </small>
-          </div>
-          <div
-            className="target-chip-list"
-            role="group"
-            aria-label="Target environments"
+      {historyType === "unit" && (
+        <nav className="unit-history-path" aria-label="Unit history scope">
+          <button
+            type="button"
+            onClick={() => {
+              setSkillId("all");
+              setTargetEnvironments([]);
+            }}
           >
-            <button
-              className={`target-chip ${targetEnvironments.length === 0 ? "selected" : ""}`}
-              onClick={() => setTargetEnvironments([])}
-            >
-              All targets
-            </button>
-            {availableTargetEnvironments.map((value) => {
-              const selected = targetEnvironments.includes(value);
-              return (
-                <button
-                  key={value}
-                  className={`target-chip ${selected ? "selected" : ""}`}
-                  aria-pressed={selected}
-                  onClick={() =>
-                    setTargetEnvironments((current) =>
-                      current.includes(value)
-                        ? current.filter((item) => item !== value)
-                        : [...current, value],
-                    )
-                  }
-                >
-                  <i />
-                  {value}
-                </button>
-              );
-            })}
-          </div>
-        </section>
+            {category}
+          </button>
+          {skillId !== "all" && (
+            <>
+              <span>›</span>
+              <button
+                type="button"
+                onClick={() => setTargetEnvironments([])}
+              >
+                {skillId}
+              </button>
+            </>
+          )}
+          {selectedUnitTarget !== "all" && (
+            <>
+              <span>›</span>
+              <strong>{selectedUnitTarget}</strong>
+            </>
+          )}
+        </nav>
       )}
-      <section className="history-metrics">
+      {!showUnitMatrix && <section className="history-metrics">
         <article className="panel">
           <span>Latest pass rate</span>
           <strong>{latest?.passRatePct.toFixed(1) ?? "—"}%</strong>
@@ -4227,7 +4647,11 @@ function HistoryView({
         </article>
         <article className="panel">
           <span>Latest mean score</span>
-          <strong>{latest?.meanScore.toFixed(2) ?? "—"}</strong>
+          <strong>
+            {latest && latest.meanScoreRecorded !== false
+              ? latest.meanScore.toFixed(2)
+              : "—"}
+          </strong>
           <small>out of 5.0</small>
         </article>
         <article className="panel">
@@ -4267,8 +4691,8 @@ function HistoryView({
           <strong>{historyVerdicts.xpassed}</strong>
           <small>unexpected passes requiring review</small>
         </article>
-      </section>
-      {trend.length ? (
+      </section>}
+      {!showUnitMatrix && (trend.length ? (
         historyType === "unit" && unitTrendTargetCount > 1 ? (
           <TargetComparisonChart
             points={trend}
@@ -4299,7 +4723,7 @@ function HistoryView({
           </strong>
           <span>Change the time window, environment or scope selection.</span>
         </section>
-      )}
+      ))}
       {historyType === "e2e" ? (
         <section className="target-history-grid">
           {latestByTarget.map((point) => (
@@ -4328,93 +4752,269 @@ function HistoryView({
         </section>
       ) : (
         <>
-          {unitTargetSummaries.length > 0 && (
-            <section className="unit-target-summary-grid">
-              {unitTargetSummaries.map((summary) => {
-                const isolated =
-                  targetEnvironments.length === 1 &&
-                  targetEnvironments[0] === summary.targetId;
-                return (
-                  <button
-                    key={summary.targetId}
-                    type="button"
-                    className={`panel unit-target-summary-card ${isolated ? "selected" : ""}`}
-                    aria-pressed={isolated}
-                    onClick={() =>
-                      setTargetEnvironments(isolated ? [] : [summary.targetId])
+          {showUnitMatrix && (
+            <>
+              <section className="unit-health-metrics">
+                <article className="panel">
+                  <span>Overall status</span>
+                  <strong
+                    className={
+                      matrixPassingCount === matrixCombinationCount &&
+                      matrixCombinationCount > 0
+                        ? "matrix-status-good"
+                        : "matrix-status-attention"
                     }
                   >
-                    <div className="unit-target-summary-title">
-                      <span className="target-dot" />
-                      <div>
-                        <strong>{summary.targetId}</strong>
-                        <small>
-                          {summary.runCount} run{summary.runCount === 1 ? "" : "s"} in{" "}
-                          {rangeDays}d
-                        </small>
-                      </div>
-                    </div>
-                    <div className="unit-target-summary-metrics">
-                      <span>
-                        <small>Pass rate</small>
-                        <strong>{summary.latest.passRatePct.toFixed(1)}%</strong>
-                      </span>
-                      <span>
-                        <small>Mean score</small>
-                        <strong>{summary.latest.meanScore.toFixed(2)}</strong>
-                      </span>
-                      <span>
-                        <small>Change</small>
-                        <strong
-                          className={
-                            summary.passDelta === null || summary.passDelta >= 0
-                              ? "delta-good"
-                              : "delta-bad"
-                          }
-                        >
-                          {summary.passDelta === null
-                            ? "—"
-                            : `${summary.passDelta >= 0 ? "+" : ""}${summary.passDelta.toFixed(1)} pts`}
-                        </strong>
-                      </span>
-                    </div>
-                    <div className="unit-target-summary-meta">
-                      <span>
-                        {summary.latest.gitRef ??
-                          `skill v${summary.latest.skillVersion}`}
-                      </span>
-                      <span>{formatDateShort(summary.latest.startedAt)}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </section>
+                    {matrixPassingCount === matrixCombinationCount &&
+                    matrixCombinationCount > 0
+                      ? "Healthy"
+                      : "Needs attention"}
+                  </strong>
+                  <small>Latest run in every visible combination</small>
+                </article>
+                <article className="panel">
+                  <span>Healthy combinations</span>
+                  <strong>
+                    {matrixPassingCount}/{matrixCombinationCount}
+                  </strong>
+                  <small>skill × target combinations</small>
+                </article>
+                <article className="panel">
+                  <span>Skills and targets</span>
+                  <strong>
+                    {skills.length} × {matrixTargets.length}
+                  </strong>
+                  <small>{matrixLatestPoints.length} combinations recorded</small>
+                </article>
+                <article className="panel">
+                  <span>Observed pass rate</span>
+                  <strong>{matrixPassRate.toFixed(1)}%</strong>
+                  <small>case-weighted across latest runs</small>
+                </article>
+              </section>
+              <section className="panel unit-health-matrix-panel">
+                <div className="panel-heading unit-health-matrix-heading">
+                  <div>
+                    <h2>
+                      {category}
+                      {selectedUnitTarget === "all"
+                        ? " · health matrix"
+                        : ` · ${selectedUnitTarget}`}
+                    </h2>
+                    <p>
+                      Select a skill, a target heading, or an individual cell
+                      to move into a narrower history view.
+                    </p>
+                  </div>
+                  <span className="result-count">
+                    Latest in {rangeDays}d
+                  </span>
+                </div>
+                {skills.length > 0 && matrixTargets.length > 0 ? (
+                  <div className="unit-health-matrix-wrap">
+                    <table className="unit-health-matrix">
+                      <thead>
+                        <tr>
+                          <th>Skill</th>
+                          {matrixTargets.map((targetId) => (
+                            <th key={targetId}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setTargetEnvironments([targetId])
+                                }
+                              >
+                                {targetId}
+                                <small>View all skills →</small>
+                              </button>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {skills.map((matrixSkillId) => (
+                          <tr key={matrixSkillId}>
+                            <th scope="row">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSkillId(matrixSkillId);
+                                  setTargetEnvironments([]);
+                                }}
+                              >
+                                <strong>{matrixSkillId}</strong>
+                                <small>View all targets →</small>
+                              </button>
+                            </th>
+                            {matrixTargets.map((targetId) => {
+                              const point = matrixLatestByScope.get(
+                                `${matrixSkillId}::${targetId}`,
+                              );
+                              const state = point
+                                ? point.verdict === "passed" ||
+                                  point.verdict === "xpassed"
+                                  ? "passing"
+                                  : point.verdict === "blocked"
+                                    ? "blocked"
+                                    : "failing"
+                                : "empty";
+                              return (
+                                <td key={targetId}>
+                                  <button
+                                    type="button"
+                                    className={`unit-health-cell ${state}`}
+                                    disabled={!point}
+                                    aria-label={
+                                      point
+                                        ? `${matrixSkillId}, ${targetId}, ${point.passRatePct.toFixed(1)} percent, ${point.verdict}`
+                                        : `${matrixSkillId}, ${targetId}, no run recorded`
+                                    }
+                                    onClick={() => {
+                                      setSkillId(matrixSkillId);
+                                      setTargetEnvironments([targetId]);
+                                    }}
+                                  >
+                                    {point ? (
+                                      <>
+                                        <strong>
+                                          {point.passRatePct.toFixed(1)}%
+                                        </strong>
+                                        <span>
+                                          {point.meanScoreRecorded
+                                            ? `Mean ${point.meanScore.toFixed(2)}`
+                                            : "Mean not recorded"}
+                                        </span>
+                                        <small>
+                                          {point.verdict} ·{" "}
+                                          {formatDateShort(point.startedAt)}
+                                        </small>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <strong>—</strong>
+                                        <span>No coverage</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="empty unit-health-empty">
+                    <strong>No matrix data in this window</strong>
+                    <span>Change the time window or environment.</span>
+                  </div>
+                )}
+              </section>
+            </>
           )}
-          <section className="panel unit-history-summary">
-            <div>
-              <span className="collection-icon case">S</span>
-              <div>
-                <strong>{selectedSkill.label}</strong>
-                <small>{selectedSkill.id}</small>
-              </div>
-            </div>
-            <div>
-              <span>Category</span>
-              <strong>{category}</strong>
-            </div>
-            <div>
-              <span>Target scope</span>
-              <strong>
-                {targetEnvironments.length === 0
-                  ? `${availableTargetEnvironments.length} targets`
-                  : targetEnvironments.join(", ")}
-              </strong>
-            </div>
-            <div>
-              <span>Latest agent</span>
-              <strong>{latestUnit?.agentName ?? "Agent not recorded"}</strong>
-            </div>
-          </section>
+          {!showUnitMatrix && (
+            <>
+              {unitTargetSummaries.length > 0 && (
+                <section className="unit-target-summary-grid">
+                  {unitTargetSummaries.map((summary) => {
+                    const isolated =
+                      targetEnvironments.length === 1 &&
+                      targetEnvironments[0] === summary.targetId;
+                    return (
+                      <button
+                        key={summary.targetId}
+                        type="button"
+                        className={`panel unit-target-summary-card ${isolated ? "selected" : ""}`}
+                        aria-pressed={isolated}
+                        onClick={() =>
+                          setTargetEnvironments(
+                            isolated ? [] : [summary.targetId],
+                          )
+                        }
+                      >
+                        <div className="unit-target-summary-title">
+                          <span className="target-dot" />
+                          <div>
+                            <strong>{summary.targetId}</strong>
+                            <small>
+                              {summary.runCount} run
+                              {summary.runCount === 1 ? "" : "s"} in {rangeDays}d
+                            </small>
+                          </div>
+                        </div>
+                        <div className="unit-target-summary-metrics">
+                          <span>
+                            <small>Pass rate</small>
+                            <strong>
+                              {summary.latest.passRatePct.toFixed(1)}%
+                            </strong>
+                          </span>
+                          <span>
+                            <small>Mean score</small>
+                            <strong>
+                              {summary.latest.meanScoreRecorded
+                                ? summary.latest.meanScore.toFixed(2)
+                                : "—"}
+                            </strong>
+                          </span>
+                          <span>
+                            <small>Change</small>
+                            <strong
+                              className={
+                                summary.passDelta === null ||
+                                summary.passDelta >= 0
+                                  ? "delta-good"
+                                  : "delta-bad"
+                              }
+                            >
+                              {summary.passDelta === null
+                                ? "—"
+                                : `${summary.passDelta >= 0 ? "+" : ""}${summary.passDelta.toFixed(1)} pts`}
+                            </strong>
+                          </span>
+                        </div>
+                        <div className="unit-target-summary-meta">
+                          <span>
+                            {summary.latest.gitRef ??
+                              `skill v${summary.latest.skillVersion}`}
+                          </span>
+                          <span>{formatDateShort(summary.latest.startedAt)}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </section>
+              )}
+              <section className="panel unit-history-summary">
+                <div>
+                  <span className="collection-icon case">S</span>
+                  <div>
+                    <strong>{selectedSkill.label}</strong>
+                    <small>{selectedSkill.id}</small>
+                  </div>
+                </div>
+                <div>
+                  <span>Category</span>
+                  <strong>{category}</strong>
+                </div>
+                <div>
+                  <span>Target scope</span>
+                  <strong>
+                    {targetEnvironments.length === 0
+                      ? `${availableTargetEnvironments.length} targets`
+                      : targetEnvironments.join(", ")}
+                  </strong>
+                </div>
+                <div>
+                  <span>Latest agent</span>
+                  <strong>
+                    {latestUnit?.agentName ?? "Agent not recorded"}
+                  </strong>
+                </div>
+              </section>
+            </>
+          )}
         </>
       )}
       <section className="panel history-table">
@@ -4522,7 +5122,11 @@ function HistoryView({
                   <td>
                     <strong>{point.passRatePct.toFixed(1)}%</strong>
                   </td>
-                  <td>{point.meanScore.toFixed(2)}</td>
+                  <td>
+                    {point.meanScoreRecorded === false
+                      ? "—"
+                      : point.meanScore.toFixed(2)}
+                  </td>
                   <td>{point.totalCases}</td>
                   <td>{formatDuration(point.durationMs)}</td>
                   <td>{formatTime(point.startedAt)}</td>
