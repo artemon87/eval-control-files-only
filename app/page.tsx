@@ -4852,11 +4852,12 @@ function HistoryView({
                             <th key={targetId}>
                               <button
                                 type="button"
+                                className="unit-health-axis-button unit-health-axis-button--target"
                                 onClick={() =>
                                   setTargetEnvironments([targetId])
                                 }
                               >
-                                {targetId}
+                                <strong>{targetId}</strong>
                                 <small>View all skills →</small>
                               </button>
                             </th>
@@ -4869,6 +4870,7 @@ function HistoryView({
                             <th scope="row">
                               <button
                                 type="button"
+                                className="unit-health-axis-button unit-health-axis-button--skill"
                                 onClick={() => {
                                   setSkillId(matrixSkillId);
                                   setTargetEnvironments([]);
