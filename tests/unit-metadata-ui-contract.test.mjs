@@ -37,11 +37,36 @@ test("unit metadata filters preserve repository, branch, and SHA scoping", () =>
 
 test("run history supports category scoping and multi-target comparison", () => {
   assert.match(pageSource, /aria-label="History category"/);
-  assert.match(pageSource, /aria-label="Target environments"/);
+  assert.match(pageSource, /aria-label="History target environment"/);
   assert.match(pageSource, /function TargetComparisonChart/);
   assert.match(pageSource, /targetEnvironments\.includes\(point\.targetEnvironment\)/);
-  assert.match(cssSource, /\.target-chip\.selected/);
+  assert.match(pageSource, /All targets/);
   assert.match(cssSource, /\.target-comparison-line/);
+});
+
+test("runs separate evaluation scope filters from the grouping lens", () => {
+  assert.match(pageSource, /className="run-scope-filters"/);
+  assert.match(pageSource, /All skills in \$\{category\}/);
+  assert.match(pageSource, /className="run-grouping-lens"/);
+  assert.match(pageSource, /Skill → target/);
+  assert.match(pageSource, /Target → skill/);
+  assert.match(pageSource, /Attention/);
+  assert.match(pageSource, /Flat table/);
+  assert.match(pageSource, /function RunGroups/);
+  assert.match(pageSource, /className="run-group-list"/);
+  assert.match(cssSource, /\.run-group-metrics/);
+  assert.match(cssSource, /\.run-sequence-mark--failed/);
+});
+
+test("unit history provides a clickable category health matrix", () => {
+  assert.match(pageSource, /All skills · category matrix/);
+  assert.match(pageSource, /className="unit-health-matrix"/);
+  assert.match(pageSource, /matrixLatestByScope/);
+  assert.match(pageSource, /setSkillId\(matrixSkillId\)/);
+  assert.match(pageSource, /setTargetEnvironments\(\[targetId\]\)/);
+  assert.match(pageSource, /Mean not recorded/);
+  assert.match(cssSource, /\.unit-health-cell\.passing/);
+  assert.match(cssSource, /\.unit-health-cell\.failing/);
 });
 
 test("run ordering offers quality and chronological choices", () => {
@@ -76,7 +101,10 @@ test("advanced run requirements filter configured and observed quality", () => {
 test("unit history renders clickable per-target summaries", () => {
   assert.match(pageSource, /unitTargetSummaries/);
   assert.match(pageSource, /className="unit-target-summary-grid"/);
-  assert.match(pageSource, /setTargetEnvironments\(isolated \? \[\] : \[summary\.targetId\]\)/);
+  assert.match(
+    pageSource,
+    /setTargetEnvironments\(\s*isolated \? \[\] : \[summary\.targetId\]/,
+  );
   assert.match(pageSource, /summary\.latest\.passRatePct/);
   assert.match(pageSource, /summary\.latest\.meanScore/);
   assert.match(pageSource, /summary\.passDelta/);
