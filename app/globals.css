@@ -3814,3 +3814,68 @@ button {
     grid-template-columns: repeat(3, 1fr);
   }
 }
+
+
+/* Keep the expanded Runs filters aligned inside the panel at every width. */
+.advanced-filters {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 18px 20px;
+  overflow: hidden;
+}
+
+.advanced-filters label {
+  min-width: 0;
+}
+
+.advanced-filters select,
+.advanced-filters input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
+.advanced-filters select:disabled {
+  border-style: dashed;
+  background: #f3f5f7;
+  color: #8a98a5;
+  cursor: not-allowed;
+}
+
+.active-requirement-chips {
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfd;
+}
+
+.active-requirement-chips button {
+  min-height: 28px;
+  padding: 5px 10px;
+  border-color: #b9ddd5;
+  background: #eef8f5;
+  color: #167c6d;
+  font-size: 10px;
+}
+
+.active-requirement-chips button:hover {
+  border-color: #65b8a8;
+  background: #e3f4ef;
+}
+
+@media (max-width: 980px) {
+  .advanced-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .advanced-filters {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 14px;
+  }
+
+  .advanced-filter-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
