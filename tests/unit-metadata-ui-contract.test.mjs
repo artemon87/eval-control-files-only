@@ -58,6 +58,26 @@ test("runs separate evaluation scope filters from the grouping lens", () => {
   assert.match(cssSource, /\.run-sequence-mark--failed/);
 });
 
+test("run grouping never treats a unit skill as its target environment", () => {
+  assert.match(pageSource, /function recordedRunTarget/);
+  assert.match(pageSource, /if \(run\.evalType === "unit"\)/);
+  assert.match(
+    pageSource,
+    /run\.unitConfig\?\.targetEnvironment\?\.trim\(\) \|\| null/,
+  );
+  assert.match(
+    pageSource,
+    /recordedRunTarget\(run\) \?\? "Target not recorded"/,
+  );
+  assert.doesNotMatch(
+    pageSource,
+    /run\.unitConfig\?\.targetEnvironment \?\?\s*run\.target/,
+  );
+  assert.match(pageSource, /const recordedCoverage = new Set/);
+  assert.match(pageSource, /const missingTargetCount = runs\.filter/);
+  assert.match(pageSource, /recorded skill × target combinations/);
+});
+
 test("select controls use one cross-browser chevron inset", () => {
   assert.match(cssSource, /select:not\(\[multiple\]\)/);
   assert.match(cssSource, /-webkit-appearance: none/);
