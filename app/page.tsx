@@ -682,13 +682,18 @@ function runSkillLabel(run: EvalRun) {
   return run.unitConfig?.skillId ?? run.target ?? "Scope not recorded";
 }
 
+function recordedRunTarget(run: EvalRun): string | null {
+  // Unit run.target is the skill identifier, not a target environment. Older
+  // unit records may not have target_environment, so never use run.target as
+  // their fallback or the UI will incorrectly create skill-named targets.
+  if (run.evalType === "unit") {
+    return run.unitConfig?.targetEnvironment?.trim() || null;
+  }
+  return run.target?.trim() || run.stage?.trim() || null;
+}
+
 function runTargetLabel(run: EvalRun) {
-  return (
-    run.unitConfig?.targetEnvironment ??
-    run.target ??
-    run.stage ??
-    "Target not recorded"
-  );
+  return recordedRunTarget(run) ?? "Target not recorded";
 }
 
 function runRequiresAttention(run: EvalRun) {
@@ -771,9 +776,15 @@ function RunGroups({
   );
   const observedPassRate = totalCases ? (passedCases / totalCases) * 100 : 0;
   const attentionCount = runs.filter(runRequiresAttention).length;
-  const coverageCount = new Set(
-    runs.map((run) => `${runSkillLabel(run)}::${runTargetLabel(run)}`),
-  ).size;
+  const recordedCoverage = new Set(
+    runs.flatMap((run) => {
+      const target = recordedRunTarget(run);
+      return target ? [`${runSkillLabel(run)}::${target}`] : [];
+    }),
+  );
+  const missingTargetCount = runs.filter(
+    (run) => recordedRunTarget(run) === null,
+  ).length;
 
   return (
     <div className="run-groups-view">
@@ -801,8 +812,13 @@ function RunGroups({
         </article>
         <article>
           <span>Coverage</span>
-          <strong>{coverageCount}</strong>
-          <small>skill × target combinations</small>
+          <strong>{recordedCoverage.size}</strong>
+          <small>
+            recorded skill × target combinations
+            {missingTargetCount > 0
+              ? ` · ${missingTargetCount} missing target`
+              : ""}
+          </small>
         </article>
         <article>
           <span>Matching runs</span>
@@ -843,6 +859,18 @@ function RunGroups({
               return items;
             }, new Map<string, EvalRun[]>()),
           ).sort(([left], [right]) => left.localeCompare(right));
+          const recordedTargetCount = new Set(
+            groupRuns.flatMap((run) => {
+              const target = recordedRunTarget(run);
+              return target ? [target] : [];
+            }),
+          ).size;
+          const groupMissingTargetCount = groupRuns.filter(
+            (run) => recordedRunTarget(run) === null,
+          ).length;
+          const subgroupCount =
+            resolvedLens === "skill" ? recordedTargetCount : subgroups.length;
+          const subgroupLabel = resolvedLens === "skill" ? "target" : "skill";
           const groupState = groupAttention
             ? "attention"
             : groupName === "Missing quality data"
@@ -859,7 +887,11 @@ function RunGroups({
                 <span className="run-group-name">
                   <strong>{groupName}</strong>
                   <small>
-                    {subgroups.length} {resolvedLens === "skill" ? "targets" : "skills"} · {groupRuns.length} runs · latest {formatTime(latestRun.startedAt)}
+                    {subgroupCount} {subgroupLabel}
+                    {subgroupCount === 1 ? "" : "s"} · {groupRuns.length} runs
+                    {groupMissingTargetCount > 0
+                      ? ` · ${groupMissingTargetCount} target not recorded`
+                      : ""} · latest {formatTime(latestRun.startedAt)}
                   </small>
                 </span>
                 <span className="run-group-stat">
@@ -4820,11 +4852,12 @@ function HistoryView({
                             <th key={targetId}>
                               <button
                                 type="button"
+                                className="unit-health-axis-button unit-health-axis-button--target"
                                 onClick={() =>
                                   setTargetEnvironments([targetId])
                                 }
                               >
-                                {targetId}
+                                <strong>{targetId}</strong>
                                 <small>View all skills →</small>
                               </button>
                             </th>
@@ -4837,6 +4870,7 @@ function HistoryView({
                             <th scope="row">
                               <button
                                 type="button"
+                                className="unit-health-axis-button unit-health-axis-button--skill"
                                 onClick={() => {
                                   setSkillId(matrixSkillId);
                                   setTargetEnvironments([]);

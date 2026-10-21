@@ -1856,26 +1856,39 @@ button {
 .unit-health-matrix thead th:first-child {
   width: 220px;
 }
-.unit-health-matrix th button {
+.unit-health-axis-button {
+  box-sizing: border-box;
   width: 100%;
-  padding: 5px;
+  min-height: 44px;
+  padding: 9px 10px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  justify-content: center;
   gap: 4px;
-  border: 0;
-  border-radius: 7px;
+  border: 1px solid transparent;
+  border-radius: 9px;
   background: transparent;
   color: #405568;
   text-align: left;
   font-size: 9px;
   font-weight: 800;
 }
-.unit-health-matrix th button:hover {
+.unit-health-axis-button--skill {
+  min-height: 72px;
+}
+.unit-health-axis-button:hover,
+.unit-health-axis-button:focus-visible {
+  border-color: #a8d9cd;
   background: #edf8f5;
   color: #168b79;
+  outline: none;
 }
-.unit-health-matrix th button small {
+.unit-health-axis-button strong {
+  color: currentColor;
+  font-size: 9px;
+}
+.unit-health-axis-button small {
   color: #96a3ae;
   font-size: 7px;
   font-weight: 650;
