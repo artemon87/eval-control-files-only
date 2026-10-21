@@ -140,6 +140,13 @@ test("unit history renders clickable per-target summaries", () => {
   assert.match(pageSource, /summary\.latest\.passRatePct/);
   assert.match(pageSource, /summary\.latest\.meanScore/);
   assert.match(pageSource, /summary\.passDelta/);
+  assert.match(
+    pageSource,
+    /target-dot target-dot--\$\{summary\.latest\.verdict\}/,
+  );
+  for (const verdict of ["passed", "failed", "blocked", "xpassed"]) {
+    assert.match(cssSource, new RegExp(\`\\\\.target-dot--\${verdict}\`));
+  }
   assert.match(cssSource, /\.unit-target-summary-card\.selected/);
 });
 
