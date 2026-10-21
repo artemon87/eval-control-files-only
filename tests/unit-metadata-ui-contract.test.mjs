@@ -82,3 +82,22 @@ test("unit history renders clickable per-target summaries", () => {
   assert.match(pageSource, /summary\.passDelta/);
   assert.match(cssSource, /\.unit-target-summary-card\.selected/);
 });
+
+
+test("run filters restore category-scoped skill selection", () => {
+  assert.match(pageSource, /<span>Skill<\/span>/);
+  assert.match(pageSource, /filterOptions\.skills\.map/);
+  assert.match(pageSource, /skill: skillFilter === "all"/);
+  assert.match(pageSource, /setSkillFilter\("all"\)/);
+  assert.match(apiSource, /params\.set\("skill", filters\.skill\)/);
+});
+
+test("quality filters distinguish missing data from real zero scores", () => {
+  assert.match(apiSource, /mean_scores\?:/);
+  assert.match(apiSource, /function summaryMeanScore/);
+  assert.match(apiSource, /meanScoreRecorded: meanScore !== undefined/);
+  assert.match(pageSource, /No recorded gate thresholds/);
+  assert.match(pageSource, /No recorded mean scores/);
+  assert.match(pageSource, /run\.summary\.meanScoreRecorded/);
+  assert.match(cssSource, /\.advanced-filters select:disabled/);
+});

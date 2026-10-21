@@ -19,7 +19,8 @@ interface ApiSummary {
   failed: number;
   skipped?: number;
   pass_rate_pct: number;
-  mean_score?: number | null;
+  mean_score?: number | string | null;
+  mean_scores?: Record<string, number | string | null> | null;
   by_tier?: Record<string, unknown> | null;
 }
 
@@ -58,7 +59,7 @@ interface UnitApiRun extends BaseApiRun {
     bsa_environment?: string | null;
     bsa_version?: string | null;
     skill_version?: string | null;
-    pass_rate_threshold?: number | null;
+    pass_rate_threshold?: number | string | null;
     evaluation_layer?: string | null;
     n_runs?: number | null;
     category?: string | null;
@@ -74,7 +75,7 @@ interface E2EApiRun extends BaseApiRun {
   e2e_config: {
     selected_suites: string[];
     max_tier?: number | null;
-    pass_rate_threshold?: number | null;
+    pass_rate_threshold?: number | string | null;
     live_conversation: boolean;
   };
 }
@@ -189,8 +190,28 @@ export interface RunBatch {
   nextCursors: Record<EvalType, string | null>;
 }
 
-function numberOrZero(value?: number | null) {
-  return typeof value === "number" ? value : 0;
+function numberOrUndefined(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function numberOrZero(value: unknown): number {
+  return numberOrUndefined(value) ?? 0;
+}
+
+function summaryMeanScore(value: ApiSummary): number | undefined {
+  const direct = numberOrUndefined(value.mean_score);
+  if (direct !== undefined) return direct;
+
+  const metricMeans = Object.values(value.mean_scores ?? {})
+    .map(numberOrUndefined)
+    .filter((score): score is number => score !== undefined);
+  if (!metricMeans.length) return undefined;
+  return metricMeans.reduce((total, score) => total + score, 0) / metricMeans.length;
 }
 
 function normalizeVerdict(value: string | null | undefined): Verdict {
@@ -224,13 +245,15 @@ function normalizeCaseVerdict(value: string | null | undefined): CaseVerdict {
 }
 
 function summary(value: ApiSummary) {
+  const meanScore = summaryMeanScore(value);
   return {
     total: value.total,
     passed: value.passed,
     failed: value.failed,
     skipped: value.skipped ?? 0,
     passRatePct: value.pass_rate_pct,
-    meanScore: numberOrZero(value.mean_score),
+    meanScore: meanScore ?? 0,
+    meanScoreRecorded: meanScore !== undefined,
     p95ResponseTimeMs: 0,
     byTier: value.by_tier ?? null,
   };
@@ -297,7 +320,9 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
       mode: (run.unit_config.mode ?? "all") as
         "all" | "single-turn" | "multi-turn",
       metrics: run.unit_config.metrics ?? [],
-      passRateThreshold: run.unit_config.pass_rate_threshold ?? undefined,
+      passRateThreshold: numberOrUndefined(
+        run.unit_config.pass_rate_threshold,
+      ),
       evaluationLayer: run.unit_config.evaluation_layer ?? undefined,
       nRuns: run.unit_config.n_runs ?? undefined,
       category,
@@ -350,7 +375,9 @@ function mapE2ERun(run: E2EApiRun): EvalRun {
       targetId: run.target,
       selectedSuites: run.e2e_config.selected_suites,
       maxTier: (run.e2e_config.max_tier ?? "all") as "all" | 1 | 2 | 3,
-      passRateThreshold: run.e2e_config.pass_rate_threshold ?? undefined,
+      passRateThreshold: numberOrUndefined(
+        run.e2e_config.pass_rate_threshold,
+      ),
     },
     summary: summary(run.summary),
     suites: run.e2e_config.selected_suites.map((name) => ({
@@ -364,6 +391,7 @@ function mapE2ERun(run: E2EApiRun): EvalRun {
 }
 
 export type RunListFilters = {
+  skill?: string;
   githubRepository?: string;
   gitRef?: string;
   gitSha?: string;
@@ -434,6 +462,7 @@ export class EvalApi {
       if (filters.gitSha) params.set("git_sha", filters.gitSha);
 
       if (evalType === "unit") {
+        if (filters.skill) params.set("skill", filters.skill);
         if (filters.environment) {
           params.set("environment", filters.environment);
         }
