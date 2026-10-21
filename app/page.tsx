@@ -4972,7 +4972,10 @@ function HistoryView({
                         }
                       >
                         <div className="unit-target-summary-title">
-                          <span className="target-dot" />
+                          <span
+                            className={`target-dot target-dot--${summary.latest.verdict}`}
+                            aria-label={`Latest verdict: ${summary.latest.verdict}`}
+                          />
                           <div>
                             <strong>{summary.targetId}</strong>
                             <small>
