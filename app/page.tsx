@@ -677,6 +677,13 @@ type RunGroupingLens =
   | "table";
 
 type ResolvedRunGrouping = "skill" | "target" | "attention";
+type RunSortOrder =
+  | "newest"
+  | "oldest"
+  | "pass-high"
+  | "pass-low"
+  | "score-high"
+  | "score-low";
 
 function runSkillLabel(run: EvalRun) {
   return run.unitConfig?.skillId ?? run.target ?? "Scope not recorded";
@@ -707,6 +714,7 @@ function RunGroups({
   category,
   skill,
   targetEnvironment,
+  sortOrder,
   onOpen,
 }: {
   runs: EvalRun[];
@@ -714,6 +722,7 @@ function RunGroups({
   category: string;
   skill: string;
   targetEnvironment: string;
+  sortOrder: RunSortOrder;
   onOpen: (run: EvalRun) => void;
 }) {
   const resolvedLens: ResolvedRunGrouping =
@@ -910,20 +919,26 @@ function RunGroups({
               </summary>
               <div className="run-subgroup-list">
                 {subgroups.map(([subgroupName, subgroupRuns]) => {
-                  const ordered = [...subgroupRuns].sort((left, right) =>
+                  const latest = [...subgroupRuns].sort((left, right) =>
                     right.startedAt.localeCompare(left.startedAt),
-                  );
-                  const latest = ordered[0];
+                  )[0];
+                  // filteredRuns already carries the selected sort order. The
+                  // grouping reductions preserve it, so do not replace it with
+                  // a chronological timeline here.
+                  const displayedRuns = subgroupRuns.slice(0, 6);
                   return (
                     <div className="run-subgroup" key={subgroupName}>
                       <span className="run-subgroup-name">
                         <strong>{subgroupName}</strong>
                         <small>
-                          {ordered.length} run{ordered.length === 1 ? "" : "s"} · latest {effectiveRunVerdict(latest)}
+                          {subgroupRuns.length} run{subgroupRuns.length === 1 ? "" : "s"} · latest {effectiveRunVerdict(latest)}
                         </small>
                       </span>
-                      <span className="run-sequence" aria-label={`Recent results for ${subgroupName}`}>
-                        {ordered.slice(0, 6).reverse().map((run) => (
+                      <span
+                        className="run-sequence"
+                        aria-label={`Runs for ${subgroupName}, sorted ${sortOrder}`}
+                      >
+                        {displayedRuns.map((run) => (
                           <button
                             type="button"
                             key={run.runId}
@@ -1005,14 +1020,7 @@ export default function Home() {
   const [agentName, setAgentName] = useState("all");
   const [trigger, setTrigger] = useState("all");
   const [actor, setActor] = useState("all");
-  const [sortOrder, setSortOrder] = useState<
-    | "newest"
-    | "oldest"
-    | "pass-high"
-    | "pass-low"
-    | "score-high"
-    | "score-low"
-  >("newest");
+  const [sortOrder, setSortOrder] = useState<RunSortOrder>("newest");
   const [startedWithin, setStartedWithin] = useState<
     "all" | "24h" | "7d" | "30d"
   >("all");
@@ -2524,6 +2532,7 @@ export default function Home() {
                         category={category}
                         skill={skillFilter}
                         targetEnvironment={targetEnvironment}
+                        sortOrder={sortOrder}
                         onOpen={openRun}
                       />
                       <div className="grouped-results-footer">
