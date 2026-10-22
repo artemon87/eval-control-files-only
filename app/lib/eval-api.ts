@@ -165,7 +165,8 @@ export interface TrendQuery {
   caseSkill?: string;
   githubRepository?: string;
   gitRef?: string;
-  days?: number;
+  startedFrom?: string;
+  startedBefore?: string;
 }
 
 export interface ApiTrendPage {
@@ -399,6 +400,8 @@ export type RunListFilters = {
   targetEnvironment?: string;
   category?: string;
   agentName?: string;
+  startedFrom?: string;
+  startedBefore?: string;
 };
 
 export class EvalApi {
@@ -460,6 +463,12 @@ export class EvalApi {
       }
       if (filters.gitRef) params.set("git_ref", filters.gitRef);
       if (filters.gitSha) params.set("git_sha", filters.gitSha);
+      if (filters.startedFrom) {
+        params.set("started_from", filters.startedFrom);
+      }
+      if (filters.startedBefore) {
+        params.set("started_before", filters.startedBefore);
+      }
 
       if (evalType === "unit") {
         if (filters.skill) params.set("skill", filters.skill);
@@ -527,7 +536,8 @@ export class EvalApi {
       params.set("github_repository", query.githubRepository);
     }
     if (query.gitRef) params.set("git_ref", query.gitRef);
-    if (query.days) params.set("days", String(query.days));
+    if (query.startedFrom) params.set("started_from", query.startedFrom);
+    if (query.startedBefore) params.set("started_before", query.startedBefore);
     let path: string;
     if (query.evalType === "e2e") {
       params.set("stage", query.stage);
