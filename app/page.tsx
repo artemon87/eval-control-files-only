@@ -4847,7 +4847,11 @@ function HistoryView({
                     <table className="unit-health-matrix">
                       <thead>
                         <tr>
-                          <th>Skill</th>
+                          <th>
+                            <span className="unit-health-skill-column-heading">
+                              Skill
+                            </span>
+                          </th>
                           {matrixTargets.map((targetId) => (
                             <th key={targetId}>
                               <button
@@ -4968,7 +4972,10 @@ function HistoryView({
                         }
                       >
                         <div className="unit-target-summary-title">
-                          <span className="target-dot" />
+                          <span
+                            className={`target-dot target-dot--${summary.latest.verdict}`}
+                            aria-label={`Latest verdict: ${summary.latest.verdict}`}
+                          />
                           <div>
                             <strong>{summary.targetId}</strong>
                             <small>
