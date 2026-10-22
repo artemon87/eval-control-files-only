@@ -53,6 +53,14 @@ test("runs separate evaluation scope filters from the grouping lens", () => {
   assert.match(pageSource, /Attention/);
   assert.match(pageSource, /Flat table/);
   assert.match(pageSource, /function RunGroups/);
+  assert.match(pageSource, /sortOrder: RunSortOrder/);
+  assert.match(pageSource, /sortOrder=\{sortOrder\}/);
+  assert.match(pageSource, /const displayedRuns = subgroupRuns\.slice\(0, 6\)/);
+  assert.match(pageSource, /\{displayedRuns\.map\(\(run\) => \(/);
+  assert.match(
+    pageSource,
+    /const latest = \[\.\.\.subgroupRuns\]\.sort\(\(left, right\) =>/,
+  );
   assert.match(pageSource, /className="run-group-list"/);
   assert.match(cssSource, /\.run-group-metrics/);
   assert.match(cssSource, /\.run-sequence-mark--failed/);
