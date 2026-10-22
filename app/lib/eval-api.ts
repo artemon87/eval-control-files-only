@@ -214,6 +214,15 @@ function summaryMeanScore(value: ApiSummary): number | undefined {
   return metricMeans.reduce((total, score) => total + score, 0) / metricMeans.length;
 }
 
+function summaryMetricMeans(value: ApiSummary): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(value.mean_scores ?? {}).flatMap(([metric, score]) => {
+      const parsed = numberOrUndefined(score);
+      return parsed === undefined ? [] : [[metric, parsed]];
+    }),
+  );
+}
+
 function normalizeVerdict(value: string | null | undefined): Verdict {
   switch (value?.trim().toLowerCase()) {
     case "pass":
@@ -254,6 +263,7 @@ function summary(value: ApiSummary) {
     passRatePct: value.pass_rate_pct,
     meanScore: meanScore ?? 0,
     meanScoreRecorded: meanScore !== undefined,
+    metricMeans: summaryMetricMeans(value),
     p95ResponseTimeMs: 0,
     byTier: value.by_tier ?? null,
   };

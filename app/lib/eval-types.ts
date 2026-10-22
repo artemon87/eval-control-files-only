@@ -26,6 +26,8 @@ export interface RunSummary {
   meanScore: number;
   /** True when the API supplied an overall or per-metric mean score. */
   meanScoreRecorded?: boolean;
+  /** Named per-metric means supplied by the run summary. */
+  metricMeans?: Record<string, number>;
   p95ResponseTimeMs: number;
   byTier?: Record<string, unknown> | null;
 }

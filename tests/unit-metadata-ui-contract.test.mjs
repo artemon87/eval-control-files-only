@@ -176,3 +176,20 @@ test("quality filters distinguish missing data from real zero scores", () => {
   assert.match(pageSource, /run\.summary\.meanScoreRecorded/);
   assert.match(cssSource, /\.advanced-filters select:disabled/);
 });
+
+test("grouped runs expose selectable lazy metric matrices without stealing run clicks", () => {
+  assert.match(pageSource, /function MetricMultiSelect/);
+  assert.match(pageSource, /type="checkbox"/);
+  assert.match(pageSource, /Select all/);
+  assert.match(pageSource, /Clear/);
+  assert.match(pageSource, /Metrics · \{selectedMetrics\.length\}/);
+  assert.match(pageSource, /disabled=\{!selectedMetrics\.length\}/);
+  assert.match(pageSource, /const matrixRuns = \[\.\.\.subgroupRuns\]/);
+  assert.match(pageSource, /\.slice\(0, 6\)/);
+  assert.match(pageSource, /await api\.listCases\(run\)/);
+  assert.match(pageSource, /onClick=\{\(\) => onOpen\(run\)\}/);
+  assert.match(pageSource, /runMetricSummary/);
+  assert.match(apiSource, /metricMeans: summaryMetricMeans\(value\)/);
+  assert.match(cssSource, /\.run-metric-cell--passed/);
+  assert.match(cssSource, /\.run-metric-cell--failed/);
+});

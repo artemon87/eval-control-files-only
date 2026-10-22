@@ -708,6 +708,103 @@ function runRequiresAttention(run: EvalRun) {
   return !["passed", "xpassed"].includes(outcome);
 }
 
+function metricLabel(metric: string) {
+  return metric
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function runMetricSummary(
+  run: EvalRun,
+  runCases: EvalCase[] | undefined,
+  metric: string,
+) {
+  const scores = (runCases ?? []).flatMap((item) => {
+    const score = item.scores?.[metric];
+    return typeof score === "number" && Number.isFinite(score) ? [score] : [];
+  });
+  const thresholds = (runCases ?? []).flatMap((item) => {
+    const threshold = item.thresholds?.[metric];
+    return typeof threshold === "number" && Number.isFinite(threshold)
+      ? [threshold]
+      : [];
+  });
+  const fallback = run.summary.metricMeans?.[metric];
+  const score =
+    fallback ??
+    (scores.length
+      ? scores.reduce((sum, value) => sum + value, 0) / scores.length
+      : undefined);
+  const threshold = thresholds.length
+    ? thresholds.reduce((sum, value) => sum + value, 0) / thresholds.length
+    : undefined;
+  return { score, threshold };
+}
+
+function MetricMultiSelect({
+  options,
+  selected,
+  onChange,
+}: {
+  options: string[];
+  selected: string[];
+  onChange: (metrics: string[]) => void;
+}) {
+  const toggleMetric = (metric: string) =>
+    onChange(
+      selected.includes(metric)
+        ? selected.filter((item) => item !== metric)
+        : [...selected, metric],
+    );
+
+  return (
+    <section className="run-metric-picker" aria-label="Metric display settings">
+      <div>
+        <span>Metric lens</span>
+        <strong>Add metric lanes to grouped runs</strong>
+      </div>
+      <details className="metric-multiselect">
+        <summary aria-label="Choose metrics">
+          <span>
+            {selected.length
+              ? `${selected.length} metric${selected.length === 1 ? "" : "s"} selected`
+              : "Choose metrics"}
+          </span>
+          <span aria-hidden="true">⌄</span>
+        </summary>
+        <div className="metric-multiselect-menu">
+          <div className="metric-multiselect-actions">
+            <button type="button" onClick={() => onChange(options)}>
+              Select all
+            </button>
+            <button type="button" onClick={() => onChange([])}>
+              Clear
+            </button>
+          </div>
+          {options.map((metric) => (
+            <label key={metric}>
+              <input
+                type="checkbox"
+                checked={selected.includes(metric)}
+                onChange={() => toggleMetric(metric)}
+              />
+              <span>{metricLabel(metric)}</span>
+            </label>
+          ))}
+          {options.length === 0 && (
+            <p>No named metrics are recorded in this scope.</p>
+          )}
+        </div>
+      </details>
+      <p>
+        {selected.length
+          ? selected.map(metricLabel).join(" · ")
+          : "Select one or more metrics, then expand a grouped row."}
+      </p>
+    </section>
+  );
+}
+
 function RunGroups({
   runs,
   lens,
@@ -715,6 +812,8 @@ function RunGroups({
   skill,
   targetEnvironment,
   sortOrder,
+  api,
+  selectedMetrics,
   onOpen,
 }: {
   runs: EvalRun[];
@@ -723,8 +822,70 @@ function RunGroups({
   skill: string;
   targetEnvironment: string;
   sortOrder: RunSortOrder;
+  api: EvalApi | null;
+  selectedMetrics: string[];
   onOpen: (run: EvalRun) => void;
 }) {
+  const [expandedMetrics, setExpandedMetrics] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [metricCasesByRun, setMetricCasesByRun] = useState<
+    Record<string, EvalCase[]>
+  >({});
+  const [loadingMetricRows, setLoadingMetricRows] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [metricRowErrors, setMetricRowErrors] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  const toggleMetricRow = async (rowKey: string, rowRuns: EvalRun[]) => {
+    if (!selectedMetrics.length) return;
+    if (expandedMetrics.has(rowKey)) {
+      setExpandedMetrics((current) => {
+        const next = new Set(current);
+        next.delete(rowKey);
+        return next;
+      });
+      return;
+    }
+    setExpandedMetrics((current) => new Set(current).add(rowKey));
+    if (!api) return;
+    const runsToLoad = [...rowRuns]
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+      .slice(0, 6)
+      .filter(
+        (run) => run.evalType === "unit" && !metricCasesByRun[run.runId],
+      );
+    if (!runsToLoad.length) return;
+    setLoadingMetricRows((current) => new Set(current).add(rowKey));
+    setMetricRowErrors((current) => {
+      const next = new Set(current);
+      next.delete(rowKey);
+      return next;
+    });
+    try {
+      const results = await Promise.allSettled(
+        runsToLoad.map(async (run) => [run.runId, await api.listCases(run)] as const),
+      );
+      const loaded = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      setMetricCasesByRun((current) => ({
+        ...current,
+        ...Object.fromEntries(loaded),
+      }));
+      if (results.some((result) => result.status === "rejected")) {
+        setMetricRowErrors((current) => new Set(current).add(rowKey));
+      }
+    } finally {
+      setLoadingMetricRows((current) => {
+        const next = new Set(current);
+        next.delete(rowKey);
+        return next;
+      });
+    }
+  };
   const resolvedLens: ResolvedRunGrouping =
     lens !== "adaptive" && lens !== "table"
       ? lens
@@ -922,48 +1083,144 @@ function RunGroups({
                   const latest = [...subgroupRuns].sort((left, right) =>
                     right.startedAt.localeCompare(left.startedAt),
                   )[0];
+                  const rowKey = `${groupName}::${subgroupName}`;
+                  const metricsOpen = expandedMetrics.has(rowKey);
+                  const matrixRuns = [...subgroupRuns]
+                    .sort((left, right) =>
+                      right.startedAt.localeCompare(left.startedAt),
+                    )
+                    .slice(0, 6)
+                    .reverse();
                   // filteredRuns already carries the selected sort order. The
                   // grouping reductions preserve it, so do not replace it with
                   // a chronological timeline here.
                   const displayedRuns = subgroupRuns.slice(0, 6);
                   return (
-                    <div className="run-subgroup" key={subgroupName}>
-                      <span className="run-subgroup-name">
-                        <strong>{subgroupName}</strong>
-                        <small>
-                          {subgroupRuns.length} run{subgroupRuns.length === 1 ? "" : "s"} · latest {effectiveRunVerdict(latest)}
-                        </small>
-                      </span>
-                      <span
-                        className="run-sequence"
-                        aria-label={`Runs for ${subgroupName}, sorted ${sortOrder}`}
-                      >
-                        {displayedRuns.map((run) => (
+                    <div className="run-subgroup-block" key={subgroupName}>
+                      <div className="run-subgroup">
+                        <span className="run-subgroup-name">
+                          <strong>{subgroupName}</strong>
+                          <small>
+                            {subgroupRuns.length} run{subgroupRuns.length === 1 ? "" : "s"} · latest {effectiveRunVerdict(latest)}
+                          </small>
+                        </span>
+                        <span
+                          className="run-sequence"
+                          aria-label={`Runs for ${subgroupName}, sorted ${sortOrder}`}
+                        >
+                          {displayedRuns.map((run) => (
+                            <button
+                              type="button"
+                              key={run.runId}
+                              className={`run-sequence-mark run-sequence-mark--${effectiveRunVerdict(run)}`}
+                              aria-label={`Open ${run.runId}, ${effectiveRunVerdict(run)}, ${run.summary.passRatePct.toFixed(1)} percent`}
+                              title={`${run.runId} · ${run.summary.passRatePct.toFixed(1)}%`}
+                              onClick={() => onOpen(run)}
+                            />
+                          ))}
+                        </span>
+                        <span className="run-subgroup-score">
+                          <strong>{latest.summary.passRatePct.toFixed(1)}%</strong>
+                          <small>
+                            {latest.summary.meanScoreRecorded
+                              ? `mean ${latest.summary.meanScore.toFixed(2)}`
+                              : "mean not recorded"}
+                          </small>
+                        </span>
+                        <span className="run-subgroup-actions">
                           <button
                             type="button"
-                            key={run.runId}
-                            className={`run-sequence-mark run-sequence-mark--${effectiveRunVerdict(run)}`}
-                            aria-label={`Open ${run.runId}, ${effectiveRunVerdict(run)}, ${run.summary.passRatePct.toFixed(1)} percent`}
-                            title={`${run.runId} · ${run.summary.passRatePct.toFixed(1)}%`}
-                            onClick={() => onOpen(run)}
-                          />
-                        ))}
-                      </span>
-                      <span className="run-subgroup-score">
-                        <strong>{latest.summary.passRatePct.toFixed(1)}%</strong>
-                        <small>
-                          {latest.summary.meanScoreRecorded
-                            ? `mean ${latest.summary.meanScore.toFixed(2)}`
-                            : "mean not recorded"}
-                        </small>
-                      </span>
-                      <button
-                        type="button"
-                        className="run-subgroup-open"
-                        onClick={() => onOpen(latest)}
-                      >
-                        Open latest →
-                      </button>
+                            className="run-metrics-trigger"
+                            disabled={!selectedMetrics.length}
+                            aria-expanded={metricsOpen}
+                            onClick={() => void toggleMetricRow(rowKey, subgroupRuns)}
+                            title={
+                              selectedMetrics.length
+                                ? "Show selected metrics for the latest six runs"
+                                : "Choose metrics above to enable this view"
+                            }
+                          >
+                            <span aria-hidden="true">▦</span>
+                            Metrics · {selectedMetrics.length}
+                            <span
+                              className={`run-metrics-chevron${metricsOpen ? " open" : ""}`}
+                              aria-hidden="true"
+                            >
+                              ›
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            className="run-subgroup-open"
+                            onClick={() => onOpen(latest)}
+                          >
+                            Open latest →
+                          </button>
+                        </span>
+                      </div>
+                      {metricsOpen && (
+                        <div className="run-metric-matrix" aria-label={`Selected metrics for ${subgroupName}`}>
+                          <div className="run-metric-matrix-corner">
+                            <strong>Latest {matrixRuns.length} runs</strong>
+                            <small>Oldest → newest</small>
+                          </div>
+                          {matrixRuns.map((run) => (
+                            <button
+                              type="button"
+                              className="run-metric-column-heading"
+                              key={run.runId}
+                              onClick={() => onOpen(run)}
+                              title={`Open ${run.runId}`}
+                            >
+                              <strong>{new Date(run.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</strong>
+                              <small>{run.runId.slice(-6)}</small>
+                            </button>
+                          ))}
+                          {selectedMetrics.map((metric) => (
+                            <div className="run-metric-row" key={metric}>
+                              <span className="run-metric-name" title={metric}>
+                                {metricLabel(metric)}
+                              </span>
+                              {matrixRuns.map((run) => {
+                                const summary = runMetricSummary(
+                                  run,
+                                  metricCasesByRun[run.runId],
+                                  metric,
+                                );
+                                const state =
+                                  summary.score === undefined
+                                    ? "missing"
+                                    : summary.threshold === undefined
+                                      ? "neutral"
+                                      : summary.score >= summary.threshold
+                                        ? "passed"
+                                        : "failed";
+                                return (
+                                  <button
+                                    type="button"
+                                    className={`run-metric-cell run-metric-cell--${state}`}
+                                    key={run.runId}
+                                    onClick={() => onOpen(run)}
+                                    title={`${metricLabel(metric)} · ${run.runId}`}
+                                  >
+                                    {summary.score === undefined
+                                      ? "—"
+                                      : summary.score.toFixed(2)}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ))}
+                          {loadingMetricRows.has(rowKey) && (
+                            <p className="run-metric-status">Loading case metrics…</p>
+                          )}
+                          {metricRowErrors.has(rowKey) && (
+                            <p className="run-metric-status run-metric-status--error">
+                              Some case metrics could not be loaded. Run-summary values are shown where available.
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1029,6 +1286,7 @@ export default function Home() {
   const [minimumMeanScore, setMinimumMeanScore] = useState("");
   const [runGroupingLens, setRunGroupingLens] =
     useState<RunGroupingLens>("adaptive");
+  const [selectedRunMetrics, setSelectedRunMetrics] = useState<string[]>([]);
   const [selectedCase, setSelectedCase] = useState<EvalCase | null>(null);
   const [selectedTrend, setSelectedTrend] =
     useState<DrilldownTrendRequest | null>(null);
@@ -1503,6 +1761,21 @@ export default function Home() {
   const visibleEnd = Math.min(
     (activeRunPage + 1) * RUNS_PAGE_SIZE,
     filteredRuns.length,
+  );
+  const availableRunMetrics = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          filteredRuns.flatMap((run) => [
+            ...(run.unitConfig?.metrics ?? []),
+            ...Object.keys(run.summary.metricMeans ?? {}),
+          ]),
+        ),
+      ).sort((left, right) => metricLabel(left).localeCompare(metricLabel(right))),
+    [filteredRuns],
+  );
+  const visibleSelectedRunMetrics = selectedRunMetrics.filter((metric) =>
+    availableRunMetrics.includes(metric),
   );
 
   const overview = useMemo(() => {
@@ -2526,6 +2799,11 @@ export default function Home() {
                     </>
                   ) : (
                     <>
+                      <MetricMultiSelect
+                        options={availableRunMetrics}
+                        selected={visibleSelectedRunMetrics}
+                        onChange={setSelectedRunMetrics}
+                      />
                       <RunGroups
                         runs={filteredRuns}
                         lens={runGroupingLens}
@@ -2533,6 +2811,8 @@ export default function Home() {
                         skill={skillFilter}
                         targetEnvironment={targetEnvironment}
                         sortOrder={sortOrder}
+                        api={api}
+                        selectedMetrics={visibleSelectedRunMetrics}
                         onOpen={openRun}
                       />
                       <div className="grouped-results-footer">
