@@ -758,49 +758,60 @@ function MetricMultiSelect({
     );
 
   return (
-    <section className="run-metric-picker" aria-label="Metric display settings">
-      <div>
-        <span>Metric lens</span>
-        <strong>Add metric lanes to grouped runs</strong>
-      </div>
-      <details className="metric-multiselect">
-        <summary aria-label="Choose metrics">
-          <span>
-            {selected.length
-              ? `${selected.length} metric${selected.length === 1 ? "" : "s"} selected`
-              : "Choose metrics"}
-          </span>
-          <span aria-hidden="true">⌄</span>
-        </summary>
-        <div className="metric-multiselect-menu">
-          <div className="metric-multiselect-actions">
-            <button type="button" onClick={() => onChange(options)}>
-              Select all
-            </button>
-            <button type="button" onClick={() => onChange([])}>
-              Clear
-            </button>
+    <section className="run-visible-metrics" aria-label="Visible metrics">
+      <strong>Visible metrics</strong>
+      <div className="run-visible-metric-controls">
+        {selected.map((metric) => (
+          <button
+            type="button"
+            className="run-visible-metric-chip"
+            key={metric}
+            onClick={() => toggleMetric(metric)}
+            title={`Remove ${metricLabel(metric)}`}
+          >
+            <span aria-hidden="true">✓</span>
+            {metricLabel(metric)}
+          </button>
+        ))}
+        <details className="metric-multiselect">
+          <summary aria-label="Add visible metrics">
+            <span aria-hidden="true">＋</span>
+            Add metric
+          </summary>
+          <div className="metric-multiselect-menu">
+            <div className="metric-multiselect-heading">
+              <strong>Available metrics</strong>
+              <span>{options.length} recorded in this scope</span>
+            </div>
+            <div className="metric-multiselect-actions">
+              <button type="button" onClick={() => onChange(options)}>
+                Select all
+              </button>
+              <button type="button" onClick={() => onChange([])}>
+                Clear
+              </button>
+            </div>
+            {options.map((metric) => (
+              <label key={metric}>
+                <input
+                  type="checkbox"
+                  checked={selected.includes(metric)}
+                  onChange={() => toggleMetric(metric)}
+                />
+                <span>{metricLabel(metric)}</span>
+              </label>
+            ))}
+            {options.length === 0 && (
+              <p>No case metrics were returned for this scope.</p>
+            )}
           </div>
-          {options.map((metric) => (
-            <label key={metric}>
-              <input
-                type="checkbox"
-                checked={selected.includes(metric)}
-                onChange={() => toggleMetric(metric)}
-              />
-              <span>{metricLabel(metric)}</span>
-            </label>
-          ))}
-          {options.length === 0 && (
-            <p>No named metrics are recorded in this scope.</p>
-          )}
-        </div>
-      </details>
-      <p>
-        {selected.length
-          ? selected.map(metricLabel).join(" · ")
-          : "Select one or more metrics, then expand a grouped row."}
-      </p>
+        </details>
+        {selected.length === 0 && (
+          <span className="run-visible-metrics-hint">
+            Add metrics to enable row-level metric history.
+          </span>
+        )}
+      </div>
     </section>
   );
 }
@@ -2725,6 +2736,13 @@ export default function Home() {
                       )}
                     </div>
                   )}
+                  {runGroupingLens !== "table" && (
+                    <MetricMultiSelect
+                      options={availableRunMetrics}
+                      selected={visibleSelectedRunMetrics}
+                      onChange={setSelectedRunMetrics}
+                    />
+                  )}
                   <section className="run-grouping-lens" aria-label="Organize matching runs">
                     <div>
                       <span>Grouping lens</span>
@@ -2799,11 +2817,6 @@ export default function Home() {
                     </>
                   ) : (
                     <>
-                      <MetricMultiSelect
-                        options={availableRunMetrics}
-                        selected={visibleSelectedRunMetrics}
-                        onChange={setSelectedRunMetrics}
-                      />
                       <RunGroups
                         runs={filteredRuns}
                         lens={runGroupingLens}

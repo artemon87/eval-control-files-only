@@ -179,6 +179,9 @@ test("quality filters distinguish missing data from real zero scores", () => {
 
 test("grouped runs expose selectable lazy metric matrices without stealing run clicks", () => {
   assert.match(pageSource, /function MetricMultiSelect/);
+  assert.match(pageSource, /Visible metrics/);
+  assert.match(pageSource, /Add metric/);
+  assert.match(pageSource, /run-visible-metric-chip/);
   assert.match(pageSource, /type="checkbox"/);
   assert.match(pageSource, /Select all/);
   assert.match(pageSource, /Clear/);
@@ -190,6 +193,8 @@ test("grouped runs expose selectable lazy metric matrices without stealing run c
   assert.match(pageSource, /onClick=\{\(\) => onOpen\(run\)\}/);
   assert.match(pageSource, /runMetricSummary/);
   assert.match(apiSource, /metricMeans: summaryMetricMeans\(value\)/);
+  assert.match(apiSource, /mean_scores\?:/);
+  assert.match(cssSource, /\.run-visible-metrics/);
   assert.match(cssSource, /\.run-metric-cell--passed/);
   assert.match(cssSource, /\.run-metric-cell--failed/);
 });
