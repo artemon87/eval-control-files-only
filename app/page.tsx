@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { SidebarFooter } from "./components/sidebar-footer";
 import {
   evaluationNavItems,
@@ -68,6 +69,8 @@ type E2EHistoryPoint = {
 };
 
 type DataState = "connecting" | "live" | "unconfigured" | "error";
+
+const RUN_HISTORY_LIMIT = 10;
 
 const unitSkills = [
   { id: "feedback-skill", label: "Feedback", tools: ["submit_feedback"] },
@@ -907,7 +910,7 @@ function RunGroups({
     setExpandedMetrics((current) => new Set(current).add(rowKey));
     if (!api) return;
     const runsToLoad = rowRuns
-      .slice(0, 6)
+      .slice(0, RUN_HISTORY_LIMIT)
       .filter(
         (run) => run.evalType === "unit" && !metricCasesByRun[run.runId],
       );
@@ -1142,7 +1145,7 @@ function RunGroups({
                   // filteredRuns already carries the selected sort order. The
                   // grouping reductions preserve it, so do not replace it with
                   // a chronological timeline here.
-                  const displayedRuns = subgroupRuns.slice(0, 6);
+                  const displayedRuns = subgroupRuns.slice(0, RUN_HISTORY_LIMIT);
                   // The metric matrix must use the exact same run selection and
                   // order as the markers above it. Sorting again here makes the
                   // two views disagree and ignores "Sort within groups".
@@ -1151,13 +1154,16 @@ function RunGroups({
                     <div
                       className={`run-subgroup-block${metricsOpen ? " run-subgroup-block--metrics-open" : ""}`}
                       key={subgroupName}
+                      style={{
+                        "--visible-run-count": Math.max(displayedRuns.length, 1),
+                      } as CSSProperties}
                     >
                       <div className="run-subgroup">
                         <span className="run-subgroup-name">
                           <strong>{subgroupName}</strong>
                           <small>
-                            {subgroupRuns.length > 6
-                              ? `Latest 6 of ${subgroupRuns.length} runs`
+                            {subgroupRuns.length > RUN_HISTORY_LIMIT
+                              ? `Latest ${RUN_HISTORY_LIMIT} of ${subgroupRuns.length} runs`
                               : `${subgroupRuns.length} run${subgroupRuns.length === 1 ? "" : "s"}`}
                           </small>
                         </span>
@@ -1186,14 +1192,19 @@ function RunGroups({
                             className="run-metrics-trigger"
                             disabled={!selectedMetrics.length}
                             aria-expanded={metricsOpen}
+                            aria-label={`${metricsOpen ? "Hide" : "Show"} ${selectedMetrics.length} selected metric${selectedMetrics.length === 1 ? "" : "s"} for ${subgroupName}`}
                             onClick={() => void toggleMetricRow(rowKey, displayedRuns)}
                             title={
                               selectedMetrics.length
-                                ? "Show selected metrics for the latest six runs"
+                                ? `Show ${selectedMetrics.length} selected metric${selectedMetrics.length === 1 ? "" : "s"} for up to ${RUN_HISTORY_LIMIT} runs`
                                 : "Choose metrics above to enable this view"
                             }
                           >
-                            <span aria-hidden="true">▦</span>
+                            <span className="run-metrics-icon" aria-hidden="true">▦</span>
+                            <span className="run-metrics-label">Metrics</span>
+                            <span className="run-metrics-count" aria-hidden="true">
+                              {selectedMetrics.length}
+                            </span>
                             <span
                               className={`run-metrics-chevron${metricsOpen ? " open" : ""}`}
                               aria-hidden="true"
