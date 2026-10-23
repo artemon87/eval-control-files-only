@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SidebarFooter } from "./components/sidebar-footer";
 import {
   evaluationNavItems,
@@ -750,12 +750,33 @@ function MetricMultiSelect({
   selected: string[];
   onChange: (metrics: string[]) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const toggleMetric = (metric: string) =>
     onChange(
       selected.includes(metric)
         ? selected.filter((item) => item !== metric)
         : [...selected, metric],
     );
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
 
   return (
     <section className="run-visible-metrics" aria-label="Visible metrics">
@@ -773,39 +794,62 @@ function MetricMultiSelect({
             {metricLabel(metric)}
           </button>
         ))}
-        <details className="metric-multiselect">
-          <summary aria-label="Add visible metrics">
+        <div
+          className={`metric-multiselect${open ? " open" : ""}`}
+          ref={pickerRef}
+        >
+          <button
+            type="button"
+            className="metric-multiselect-trigger"
+            aria-label="Add visible metrics"
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            onClick={() => setOpen((current) => !current)}
+            ref={triggerRef}
+          >
             <span aria-hidden="true">＋</span>
             Add metric
-          </summary>
-          <div className="metric-multiselect-menu">
-            <div className="metric-multiselect-heading">
-              <strong>Available metrics</strong>
-              <span>{options.length} recorded in this scope</span>
+          </button>
+          {open && (
+            <div
+              className="metric-multiselect-menu"
+              role="dialog"
+              aria-label="Choose visible metrics"
+            >
+              <div className="metric-multiselect-heading">
+                <strong>Available metrics</strong>
+                <span>{options.length} recorded in this scope</span>
+              </div>
+              <div className="metric-multiselect-actions">
+                <button type="button" onClick={() => onChange(options)}>
+                  Select all
+                </button>
+                <button type="button" onClick={() => onChange([])}>
+                  Clear
+                </button>
+              </div>
+              {options.map((metric) => (
+                <label key={metric}>
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(metric)}
+                    onChange={() => toggleMetric(metric)}
+                  />
+                  <span>{metricLabel(metric)}</span>
+                </label>
+              ))}
+              {options.length === 0 && (
+                <p>No case metrics were returned for this scope.</p>
+              )}
+              <div className="metric-multiselect-footer">
+                <span>{selected.length} selected</span>
+                <button type="button" onClick={() => setOpen(false)}>
+                  Done
+                </button>
+              </div>
             </div>
-            <div className="metric-multiselect-actions">
-              <button type="button" onClick={() => onChange(options)}>
-                Select all
-              </button>
-              <button type="button" onClick={() => onChange([])}>
-                Clear
-              </button>
-            </div>
-            {options.map((metric) => (
-              <label key={metric}>
-                <input
-                  type="checkbox"
-                  checked={selected.includes(metric)}
-                  onChange={() => toggleMetric(metric)}
-                />
-                <span>{metricLabel(metric)}</span>
-              </label>
-            ))}
-            {options.length === 0 && (
-              <p>No case metrics were returned for this scope.</p>
-            )}
-          </div>
-        </details>
+          )}
+        </div>
         {selected.length === 0 && (
           <span className="run-visible-metrics-hint">
             Add metrics to enable row-level metric history.
@@ -1107,12 +1151,17 @@ function RunGroups({
                   // a chronological timeline here.
                   const displayedRuns = subgroupRuns.slice(0, 6);
                   return (
-                    <div className="run-subgroup-block" key={subgroupName}>
+                    <div
+                      className={`run-subgroup-block${metricsOpen ? " run-subgroup-block--metrics-open" : ""}`}
+                      key={subgroupName}
+                    >
                       <div className="run-subgroup">
                         <span className="run-subgroup-name">
                           <strong>{subgroupName}</strong>
                           <small>
-                            {subgroupRuns.length} run{subgroupRuns.length === 1 ? "" : "s"} · latest {effectiveRunVerdict(latest)}
+                            {subgroupRuns.length > 6
+                              ? `Latest 6 of ${subgroupRuns.length} runs`
+                              : `${subgroupRuns.length} run${subgroupRuns.length === 1 ? "" : "s"}`}
                           </small>
                         </span>
                         <span
@@ -1131,12 +1180,8 @@ function RunGroups({
                           ))}
                         </span>
                         <span className="run-subgroup-score">
-                          <strong>{latest.summary.passRatePct.toFixed(1)}%</strong>
-                          <small>
-                            {latest.summary.meanScoreRecorded
-                              ? `mean ${latest.summary.meanScore.toFixed(2)}`
-                              : "mean not recorded"}
-                          </small>
+                          <small>Latest</small>
+                          <strong>{metricLabel(effectiveRunVerdict(latest))}</strong>
                         </span>
                         <span className="run-subgroup-actions">
                           <button
@@ -1152,7 +1197,6 @@ function RunGroups({
                             }
                           >
                             <span aria-hidden="true">▦</span>
-                            Metrics · {selectedMetrics.length}
                             <span
                               className={`run-metrics-chevron${metricsOpen ? " open" : ""}`}
                               aria-hidden="true"
@@ -1160,20 +1204,18 @@ function RunGroups({
                               ›
                             </span>
                           </button>
-                          <button
-                            type="button"
-                            className="run-subgroup-open"
-                            onClick={() => onOpen(latest)}
-                          >
-                            Open latest →
-                          </button>
                         </span>
                       </div>
                       {metricsOpen && (
-                        <div className="run-metric-matrix" aria-label={`Selected metrics for ${subgroupName}`}>
+                        <div
+                          className="run-metric-matrix"
+                          aria-label={`Selected metrics for ${subgroupName}`}
+                          style={{
+                            gridTemplateColumns: `minmax(170px, 1.25fr) repeat(${Math.max(matrixRuns.length, 1)}, minmax(86px, 1fr))`,
+                          }}
+                        >
                           <div className="run-metric-matrix-corner">
-                            <strong>Latest {matrixRuns.length} runs</strong>
-                            <small>Oldest → newest</small>
+                            <strong>Metric / threshold</strong>
                           </div>
                           {matrixRuns.map((run) => (
                             <button
@@ -1184,44 +1226,60 @@ function RunGroups({
                               title={`Open ${run.runId}`}
                             >
                               <strong>{new Date(run.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</strong>
-                              <small>{run.runId.slice(-6)}</small>
                             </button>
                           ))}
-                          {selectedMetrics.map((metric) => (
-                            <div className="run-metric-row" key={metric}>
-                              <span className="run-metric-name" title={metric}>
-                                {metricLabel(metric)}
-                              </span>
-                              {matrixRuns.map((run) => {
-                                const summary = runMetricSummary(
-                                  run,
-                                  metricCasesByRun[run.runId],
-                                  metric,
-                                );
-                                const state =
-                                  summary.score === undefined
-                                    ? "missing"
-                                    : summary.threshold === undefined
-                                      ? "neutral"
-                                      : summary.score >= summary.threshold
-                                        ? "passed"
-                                        : "failed";
-                                return (
-                                  <button
-                                    type="button"
-                                    className={`run-metric-cell run-metric-cell--${state}`}
-                                    key={run.runId}
-                                    onClick={() => onOpen(run)}
-                                    title={`${metricLabel(metric)} · ${run.runId}`}
-                                  >
-                                    {summary.score === undefined
-                                      ? "—"
-                                      : summary.score.toFixed(2)}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          ))}
+                          {selectedMetrics.map((metric) => {
+                            const metricSummaries = matrixRuns.map((run) =>
+                              runMetricSummary(run, metricCasesByRun[run.runId], metric),
+                            );
+                            const threshold = [...metricSummaries]
+                              .reverse()
+                              .find((summary) => summary.threshold !== undefined)?.threshold;
+                            return (
+                              <div
+                                className="run-metric-row"
+                                key={metric}
+                                style={{
+                                  gridTemplateColumns: `minmax(170px, 1.25fr) repeat(${Math.max(matrixRuns.length, 1)}, minmax(86px, 1fr))`,
+                                }}
+                              >
+                                <span className="run-metric-name" title={metric}>
+                                  <strong>{metricLabel(metric)}</strong>
+                                  {threshold !== undefined && (
+                                    <small>≥ {threshold.toFixed(1)}</small>
+                                  )}
+                                </span>
+                                {matrixRuns.map((run) => {
+                                  const summary = runMetricSummary(
+                                    run,
+                                    metricCasesByRun[run.runId],
+                                    metric,
+                                  );
+                                  const state =
+                                    summary.score === undefined
+                                      ? "missing"
+                                      : summary.threshold === undefined
+                                        ? "neutral"
+                                        : summary.score >= summary.threshold
+                                          ? "passed"
+                                          : "failed";
+                                  return (
+                                    <button
+                                      type="button"
+                                      className={`run-metric-cell run-metric-cell--${state}${run.runId === matrixRuns.at(-1)?.runId ? " run-metric-cell--latest" : ""}`}
+                                      key={run.runId}
+                                      onClick={() => onOpen(run)}
+                                      title={`${metricLabel(metric)} · ${run.runId}`}
+                                    >
+                                      {summary.score === undefined
+                                        ? "—"
+                                        : summary.score.toFixed(2)}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
                           {loadingMetricRows.has(rowKey) && (
                             <p className="run-metric-status">Loading case metrics…</p>
                           )}
