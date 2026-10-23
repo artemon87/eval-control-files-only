@@ -61,6 +61,7 @@ export interface UnitRunConfig {
   evaluationLayer?: string;
   nRuns?: number;
   category?: string;
+  stage?: string;
   targetEnvironment?: string;
   agentName?: string;
 }

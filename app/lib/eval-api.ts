@@ -63,6 +63,7 @@ interface UnitApiRun extends BaseApiRun {
     evaluation_layer?: string | null;
     n_runs?: number | null;
     category?: string | null;
+    stage?: string | null;
     target_environment?: string | null;
     agent_name?: string | null;
   };
@@ -287,14 +288,21 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
   const skill = run.skill;
   const environment = run.environment?.trim() || "unknown";
   const category = run.unit_config.category?.trim() || undefined;
-  const targetEnvironment =
+  const configuredStage = run.unit_config.stage?.trim() || undefined;
+  const recordedTargetEnvironment =
     run.unit_config.target_environment?.trim() || undefined;
+  // Historical runs stored the stage in target_environment. Preserve those
+  // records without presenting the legacy stage value as a real target.
+  const stage = configuredStage ?? recordedTargetEnvironment ?? environment;
+  const targetEnvironment = configuredStage
+    ? recordedTargetEnvironment
+    : undefined;
   const agentName = run.unit_config.agent_name?.trim() || undefined;
   return {
     runId: run.run_id,
     batchId: run.batch_id ?? undefined,
     evalType: "unit",
-    stage: environment,
+    stage,
     target: skill,
     environment,
     executionStatus: run.execution_status,
@@ -336,6 +344,7 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
       evaluationLayer: run.unit_config.evaluation_layer ?? undefined,
       nRuns: run.unit_config.n_runs ?? undefined,
       category,
+      stage,
       targetEnvironment,
       agentName,
     },
@@ -406,6 +415,7 @@ export type RunListFilters = {
   gitRef?: string;
   gitSha?: string;
   environment?: string;
+  stages?: string[];
   targetEnvironment?: string;
   category?: string;
   agentName?: string;
@@ -476,6 +486,7 @@ export class EvalApi {
         if (filters.environment) {
           params.set("environment", filters.environment);
         }
+        filters.stages?.forEach((stage) => params.append("stage", stage));
         if (filters.targetEnvironment) {
           params.set("target_environment", filters.targetEnvironment);
         }
