@@ -1147,6 +1147,12 @@ function RunGroups({
                   // order as the markers above it. Sorting again here makes the
                   // two views disagree and ignores "Sort within groups".
                   const matrixRuns = displayedRuns;
+                  // Keep every expanded matrix on the same six-run track as
+                  // the compact marker row. With fewer runs, the populated
+                  // columns stay left-aligned instead of stretching across
+                  // the available width.
+                  const matrixGridColumns =
+                    "minmax(170px, 1.25fr) repeat(6, minmax(86px, 1fr))";
                   return (
                     <div
                       className={`run-subgroup-block${metricsOpen ? " run-subgroup-block--metrics-open" : ""}`}
@@ -1208,7 +1214,7 @@ function RunGroups({
                           className="run-metric-matrix"
                           aria-label={`Selected metrics for ${subgroupName}`}
                           style={{
-                            gridTemplateColumns: `minmax(170px, 1.25fr) repeat(${Math.max(matrixRuns.length, 1)}, minmax(86px, 1fr))`,
+                            gridTemplateColumns: matrixGridColumns,
                           }}
                         >
                           <div className="run-metric-matrix-corner">
@@ -1237,7 +1243,7 @@ function RunGroups({
                                 className="run-metric-row"
                                 key={metric}
                                 style={{
-                                  gridTemplateColumns: `minmax(170px, 1.25fr) repeat(${Math.max(matrixRuns.length, 1)}, minmax(86px, 1fr))`,
+                                  gridTemplateColumns: matrixGridColumns,
                                 }}
                               >
                                 <span className="run-metric-name" title={metric}>
