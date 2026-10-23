@@ -198,10 +198,16 @@ test("grouped runs expose selectable lazy metric matrices without stealing run c
   assert.match(cssSource, /\.run-subgroup-score[\s\S]*grid-column: -2[\s\S]*justify-self: end/);
   assert.match(pageSource, /run\.runId\.slice\(-6\)/);
   assert.match(pageSource, /toggleMetricRow\(rowKey, displayedRuns\)/);
-  assert.match(pageSource, /const RUN_HISTORY_LIMIT = 10/);
+  assert.match(pageSource, /const RUN_HISTORY_LIMIT = 6/);
   assert.match(pageSource, /\.slice\(0, RUN_HISTORY_LIMIT\)/);
   assert.match(pageSource, /className="run-metrics-label">Metrics/);
   assert.match(pageSource, /className="run-metrics-count"/);
+  assert.match(pageSource, /className="run-view-all"/);
+  assert.match(pageSource, /onClick=\{\(\) => onViewAll\(rowScope\)\}/);
+  assert.match(pageSource, /setSkillFilter\(rowSkill\)/);
+  assert.match(pageSource, /setTargetEnvironment\(rowTarget \?\? "all"\)/);
+  assert.match(pageSource, /setRunGroupingLens\("table"\)/);
+  assert.match(cssSource, /\.run-view-all/);
   assert.match(pageSource, /Metric \/ threshold/);
   assert.match(pageSource, /run-metric-cell--latest/);
   assert.match(pageSource, /await api\.listCases\(run\)/);
