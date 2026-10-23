@@ -4674,6 +4674,14 @@ select:not([multiple]):disabled {
   font-size: 10px;
 }
 
+.run-subgroup-score {
+  grid-column: 8;
+  justify-self: end;
+  min-width: 64px;
+  padding-right: 8px;
+  text-align: left;
+}
+
 .run-subgroup-score strong {
   margin-top: 4px;
 }
