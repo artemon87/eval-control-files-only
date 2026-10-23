@@ -4637,10 +4637,10 @@ select:not([multiple]):disabled {
 
 .run-subgroup {
   display: grid;
-  grid-template-columns: minmax(190px, 1.25fr) repeat(6, minmax(38px, 1fr)) minmax(72px, 0.45fr) 38px;
+  grid-template-columns: minmax(190px, 240px) repeat(6, 72px) minmax(72px, 1fr) 38px;
   align-items: center;
-  gap: 7px;
-  min-width: 620px;
+  gap: 4px;
+  min-width: 860px;
   min-height: 57px;
   padding: 10px 14px 10px 34px;
   border-bottom: 1px solid #e7ecef;
@@ -4688,15 +4688,15 @@ select:not([multiple]):disabled {
 .run-sequence {
   display: grid;
   grid-column: 2 / span 6;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(6, 72px);
   align-items: center;
-  gap: 7px;
+  gap: 4px;
 }
 
 .run-sequence-mark {
   justify-self: center;
   width: 100%;
-  max-width: 34px;
+  max-width: 64px;
   height: 7px;
   padding: 0;
   border: 0;
@@ -4777,9 +4777,9 @@ select:not([multiple]):disabled {
 
 .run-metric-matrix {
   display: grid;
-  grid-template-columns: minmax(190px, 1.25fr) repeat(6, minmax(38px, 1fr)) minmax(72px, 0.45fr) 38px;
-  gap: 7px;
-  min-width: 620px;
+  grid-template-columns: minmax(190px, 240px) repeat(6, 72px) minmax(72px, 1fr) 38px;
+  gap: 4px;
+  min-width: 860px;
   padding: 14px 14px 17px 34px;
   border-bottom: 1px solid #e7ecef;
   background: #f7faf9;
@@ -4835,7 +4835,7 @@ select:not([multiple]):disabled {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
-  gap: 7px;
+  gap: 4px;
 }
 
 .run-metric-name,
@@ -4844,6 +4844,14 @@ select:not([multiple]):disabled {
   padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: 8px;
+}
+
+.run-metric-cell {
+  width: 64px;
+  height: 64px;
+  min-height: 64px;
+  padding: 0;
+  justify-self: center;
 }
 
 .run-metric-name {
