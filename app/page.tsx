@@ -1147,12 +1147,6 @@ function RunGroups({
                   // order as the markers above it. Sorting again here makes the
                   // two views disagree and ignores "Sort within groups".
                   const matrixRuns = displayedRuns;
-                  // Keep every expanded matrix on the same six-run track as
-                  // the compact marker row. With fewer runs, the populated
-                  // columns stay left-aligned instead of stretching across
-                  // the available width.
-                  const matrixGridColumns =
-                    "minmax(170px, 1.25fr) repeat(6, minmax(86px, 1fr))";
                   return (
                     <div
                       className={`run-subgroup-block${metricsOpen ? " run-subgroup-block--metrics-open" : ""}`}
@@ -1213,9 +1207,6 @@ function RunGroups({
                         <div
                           className="run-metric-matrix"
                           aria-label={`Selected metrics for ${subgroupName}`}
-                          style={{
-                            gridTemplateColumns: matrixGridColumns,
-                          }}
                         >
                           <div className="run-metric-matrix-corner">
                             <strong>Metric / threshold</strong>
@@ -1229,6 +1220,7 @@ function RunGroups({
                               title={`Open ${run.runId}`}
                             >
                               <strong>{new Date(run.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</strong>
+                              <small>{run.runId.slice(-6)}</small>
                             </button>
                           ))}
                           {selectedMetrics.map((metric) => {
@@ -1242,9 +1234,6 @@ function RunGroups({
                               <div
                                 className="run-metric-row"
                                 key={metric}
-                                style={{
-                                  gridTemplateColumns: matrixGridColumns,
-                                }}
                               >
                                 <span className="run-metric-name" title={metric}>
                                   <strong>{metricLabel(metric)}</strong>
