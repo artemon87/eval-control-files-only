@@ -70,7 +70,7 @@ type E2EHistoryPoint = {
 
 type DataState = "connecting" | "live" | "unconfigured" | "error";
 
-const RUN_HISTORY_LIMIT = 10;
+const RUN_HISTORY_LIMIT = 6;
 
 const unitSkills = [
   { id: "feedback-skill", label: "Feedback", tools: ["submit_feedback"] },
@@ -873,6 +873,7 @@ function RunGroups({
   api,
   selectedMetrics,
   onOpen,
+  onViewAll,
 }: {
   runs: EvalRun[];
   lens: RunGroupingLens;
@@ -883,6 +884,10 @@ function RunGroups({
   api: EvalApi | null;
   selectedMetrics: string[];
   onOpen: (run: EvalRun) => void;
+  onViewAll: (scope: {
+    skill: string;
+    targetEnvironment: string | null;
+  }) => void;
 }) {
   const [expandedMetrics, setExpandedMetrics] = useState<Set<string>>(
     () => new Set(),
@@ -1142,6 +1147,11 @@ function RunGroups({
                   )[0];
                   const rowKey = `${groupName}::${subgroupName}`;
                   const metricsOpen = expandedMetrics.has(rowKey);
+                  const scopeRun = subgroupRuns[0];
+                  const rowScope = {
+                    skill: runSkillLabel(scopeRun),
+                    targetEnvironment: recordedRunTarget(scopeRun),
+                  };
                   // filteredRuns already carries the selected sort order. The
                   // grouping reductions preserve it, so do not replace it with
                   // a chronological timeline here.
@@ -1211,6 +1221,16 @@ function RunGroups({
                             >
                               ›
                             </span>
+                          </button>
+                          <button
+                            type="button"
+                            className="run-view-all"
+                            aria-label={`View all runs for ${rowScope.skill} and ${rowScope.targetEnvironment ?? "target not recorded"} in the flat table`}
+                            onClick={() => onViewAll(rowScope)}
+                            title="Open this skill and target in the flat table"
+                          >
+                            <span>View all</span>
+                            <span className="run-view-all-arrow" aria-hidden="true">↗</span>
                           </button>
                         </span>
                       </div>
@@ -2888,6 +2908,12 @@ export default function Home() {
                         api={api}
                         selectedMetrics={visibleSelectedRunMetrics}
                         onOpen={openRun}
+                        onViewAll={({ skill: rowSkill, targetEnvironment: rowTarget }) => {
+                          setSkillFilter(rowSkill);
+                          setTargetEnvironment(rowTarget ?? "all");
+                          setRunGroupingLens("table");
+                          setRunPage(0);
+                        }}
                       />
                       <div className="grouped-results-footer">
                         <span>
