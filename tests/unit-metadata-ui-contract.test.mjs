@@ -55,7 +55,7 @@ test("runs separate evaluation scope filters from the grouping lens", () => {
   assert.match(pageSource, /function RunGroups/);
   assert.match(pageSource, /sortOrder: RunSortOrder/);
   assert.match(pageSource, /sortOrder=\{sortOrder\}/);
-  assert.match(pageSource, /const displayedRuns = subgroupRuns\.slice\(0, 6\)/);
+  assert.match(pageSource, /const displayedRuns = subgroupRuns\.slice\(0, RUN_HISTORY_LIMIT\)/);
   assert.match(pageSource, /\{displayedRuns\.map\(\(run\) => \(/);
   assert.match(
     pageSource,
@@ -189,15 +189,25 @@ test("grouped runs expose selectable lazy metric matrices without stealing run c
   assert.match(pageSource, /document\.addEventListener\("pointerdown"/);
   assert.match(pageSource, /event\.key !== "Escape"/);
   assert.match(pageSource, /disabled=\{!selectedMetrics\.length\}/);
-  assert.match(pageSource, /const displayedRuns = subgroupRuns\.slice\(0, 6\)/);
+  assert.match(pageSource, /const displayedRuns = subgroupRuns\.slice\(0, RUN_HISTORY_LIMIT\)/);
   assert.match(pageSource, /const matrixRuns = displayedRuns/);
-  assert.match(cssSource, /\.run-sequence[\s\S]*grid-column: 2 \/ span 6/);
+  assert.match(cssSource, /\.run-sequence[\s\S]*span var\(--visible-run-count, 1\)/);
   assert.match(cssSource, /\.run-metric-row[\s\S]*grid-template-columns: subgrid/);
-  assert.match(cssSource, /repeat\(6, 72px\)/);
+  assert.match(cssSource, /repeat\(var\(--visible-run-count, 1\), 72px\)/);
   assert.match(cssSource, /\.run-metric-cell[\s\S]*width: 64px[\s\S]*height: 64px/);
+  assert.match(cssSource, /\.run-subgroup-score[\s\S]*grid-column: -2[\s\S]*justify-self: end/);
   assert.match(pageSource, /run\.runId\.slice\(-6\)/);
   assert.match(pageSource, /toggleMetricRow\(rowKey, displayedRuns\)/);
-  assert.match(pageSource, /\.slice\(0, 6\)/);
+  assert.match(pageSource, /const RUN_HISTORY_LIMIT = 6/);
+  assert.match(pageSource, /\.slice\(0, RUN_HISTORY_LIMIT\)/);
+  assert.match(pageSource, /className="run-metrics-label">Metrics/);
+  assert.match(pageSource, /className="run-metrics-count"/);
+  assert.match(pageSource, /className="run-view-all"/);
+  assert.match(pageSource, /onClick=\{\(\) => onViewAll\(rowScope\)\}/);
+  assert.match(pageSource, /setSkillFilter\(rowSkill\)/);
+  assert.match(pageSource, /setTargetEnvironment\(rowTarget \?\? "all"\)/);
+  assert.match(pageSource, /setRunGroupingLens\("table"\)/);
+  assert.match(cssSource, /\.run-view-all/);
   assert.match(pageSource, /Metric \/ threshold/);
   assert.match(pageSource, /run-metric-cell--latest/);
   assert.match(pageSource, /await api\.listCases\(run\)/);
