@@ -191,6 +191,11 @@ test("grouped runs expose selectable lazy metric matrices without stealing run c
   assert.match(pageSource, /disabled=\{!selectedMetrics\.length\}/);
   assert.match(pageSource, /const displayedRuns = subgroupRuns\.slice\(0, 6\)/);
   assert.match(pageSource, /const matrixRuns = displayedRuns/);
+  assert.match(
+    pageSource,
+    /repeat\(6, minmax\(86px, 1fr\)\)/,
+    "metric cells should stay on the same left-aligned six-run track when fewer than six runs are present",
+  );
   assert.match(pageSource, /toggleMetricRow\(rowKey, displayedRuns\)/);
   assert.match(pageSource, /\.slice\(0, 6\)/);
   assert.match(pageSource, /Metric \/ threshold/);
