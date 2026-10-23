@@ -185,10 +185,14 @@ test("grouped runs expose selectable lazy metric matrices without stealing run c
   assert.match(pageSource, /type="checkbox"/);
   assert.match(pageSource, /Select all/);
   assert.match(pageSource, /Clear/);
-  assert.match(pageSource, /Metrics · \{selectedMetrics\.length\}/);
+  assert.match(pageSource, />\s*Done\s*</);
+  assert.match(pageSource, /document\.addEventListener\("pointerdown"/);
+  assert.match(pageSource, /event\.key !== "Escape"/);
   assert.match(pageSource, /disabled=\{!selectedMetrics\.length\}/);
   assert.match(pageSource, /const matrixRuns = \[\.\.\.subgroupRuns\]/);
   assert.match(pageSource, /\.slice\(0, 6\)/);
+  assert.match(pageSource, /Metric \/ threshold/);
+  assert.match(pageSource, /run-metric-cell--latest/);
   assert.match(pageSource, /await api\.listCases\(run\)/);
   assert.match(pageSource, /onClick=\{\(\) => onOpen\(run\)\}/);
   assert.match(pageSource, /runMetricSummary/);
