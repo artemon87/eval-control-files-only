@@ -189,7 +189,9 @@ test("grouped runs expose selectable lazy metric matrices without stealing run c
   assert.match(pageSource, /document\.addEventListener\("pointerdown"/);
   assert.match(pageSource, /event\.key !== "Escape"/);
   assert.match(pageSource, /disabled=\{!selectedMetrics\.length\}/);
-  assert.match(pageSource, /const matrixRuns = \[\.\.\.subgroupRuns\]/);
+  assert.match(pageSource, /const displayedRuns = subgroupRuns\.slice\(0, 6\)/);
+  assert.match(pageSource, /const matrixRuns = displayedRuns/);
+  assert.match(pageSource, /toggleMetricRow\(rowKey, displayedRuns\)/);
   assert.match(pageSource, /\.slice\(0, 6\)/);
   assert.match(pageSource, /Metric \/ threshold/);
   assert.match(pageSource, /run-metric-cell--latest/);

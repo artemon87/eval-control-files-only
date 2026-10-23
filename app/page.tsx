@@ -906,8 +906,7 @@ function RunGroups({
     }
     setExpandedMetrics((current) => new Set(current).add(rowKey));
     if (!api) return;
-    const runsToLoad = [...rowRuns]
-      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+    const runsToLoad = rowRuns
       .slice(0, 6)
       .filter(
         (run) => run.evalType === "unit" && !metricCasesByRun[run.runId],
@@ -1140,16 +1139,14 @@ function RunGroups({
                   )[0];
                   const rowKey = `${groupName}::${subgroupName}`;
                   const metricsOpen = expandedMetrics.has(rowKey);
-                  const matrixRuns = [...subgroupRuns]
-                    .sort((left, right) =>
-                      right.startedAt.localeCompare(left.startedAt),
-                    )
-                    .slice(0, 6)
-                    .reverse();
                   // filteredRuns already carries the selected sort order. The
                   // grouping reductions preserve it, so do not replace it with
                   // a chronological timeline here.
                   const displayedRuns = subgroupRuns.slice(0, 6);
+                  // The metric matrix must use the exact same run selection and
+                  // order as the markers above it. Sorting again here makes the
+                  // two views disagree and ignores "Sort within groups".
+                  const matrixRuns = displayedRuns;
                   return (
                     <div
                       className={`run-subgroup-block${metricsOpen ? " run-subgroup-block--metrics-open" : ""}`}
@@ -1189,7 +1186,7 @@ function RunGroups({
                             className="run-metrics-trigger"
                             disabled={!selectedMetrics.length}
                             aria-expanded={metricsOpen}
-                            onClick={() => void toggleMetricRow(rowKey, subgroupRuns)}
+                            onClick={() => void toggleMetricRow(rowKey, displayedRuns)}
                             title={
                               selectedMetrics.length
                                 ? "Show selected metrics for the latest six runs"
@@ -1266,7 +1263,7 @@ function RunGroups({
                                   return (
                                     <button
                                       type="button"
-                                      className={`run-metric-cell run-metric-cell--${state}${run.runId === matrixRuns.at(-1)?.runId ? " run-metric-cell--latest" : ""}`}
+                                      className={`run-metric-cell run-metric-cell--${state}${run.runId === latest.runId ? " run-metric-cell--latest" : ""}`}
                                       key={run.runId}
                                       onClick={() => onOpen(run)}
                                       title={`${metricLabel(metric)} · ${run.runId}`}
