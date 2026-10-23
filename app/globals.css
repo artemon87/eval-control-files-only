@@ -4637,9 +4637,10 @@ select:not([multiple]):disabled {
 
 .run-subgroup {
   display: grid;
-  grid-template-columns: minmax(190px, 1.25fr) minmax(220px, 1.7fr) minmax(72px, 0.45fr) 38px;
+  grid-template-columns: minmax(190px, 1.25fr) repeat(6, minmax(38px, 1fr)) minmax(72px, 0.45fr) 38px;
   align-items: center;
-  gap: 12px;
+  gap: 7px;
+  min-width: 620px;
   min-height: 57px;
   padding: 10px 14px 10px 34px;
   border-bottom: 1px solid #e7ecef;
@@ -4685,13 +4686,16 @@ select:not([multiple]):disabled {
 }
 
 .run-sequence {
-  display: flex;
+  display: grid;
+  grid-column: 2 / span 6;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   align-items: center;
-  gap: 5px;
+  gap: 7px;
 }
 
 .run-sequence-mark {
-  flex: 1 1 20px;
+  justify-self: center;
+  width: 100%;
   max-width: 34px;
   height: 7px;
   padding: 0;
@@ -4720,6 +4724,7 @@ select:not([multiple]):disabled {
 }
 
 .run-subgroup-actions {
+  grid-column: 9;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -4772,9 +4777,10 @@ select:not([multiple]):disabled {
 
 .run-metric-matrix {
   display: grid;
+  grid-template-columns: minmax(190px, 1.25fr) repeat(6, minmax(38px, 1fr)) minmax(72px, 0.45fr) 38px;
   gap: 7px;
   min-width: 620px;
-  padding: 14px 18px 17px 34px;
+  padding: 14px 14px 17px 34px;
   border-bottom: 1px solid #e7ecef;
   background: #f7faf9;
 }
@@ -4785,6 +4791,10 @@ select:not([multiple]):disabled {
   padding: 6px 10px;
   border: 0;
   background: transparent;
+  text-align: center;
+}
+
+.run-metric-matrix-corner {
   text-align: left;
 }
 
@@ -4824,6 +4834,7 @@ select:not([multiple]):disabled {
 .run-metric-row {
   display: grid;
   grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   gap: 7px;
 }
 
@@ -4967,11 +4978,6 @@ select:not([multiple]):disabled {
     display: none;
   }
 
-  .run-subgroup {
-    grid-template-columns: minmax(150px, 1fr) minmax(120px, 1fr) 90px;
-    padding-left: 24px;
-  }
-
   .run-subgroup-open {
     display: none;
   }
@@ -5011,12 +5017,6 @@ select:not([multiple]):disabled {
     padding: 10px;
   }
 
-  .run-subgroup {
-    grid-template-columns: minmax(100px, 0.9fr) minmax(90px, 1fr) 58px;
-    gap: 7px;
-    padding: 9px 10px 9px 19px;
-  }
-
   .run-visible-metrics {
     align-items: flex-start;
     flex-direction: column;
@@ -5029,10 +5029,6 @@ select:not([multiple]):disabled {
 
   .run-metrics-trigger {
     padding-inline: 5px;
-  }
-
-  .run-sequence-mark:nth-child(-n + 2) {
-    display: none;
   }
 
   .grouped-results-footer {
