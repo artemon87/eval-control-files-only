@@ -193,7 +193,8 @@ test("grouped runs expose selectable lazy metric matrices without stealing run c
   assert.match(pageSource, /const matrixRuns = displayedRuns/);
   assert.match(cssSource, /\.run-sequence[\s\S]*grid-column: 2 \/ span 6/);
   assert.match(cssSource, /\.run-metric-row[\s\S]*grid-template-columns: subgrid/);
-  assert.match(cssSource, /repeat\(6, minmax\(38px, 1fr\)\)/);
+  assert.match(cssSource, /repeat\(6, 72px\)/);
+  assert.match(cssSource, /\.run-metric-cell[\s\S]*width: 64px[\s\S]*height: 64px/);
   assert.match(pageSource, /run\.runId\.slice\(-6\)/);
   assert.match(pageSource, /toggleMetricRow\(rowKey, displayedRuns\)/);
   assert.match(pageSource, /\.slice\(0, 6\)/);
