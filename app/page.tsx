@@ -1219,8 +1219,8 @@ function RunGroups({
                               onClick={() => onOpen(run)}
                               title={`Open ${run.runId}`}
                             >
-                              <strong>{new Date(run.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</strong>
-                              <small>{run.runId.slice(-6)}</small>
+                              <strong>{run.runId.slice(-6)}</strong>
+                              <small>{new Date(run.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</small>
                             </button>
                           ))}
                           {selectedMetrics.map((metric) => {
