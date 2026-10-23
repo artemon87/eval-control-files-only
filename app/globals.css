@@ -4637,7 +4637,7 @@ select:not([multiple]):disabled {
 
 .run-subgroup {
   display: grid;
-  grid-template-columns: minmax(190px, 240px) repeat(6, 72px) minmax(72px, 1fr) 38px;
+  grid-template-columns: minmax(190px, 240px) repeat(var(--visible-run-count, 1), 72px) minmax(72px, 1fr) max-content;
   align-items: center;
   gap: 4px;
   min-width: 860px;
@@ -4675,7 +4675,7 @@ select:not([multiple]):disabled {
 }
 
 .run-subgroup-score {
-  grid-column: 8;
+  grid-column: -2;
   justify-self: end;
   min-width: 64px;
   padding-right: 8px;
@@ -4695,8 +4695,8 @@ select:not([multiple]):disabled {
 
 .run-sequence {
   display: grid;
-  grid-column: 2 / span 6;
-  grid-template-columns: repeat(6, 72px);
+  grid-column: 2 / span var(--visible-run-count, 1);
+  grid-template-columns: repeat(var(--visible-run-count, 1), 72px);
   align-items: center;
   gap: 4px;
 }
@@ -4732,7 +4732,7 @@ select:not([multiple]):disabled {
 }
 
 .run-subgroup-actions {
-  grid-column: 9;
+  grid-column: -1;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -4744,14 +4744,15 @@ select:not([multiple]):disabled {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  width: 34px;
+  width: auto;
+  min-width: 96px;
   height: 34px;
-  padding: 0;
+  padding: 0 8px;
   border: 1px solid #cfe0df;
   border-radius: 9px;
   background: white;
   color: #187f71;
-  font-size: 0;
+  font-size: 9px;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -4765,6 +4766,29 @@ select:not([multiple]):disabled {
 
 .run-metrics-trigger > span:first-child {
   font-size: 13px;
+}
+
+.run-metrics-label {
+  letter-spacing: 0.01em;
+}
+
+.run-metrics-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #dff2ed;
+  color: #176f64;
+  font-size: 8px;
+  line-height: 1;
+}
+
+.run-metrics-trigger:disabled .run-metrics-count {
+  background: #e8ecee;
+  color: #8d99a1;
 }
 
 .run-metrics-trigger:disabled {
@@ -4785,7 +4809,7 @@ select:not([multiple]):disabled {
 
 .run-metric-matrix {
   display: grid;
-  grid-template-columns: minmax(190px, 240px) repeat(6, 72px) minmax(72px, 1fr) 38px;
+  grid-template-columns: minmax(190px, 240px) repeat(var(--visible-run-count, 1), 72px) minmax(72px, 1fr) max-content;
   gap: 4px;
   min-width: 860px;
   padding: 14px 14px 17px 34px;
