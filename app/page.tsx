@@ -863,6 +863,97 @@ function MetricMultiSelect({
   );
 }
 
+function StageMultiSelect({
+  options,
+  selected,
+  onChange,
+}: {
+  options: string[];
+  selected: string[];
+  onChange: (stages: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const toggleStage = (stage: string) =>
+    onChange(
+      selected.includes(stage)
+        ? selected.filter((item) => item !== stage)
+        : [...selected, stage],
+    );
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  const label =
+    selected.length === 0
+      ? "All stages"
+      : selected.length === 1
+        ? selected[0]
+        : `${selected.length} stages`;
+
+  return (
+    <div className={`stage-multiselect${open ? " open" : ""}`} ref={pickerRef}>
+      <button
+        type="button"
+        className="stage-multiselect-trigger"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        ref={triggerRef}
+      >
+        <span>{label}</span>
+        <span aria-hidden="true">⌄</span>
+      </button>
+      {open && (
+        <div className="stage-multiselect-menu" role="dialog" aria-label="Choose stages">
+          <div className="stage-multiselect-heading">
+            <strong>Stages in scope</strong>
+            <span>{options.length} available</span>
+          </div>
+          <label>
+            <input
+              type="checkbox"
+              checked={selected.length === 0}
+              onChange={() => onChange([])}
+            />
+            <span>All stages</span>
+          </label>
+          {options.map((stage) => (
+            <label key={stage}>
+              <input
+                type="checkbox"
+                checked={selected.includes(stage)}
+                onChange={() => toggleStage(stage)}
+              />
+              <span>{stage}</span>
+            </label>
+          ))}
+          <div className="stage-multiselect-footer">
+            <span>{selected.length || "All"} selected</span>
+            <button type="button" onClick={() => setOpen(false)}>Done</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RunGroups({
   runs,
   lens,
@@ -871,6 +962,7 @@ function RunGroups({
   targetEnvironment,
   sortOrder,
   api,
+  selectedStages,
   selectedMetrics,
   onOpen,
   onViewAll,
@@ -882,10 +974,12 @@ function RunGroups({
   targetEnvironment: string;
   sortOrder: RunSortOrder;
   api: EvalApi | null;
+  selectedStages: string[];
   selectedMetrics: string[];
   onOpen: (run: EvalRun) => void;
   onViewAll: (scope: {
     skill: string;
+    stage: string;
     targetEnvironment: string | null;
   }) => void;
 }) {
@@ -956,6 +1050,9 @@ function RunGroups({
         : targetEnvironment !== "all" || category !== "all"
           ? "skill"
           : "attention";
+  const multipleStages =
+    selectedStages.length !== 1 &&
+    new Set(runs.map((run) => run.stage)).size > 1;
   const groupingExplanation =
     lens === "adaptive"
       ? skill !== "all"
@@ -966,19 +1063,24 @@ function RunGroups({
             ? "A category is selected, so skills are grouped before targets."
             : "The broad scope is organized by attention level first."
       : resolvedLens === "skill"
-        ? "Skills are grouped first, with target environments nested inside."
+        ? multipleStages
+          ? "Skills are grouped first, with quiet stage bands separating their targets."
+          : "Skills are grouped first, with target environments nested inside."
         : resolvedLens === "target"
-          ? "Target environments are grouped first, with skills nested inside."
+          ? multipleStages
+            ? "Stages are separated first, with target environments and skills nested inside."
+            : "Target environments are grouped first, with skills nested inside."
           : "Failures, blocked runs, and missing quality data rise to the top.";
   const primaryLabel =
     resolvedLens === "skill"
       ? "skill"
       : resolvedLens === "target"
-        ? "target"
+        ? multipleStages ? "stage" : "target"
         : "attention";
   const groupKey = (run: EvalRun) => {
     if (resolvedLens === "skill") return runSkillLabel(run);
-    if (resolvedLens === "target") return runTargetLabel(run);
+    if (resolvedLens === "target")
+      return multipleStages ? run.stage : runTargetLabel(run);
     if (runRequiresAttention(run)) return "Needs attention";
     if (run.evalType === "unit" && !run.summary.meanScoreRecorded)
       return "Missing quality data";
@@ -986,9 +1088,13 @@ function RunGroups({
   };
   const secondaryKey = (run: EvalRun) =>
     resolvedLens === "skill"
-      ? runTargetLabel(run)
+      ? multipleStages
+        ? `${run.stage} · ${runTargetLabel(run)}`
+        : runTargetLabel(run)
       : resolvedLens === "target"
-        ? runSkillLabel(run)
+        ? multipleStages
+          ? `${runTargetLabel(run)} · ${runSkillLabel(run)}`
+          : runSkillLabel(run)
         : `${runSkillLabel(run)} · ${runTargetLabel(run)}`;
   const groupOrder = ["Needs attention", "Missing quality data", "Healthy"];
   const groupedRuns = Array.from(
@@ -1026,7 +1132,13 @@ function RunGroups({
           <strong>
             {resolvedLens === "attention"
               ? "Attention first"
-              : `${resolvedLens} → ${resolvedLens === "skill" ? "target" : "skill"}`}
+              : resolvedLens === "skill"
+                ? multipleStages
+                  ? "Skill → stage → target"
+                  : "Skill → target"
+                : multipleStages
+                  ? "Stage → target → skill"
+                  : "Target → skill"}
           </strong>
         </div>
         <p>{groupingExplanation}</p>
@@ -1101,8 +1213,16 @@ function RunGroups({
             (run) => recordedRunTarget(run) === null,
           ).length;
           const subgroupCount =
-            resolvedLens === "skill" ? recordedTargetCount : subgroups.length;
-          const subgroupLabel = resolvedLens === "skill" ? "target" : "skill";
+            resolvedLens === "skill" && !multipleStages
+              ? recordedTargetCount
+              : subgroups.length;
+          const subgroupLabel = multipleStages
+            ? resolvedLens === "skill"
+              ? "stage × target"
+              : "target × skill"
+            : resolvedLens === "skill"
+              ? "target"
+              : "skill";
           const groupState = groupAttention
             ? "attention"
             : groupName === "Missing quality data"
@@ -1110,7 +1230,7 @@ function RunGroups({
               : "healthy";
           return (
             <details
-              className={`run-group run-group--${groupState}`}
+              className={`run-group run-group--${groupState}${resolvedLens === "target" && multipleStages ? " run-group--stage-band" : ""}`}
               key={groupName}
               open={groupIndex === 0}
             >
@@ -1150,6 +1270,7 @@ function RunGroups({
                   const scopeRun = subgroupRuns[0];
                   const rowScope = {
                     skill: runSkillLabel(scopeRun),
+                    stage: scopeRun.stage,
                     targetEnvironment: recordedRunTarget(scopeRun),
                   };
                   // filteredRuns already carries the selected sort order. The
@@ -1362,7 +1483,7 @@ export default function Home() {
   const [repositoryFilter, setRepositoryFilter] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
   const [shaFilter, setShaFilter] = useState("");
-  const [stage, setStage] = useState("all");
+  const [selectedStages, setSelectedStages] = useState<string[]>([]);
   const [category, setCategory] = useState("all");
   const [skillFilter, setSkillFilter] = useState("all");
   const [targetEnvironment, setTargetEnvironment] = useState("all");
@@ -1414,6 +1535,7 @@ export default function Home() {
       gitRef: branchFilter.trim() || undefined,
       gitSha: shaFilter.trim() || undefined,
       category: category === "all" ? undefined : category,
+      stages: selectedStages.length ? selectedStages : undefined,
       targetEnvironment:
         targetEnvironment === "all" ? undefined : targetEnvironment,
       agentName: agentName === "all" ? undefined : agentName,
@@ -1423,6 +1545,7 @@ export default function Home() {
       branchFilter,
       category,
       repositoryFilter,
+      selectedStages,
       shaFilter,
       skillFilter,
       targetEnvironment,
@@ -1618,7 +1741,16 @@ export default function Home() {
   const filterOptions = useMemo(
     () => ({
       stages: Array.from(
-        new Set(runs.map((run) => run.stage).filter(Boolean)),
+        new Set(
+          runs
+            .filter(
+              (run) =>
+                category === "all" ||
+                (run.evalType === "unit" && run.unitConfig?.category === category),
+            )
+            .map((run) => run.stage)
+            .filter(Boolean),
+        ),
       ).sort(),
       triggers: Array.from(
         new Set(runs.map((run) => run.trigger).filter(Boolean)),
@@ -1672,6 +1804,7 @@ export default function Home() {
               (run) =>
                 run.evalType === "unit" &&
                 (category === "all" || run.unitConfig?.category === category) &&
+                (selectedStages.length === 0 || selectedStages.includes(run.stage)) &&
                 (skillFilter === "all" ||
                   (run.unitConfig?.skillId ?? run.target) === skillFilter),
             )
@@ -1702,18 +1835,18 @@ export default function Home() {
       }),
       hasMeanScores: runs.some((run) => run.summary.meanScoreRecorded),
     }),
-    [runs, repositoryFilter, category, skillFilter],
+    [runs, repositoryFilter, category, skillFilter, selectedStages],
   );
 
   const activeMoreFilterCount =
     [
       executionStatus,
-      stage,
       agentName,
       trigger,
       actor,
       startedWithin,
     ].filter((value) => value !== "all").length +
+    selectedStages.length +
     [repositoryFilter, branchFilter, shaFilter].filter((value) =>
       Boolean(value.trim()),
     ).length +
@@ -1722,7 +1855,7 @@ export default function Home() {
 
   const resetMoreFilters = () => {
     setExecutionStatus("all");
-    setStage("all");
+    setSelectedStages([]);
     setAgentName("all");
     setTrigger("all");
     setActor("all");
@@ -1740,7 +1873,7 @@ export default function Home() {
     () => {
       const matching = runs.filter((run) => {
         const haystack =
-          `${run.runId} ${run.actor} ${run.stage} ${run.target} ${run.gitSha} ${run.unitConfig?.skillId ?? ""} ${run.unitConfig?.skillVersion ?? ""} ${run.unitConfig?.category ?? ""} ${run.unitConfig?.targetEnvironment ?? ""} ${run.unitConfig?.agentName ?? ""} ${run.e2eConfig?.selectedSuites.join(" ") ?? ""}`.toLowerCase();
+          `${run.runId} ${run.actor} ${run.stage} ${run.target} ${run.gitSha} ${run.unitConfig?.skillId ?? ""} ${run.unitConfig?.skillVersion ?? ""} ${run.unitConfig?.category ?? ""} ${run.unitConfig?.stage ?? ""} ${run.unitConfig?.targetEnvironment ?? ""} ${run.unitConfig?.agentName ?? ""} ${run.e2eConfig?.selectedSuites.join(" ") ?? ""}`.toLowerCase();
         const hours =
           startedWithin === "24h"
             ? 24
@@ -1785,7 +1918,7 @@ export default function Home() {
           (verdict === "all" || effectiveRunVerdict(run) === verdict) &&
           (executionStatus === "all" ||
             run.executionStatus === executionStatus) &&
-          (stage === "all" || run.stage === stage) &&
+          (selectedStages.length === 0 || selectedStages.includes(run.stage)) &&
           (category === "all" || run.unitConfig?.category === category) &&
           (skillFilter === "all" ||
             (run.evalType === "unit" &&
@@ -1830,7 +1963,7 @@ export default function Home() {
       search,
       skillFilter,
       sortOrder,
-      stage,
+      selectedStages,
       startedWithin,
       targetEnvironment,
       trigger,
@@ -2021,6 +2154,7 @@ export default function Home() {
         ? { type: "e2e", stage: run.stage, target: run.target }
         : {
             type: "unit",
+            stage: run.unitConfig?.stage ?? run.stage,
             skillId: run.unitConfig?.skillId ?? run.target,
             environment: run.unitConfig?.bsaEnvironment ?? run.stage,
             category: run.unitConfig?.category,
@@ -2470,6 +2604,18 @@ export default function Home() {
                       </select>
                     </label>
                     <label>
+                      <span>Stage</span>
+                      <StageMultiSelect
+                        options={filterOptions.stages}
+                        selected={selectedStages}
+                        onChange={(stages) => {
+                          setSelectedStages(stages);
+                          setTargetEnvironment("all");
+                          setRunPage(0);
+                        }}
+                      />
+                    </label>
+                    <label>
                       <span>Skill</span>
                       <select
                         value={skillFilter}
@@ -2546,20 +2692,6 @@ export default function Home() {
                           <option value="completed">Completed</option>
                           <option value="error">Error</option>
                           <option value="cancelled">Cancelled</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>Stage / environment</span>
-                        <select
-                          value={stage}
-                          onChange={(event) => setStage(event.target.value)}
-                        >
-                          <option value="all">All stages</option>
-                          {filterOptions.stages.map((value) => (
-                            <option value={value} key={value}>
-                              {value}
-                            </option>
-                          ))}
                         </select>
                       </label>
                       <label>
@@ -2780,6 +2912,7 @@ export default function Home() {
                     </div>
                   )}
                   {(category !== "all" ||
+                    selectedStages.length > 0 ||
                     skillFilter !== "all" ||
                     targetEnvironment !== "all") && (
                     <div className="active-scope-chips" aria-label="Active evaluation scope">
@@ -2796,6 +2929,19 @@ export default function Home() {
                           {category} <span>×</span>
                         </button>
                       )}
+                      {selectedStages.map((selectedStage) => (
+                        <button
+                          type="button"
+                          key={selectedStage}
+                          onClick={() =>
+                            setSelectedStages((current) =>
+                              current.filter((value) => value !== selectedStage),
+                            )
+                          }
+                        >
+                          {selectedStage} <span>×</span>
+                        </button>
+                      ))}
                       {skillFilter !== "all" && (
                         <button
                           type="button"
@@ -2906,10 +3052,12 @@ export default function Home() {
                         targetEnvironment={targetEnvironment}
                         sortOrder={sortOrder}
                         api={api}
+                        selectedStages={selectedStages}
                         selectedMetrics={visibleSelectedRunMetrics}
                         onOpen={openRun}
-                        onViewAll={({ skill: rowSkill, targetEnvironment: rowTarget }) => {
+                        onViewAll={({ skill: rowSkill, stage: rowStage, targetEnvironment: rowTarget }) => {
                           setSkillFilter(rowSkill);
+                          setSelectedStages([rowStage]);
                           setTargetEnvironment(rowTarget ?? "all");
                           setRunGroupingLens("table");
                           setRunPage(0);
@@ -4583,6 +4731,7 @@ function HistoryView({
       skillId: run.unitConfig?.skillId ?? run.target,
       environment: run.unitConfig?.bsaEnvironment ?? run.stage,
       category: run.unitConfig?.category?.trim() || "Uncategorized",
+      stage: run.unitConfig?.stage?.trim() || run.stage,
       targetEnvironment:
         run.unitConfig?.targetEnvironment?.trim() || "Target not recorded",
       agentName: run.unitConfig?.agentName?.trim() || "Agent not recorded",
@@ -4622,6 +4771,21 @@ function HistoryView({
     initialFocus?.skillId && initialCategorySkills.includes(initialFocus.skillId)
       ? initialFocus.skillId
       : "all";
+  const initialUnitStages = Array.from(
+    new Set(
+      unitSource
+        .filter(
+          (point) =>
+            point.category === initialCategory &&
+            (initialSkill === "all" || point.skillId === initialSkill),
+        )
+        .map((point) => point.stage),
+    ),
+  ).sort();
+  const initialUnitStage =
+    initialFocus?.stage && initialUnitStages.includes(initialFocus.stage)
+      ? initialFocus.stage
+      : (initialUnitStages[0] ?? "");
   const [historyType, setHistoryType] = useState<EvalType>(
     initialFocus?.type ?? "e2e",
   );
@@ -4640,6 +4804,7 @@ function HistoryView({
   );
   const [skillId, setSkillId] = useState(initialSkill);
   const [category, setCategory] = useState(initialCategory);
+  const [unitStage, setUnitStage] = useState(initialUnitStage);
   const [environment, setEnvironment] = useState(
     initialFocus?.environment ?? "all",
   );
@@ -4705,6 +4870,21 @@ function HistoryView({
         .map((point) => point.environment),
     ),
   ).sort();
+  const selectableUnitStages = Array.from(
+    new Set(
+      unitSource
+        .filter(
+          (point) =>
+            point.category === category &&
+            (skillId === "all" || point.skillId === skillId) &&
+            (environment === "all" || point.environment === environment),
+        )
+        .map((point) => point.stage),
+    ),
+  ).sort();
+  const resolvedUnitStage = selectableUnitStages.includes(unitStage)
+    ? unitStage
+    : (selectableUnitStages[0] ?? "");
   const availableTargetEnvironments = Array.from(
     new Set(
       unitSource
@@ -4712,6 +4892,7 @@ function HistoryView({
           (point) =>
             point.category === category &&
             (skillId === "all" || point.skillId === skillId) &&
+            point.stage === resolvedUnitStage &&
             (environment === "all" || point.environment === environment),
         )
         .map((point) => point.targetEnvironment),
@@ -4723,6 +4904,7 @@ function HistoryView({
         inRange(point.startedAt) &&
         point.category === category &&
         (skillId === "all" || point.skillId === skillId) &&
+        point.stage === resolvedUnitStage &&
         (environment === "all" || point.environment === environment) &&
         (targetEnvironments.length === 0 ||
           targetEnvironments.includes(point.targetEnvironment)),
@@ -4775,6 +4957,7 @@ function HistoryView({
           inRange(point.startedAt) &&
           point.category === category &&
           point.skillId === skillId &&
+          point.stage === resolvedUnitStage &&
           (environment === "all" || point.environment === environment) &&
           point.targetEnvironment === targetId,
       )
@@ -4810,6 +4993,7 @@ function HistoryView({
       (point) =>
         inRange(point.startedAt) &&
         point.category === category &&
+        point.stage === resolvedUnitStage &&
         (environment === "all" || point.environment === environment) &&
         matrixTargets.includes(point.targetEnvironment),
     )
@@ -4937,6 +5121,7 @@ function HistoryView({
                   const nextCategory = event.target.value;
                   setCategory(nextCategory);
                   setSkillId("all");
+                  setUnitStage("");
                   setEnvironment("all");
                   setTargetEnvironments([]);
                 }}
@@ -4955,6 +5140,7 @@ function HistoryView({
                 value={skillId}
                 onChange={(event) => {
                   setSkillId(event.target.value);
+                  setUnitStage("");
                   setEnvironment("all");
                   setTargetEnvironments([]);
                 }}
@@ -4964,6 +5150,21 @@ function HistoryView({
                   <option key={value} value={value}>
                     {value}
                   </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Stage</span>
+              <select
+                aria-label="Unit history stage"
+                value={resolvedUnitStage}
+                onChange={(event) => {
+                  setUnitStage(event.target.value);
+                  setTargetEnvironments([]);
+                }}
+              >
+                {selectableUnitStages.map((value) => (
+                  <option key={value} value={value}>{value}</option>
                 ))}
               </select>
             </label>
@@ -4993,6 +5194,7 @@ function HistoryView({
                 value={environment}
                 onChange={(event) => {
                   setEnvironment(event.target.value);
+                  setUnitStage("");
                   setTargetEnvironments([]);
                 }}
               >
@@ -5038,6 +5240,17 @@ function HistoryView({
           >
             {category}
           </button>
+          {resolvedUnitStage && (
+            <>
+              <span>›</span>
+              <button
+                type="button"
+                onClick={() => setTargetEnvironments([])}
+              >
+                {resolvedUnitStage}
+              </button>
+            </>
+          )}
           {skillId !== "all" && (
             <>
               <span>›</span>
@@ -5217,7 +5430,7 @@ function HistoryView({
                 <div className="panel-heading unit-health-matrix-heading">
                   <div>
                     <h2>
-                      {category}
+                      {category} · {resolvedUnitStage || "Stage not recorded"}
                       {selectedUnitTarget === "all"
                         ? " · health matrix"
                         : ` · ${selectedUnitTarget}`}

@@ -9,7 +9,7 @@ const [pageSource, apiSource, cssSource] = await Promise.all([
 ]);
 
 test("unit metadata is filterable and visible without hiding legacy runs", () => {
-  for (const label of ["Category", "Target environment", "Agent"]) {
+  for (const label of ["Category", "Stage", "Target environment", "Agent"]) {
     assert.match(pageSource, new RegExp(`>${label}<`));
   }
   assert.match(apiSource, /params\.set\("category", filters\.category\)/);
@@ -21,6 +21,26 @@ test("unit metadata is filterable and visible without hiding legacy runs", () =>
   assert.match(pageSource, /"Uncategorized"/);
   assert.match(pageSource, /"Target not recorded"/);
   assert.match(pageSource, /"Agent not recorded"/);
+});
+
+test("stage is a first-class scope with legacy target compatibility", () => {
+  assert.match(apiSource, /stage\?: string \| null/);
+  assert.match(
+    apiSource,
+    /filters\.stages\?\.forEach\(\(stage\) => params\.append\("stage", stage\)\)/,
+  );
+  assert.match(apiSource, /const configuredStage = run\.unit_config\.stage/);
+  assert.match(
+    apiSource,
+    /const stage = configuredStage \?\? recordedTargetEnvironment \?\? environment/,
+  );
+  assert.match(pageSource, /function StageMultiSelect/);
+  assert.match(pageSource, /Skill → stage → target/);
+  assert.match(pageSource, /Stage → target → skill/);
+  assert.match(pageSource, /run-group--stage-band/);
+  assert.match(pageSource, /aria-label="Unit history stage"/);
+  assert.match(cssSource, /\.stage-multiselect-menu/);
+  assert.match(cssSource, /\.run-group--stage-band/);
 });
 
 test("unit metadata filters preserve repository, branch, and SHA scoping", () => {
