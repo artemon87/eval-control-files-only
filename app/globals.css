@@ -4766,6 +4766,51 @@ select:not([multiple]):disabled {
   border-top: 8px solid #f1f5f7;
 }
 
+.run-attention-stage-heading {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(130px, 0.7fr) minmax(90px, 0.4fr) 16px;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-width: 860px;
+  min-height: 48px;
+  padding: 8px 28px 8px 34px;
+  border: 0;
+  border-bottom: 1px solid #dce5ea;
+  background: #eef3f6;
+  color: #344a5e;
+  text-align: left;
+  cursor: pointer;
+}
+
+.run-attention-stage-heading:hover,
+.run-attention-stage-heading:focus-visible {
+  background: #e8eff3;
+}
+
+.run-attention-stage-heading > strong {
+  font-size: 10px;
+}
+
+.run-attention-stage-heading > span:not(.run-nested-section-rate):not(.run-nested-section-chevron) {
+  color: #718290;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.run-nested-section--attention-target + .run-nested-section--attention-target {
+  border-top-width: 1px;
+}
+
+.run-nested-section--attention-target .run-nested-section-heading {
+  padding-left: 52px;
+  background: #f8fafb;
+}
+
+.run-nested-section--attention-target .run-subgroup {
+  padding-left: 70px;
+}
+
 .run-nested-section-heading {
   display: grid;
   grid-template-columns: minmax(220px, 1.4fr) minmax(130px, 0.7fr) minmax(90px, 0.4fr) 16px;

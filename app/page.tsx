@@ -1,7 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { CSSProperties } from "react";
 import { SidebarFooter } from "./components/sidebar-footer";
 import {
@@ -680,6 +687,14 @@ type RunGroupingLens =
   | "table";
 
 type ResolvedRunGrouping = "skill" | "target" | "attention";
+type RunSubgroup = [string, EvalRun[]];
+type RunNestedSection = {
+  name: string | null;
+  stageName?: string;
+  runs: EvalRun[];
+  childLabel: string | null;
+  subgroups: RunSubgroup[];
+};
 type RunSortOrder =
   | "newest"
   | "oldest"
@@ -1082,7 +1097,7 @@ function RunGroups({
           ? "A target is selected, so skills become the primary comparison."
           : category !== "all"
             ? "A category is selected, so skills are grouped before targets."
-            : "The broad scope is organized by attention level first."
+            : "Attention status is grouped first, with stages, targets, and skills nested inside."
       : resolvedLens === "skill"
         ? multipleStages
           ? "Skills are grouped first, with quiet stage bands separating their targets."
@@ -1091,7 +1106,7 @@ function RunGroups({
           ? multipleStages
             ? "Stages are separated first, with target environments and skills nested inside."
             : "Target environments are grouped first, with skills nested inside."
-          : "Failures, blocked runs, and missing quality data rise to the top.";
+          : "Attention status is grouped first, with stages, targets, and skills nested inside.";
   const primaryLabel =
     resolvedLens === "skill"
       ? "skill"
@@ -1152,7 +1167,7 @@ function RunGroups({
           <span>Current organization</span>
           <strong>
             {resolvedLens === "attention"
-              ? "Attention first"
+              ? "Attention → stage → target → skill"
               : resolvedLens === "skill"
                 ? multipleStages
                   ? "Skill → stage → target"
@@ -1224,7 +1239,7 @@ function RunGroups({
               return items;
             }, new Map<string, EvalRun[]>()),
           ).sort(([left], [right]) => left.localeCompare(right));
-          const subgroupSections =
+          const subgroupSections: RunNestedSection[] =
             resolvedLens === "target" && multipleStages
               ? Array.from(
                   groupRuns.reduce((targets, run) => {
@@ -1270,7 +1285,47 @@ function RunGroups({
                         }, new Map<string, EvalRun[]>()),
                       ).sort(([left], [right]) => left.localeCompare(right)),
                     }))
-                : [{ name: null, runs: groupRuns, childLabel: null, subgroups }];
+                : resolvedLens === "attention"
+                  ? Array.from(
+                      groupRuns.reduce((stages, run) => {
+                        const stage = run.stage;
+                        stages.set(stage, [...(stages.get(stage) ?? []), run]);
+                        return stages;
+                      }, new Map<string, EvalRun[]>()),
+                    )
+                      .sort(([left], [right]) => left.localeCompare(right))
+                      .flatMap(([stageName, stageRuns]) =>
+                        Array.from(
+                          stageRuns.reduce((targets, run) => {
+                            const target = runTargetLabel(run);
+                            targets.set(target, [
+                              ...(targets.get(target) ?? []),
+                              run,
+                            ]);
+                            return targets;
+                          }, new Map<string, EvalRun[]>()),
+                        )
+                          .sort(([left], [right]) => left.localeCompare(right))
+                          .map(([targetName, targetRuns]) => ({
+                            name: targetName,
+                            stageName,
+                            runs: targetRuns,
+                            childLabel: "skill",
+                            subgroups: Array.from(
+                              targetRuns.reduce((skills, run) => {
+                                const skill = runSkillLabel(run);
+                                skills.set(skill, [
+                                  ...(skills.get(skill) ?? []),
+                                  run,
+                                ]);
+                                return skills;
+                              }, new Map<string, EvalRun[]>()),
+                            ).sort(([left], [right]) =>
+                              left.localeCompare(right),
+                            ),
+                          })),
+                      )
+                  : [{ name: null, runs: groupRuns, childLabel: null, subgroups }];
           const recordedTargetCount = new Set(
             groupRuns.flatMap((run) => {
               const target = recordedRunTarget(run);
@@ -1280,20 +1335,30 @@ function RunGroups({
           const groupMissingTargetCount = groupRuns.filter(
             (run) => recordedRunTarget(run) === null,
           ).length;
+          const attentionStageCount = new Set(
+            subgroupSections.flatMap((section) =>
+              section.stageName ? [section.stageName] : [],
+            ),
+          ).size;
           const subgroupCount =
-            multipleStages &&
-            (resolvedLens === "target" || resolvedLens === "skill")
-              ? subgroupSections.length
+            resolvedLens === "attention"
+              ? attentionStageCount
+              : multipleStages &&
+                  (resolvedLens === "target" || resolvedLens === "skill")
+                ? subgroupSections.length
               : resolvedLens === "skill" && !multipleStages
                 ? recordedTargetCount
                 : subgroups.length;
-          const subgroupLabel = multipleStages
-            ? resolvedLens === "skill"
+          const subgroupLabel =
+            resolvedLens === "attention"
+              ? "stage"
+              : multipleStages
+                ? resolvedLens === "skill"
               ? "stage"
               : "target"
-            : resolvedLens === "skill"
-              ? "target"
-              : "skill";
+                : resolvedLens === "skill"
+                  ? "target"
+                  : "skill";
           const groupState = groupAttention
             ? "attention"
             : groupName === "Missing quality data"
@@ -1332,8 +1397,35 @@ function RunGroups({
                 <span className="run-group-chevron">›</span>
               </summary>
               <div className="run-subgroup-list">
-                {subgroupSections.map((section) => {
-                  const sectionKey = `${groupName}::${section.name ?? "subgroups"}`;
+                {subgroupSections.map((section, sectionIndex) => {
+                  const firstInStage = Boolean(
+                    section.stageName &&
+                      (sectionIndex === 0 ||
+                        subgroupSections[sectionIndex - 1]?.stageName !==
+                          section.stageName),
+                  );
+                  const stageSections = section.stageName
+                    ? subgroupSections.filter(
+                        (candidate) => candidate.stageName === section.stageName,
+                      )
+                    : [];
+                  const stageRuns = stageSections.flatMap(
+                    (candidate) => candidate.runs,
+                  );
+                  const stageKey = `${groupName}::stage::${section.stageName ?? ""}`;
+                  const stageCollapsed = collapsedSections.has(stageKey);
+                  const stageCases = stageRuns.reduce(
+                    (sum, run) => sum + run.summary.total,
+                    0,
+                  );
+                  const stagePassed = stageRuns.reduce(
+                    (sum, run) => sum + run.summary.passed,
+                    0,
+                  );
+                  const stagePassRate = stageCases
+                    ? (stagePassed / stageCases) * 100
+                    : 0;
+                  const sectionKey = `${groupName}::${section.stageName ?? ""}::${section.name ?? "subgroups"}`;
                   const sectionCollapsed = collapsedSections.has(sectionKey);
                   const sectionCases = section.runs.reduce(
                     (sum, run) => sum + run.summary.total,
@@ -1347,9 +1439,35 @@ function RunGroups({
                     ? (sectionPassed / sectionCases) * 100
                     : 0;
                   return (
+                  <Fragment key={sectionKey}>
+                  {firstInStage && (
+                    <button
+                      type="button"
+                      className="run-attention-stage-heading"
+                      aria-expanded={!stageCollapsed}
+                      onClick={() => toggleNestedSection(stageKey)}
+                    >
+                      <strong>{section.stageName}</strong>
+                      <span>
+                        {stageSections.length} target
+                        {stageSections.length === 1 ? "" : "s"} · {stageRuns.length}{" "}
+                        run{stageRuns.length === 1 ? "" : "s"}
+                      </span>
+                      <span className="run-nested-section-rate">
+                        <small>Pass rate</small>
+                        <strong>{stagePassRate.toFixed(1)}%</strong>
+                      </span>
+                      <span
+                        className={`run-nested-section-chevron${stageCollapsed ? " collapsed" : ""}`}
+                        aria-hidden="true"
+                      >
+                        ›
+                      </span>
+                    </button>
+                  )}
+                  {!stageCollapsed && (
                   <section
-                    className={`run-nested-section${section.name ? " run-nested-section--active" : ""}`}
-                    key={sectionKey}
+                    className={`run-nested-section${section.name ? " run-nested-section--active" : ""}${section.stageName ? " run-nested-section--attention-target" : ""}`}
                   >
                     {section.name && (
                       <button
@@ -1384,7 +1502,7 @@ function RunGroups({
                       const latest = [...subgroupRuns].sort((left, right) =>
                         right.startedAt.localeCompare(left.startedAt),
                       )[0];
-                      const rowKey = `${groupName}::${section.name ?? ""}::${subgroupName}`;
+                      const rowKey = `${groupName}::${section.stageName ?? ""}::${section.name ?? ""}::${subgroupName}`;
                       const metricsOpen = expandedMetrics.has(rowKey);
                       const scopeRun = subgroupRuns[0];
                       const rowScope = {
@@ -1557,6 +1675,8 @@ function RunGroups({
                       );
                       })}
                   </section>
+                  )}
+                  </Fragment>
                   );
                 })}
               </div>
@@ -4907,7 +5027,7 @@ function HistoryView({
   const initialUnitStage =
     initialFocus?.stage && initialUnitStages.includes(initialFocus.stage)
       ? initialFocus.stage
-      : (initialUnitStages[0] ?? "");
+      : "all";
   const [historyType, setHistoryType] = useState<EvalType>(
     initialFocus?.type ?? "e2e",
   );
@@ -5004,9 +5124,10 @@ function HistoryView({
         .map((point) => point.stage),
     ),
   ).sort();
-  const resolvedUnitStage = selectableUnitStages.includes(unitStage)
-    ? unitStage
-    : (selectableUnitStages[0] ?? "");
+  const resolvedUnitStage =
+    unitStage === "all" || selectableUnitStages.includes(unitStage)
+      ? unitStage
+      : "all";
   const availableTargetEnvironments = Array.from(
     new Set(
       unitSource
@@ -5014,7 +5135,8 @@ function HistoryView({
           (point) =>
             point.category === category &&
             (skillId === "all" || point.skillId === skillId) &&
-            point.stage === resolvedUnitStage &&
+            (resolvedUnitStage === "all" ||
+              point.stage === resolvedUnitStage) &&
             (environment === "all" || point.environment === environment),
         )
         .map((point) => point.targetEnvironment),
@@ -5026,7 +5148,7 @@ function HistoryView({
         inRange(point.startedAt) &&
         point.category === category &&
         (skillId === "all" || point.skillId === skillId) &&
-        point.stage === resolvedUnitStage &&
+        (resolvedUnitStage === "all" || point.stage === resolvedUnitStage) &&
         (environment === "all" || point.environment === environment) &&
         (targetEnvironments.length === 0 ||
           targetEnvironments.includes(point.targetEnvironment)),
@@ -5079,7 +5201,8 @@ function HistoryView({
           inRange(point.startedAt) &&
           point.category === category &&
           point.skillId === skillId &&
-          point.stage === resolvedUnitStage &&
+          (resolvedUnitStage === "all" ||
+            point.stage === resolvedUnitStage) &&
           (environment === "all" || point.environment === environment) &&
           point.targetEnvironment === targetId,
       )
@@ -5115,7 +5238,7 @@ function HistoryView({
       (point) =>
         inRange(point.startedAt) &&
         point.category === category &&
-        point.stage === resolvedUnitStage &&
+        (resolvedUnitStage === "all" || point.stage === resolvedUnitStage) &&
         (environment === "all" || point.environment === environment) &&
         matrixTargets.includes(point.targetEnvironment),
     )
@@ -5243,7 +5366,7 @@ function HistoryView({
                   const nextCategory = event.target.value;
                   setCategory(nextCategory);
                   setSkillId("all");
-                  setUnitStage("");
+                  setUnitStage("all");
                   setEnvironment("all");
                   setTargetEnvironments([]);
                 }}
@@ -5262,7 +5385,7 @@ function HistoryView({
                 value={skillId}
                 onChange={(event) => {
                   setSkillId(event.target.value);
-                  setUnitStage("");
+                  setUnitStage("all");
                   setEnvironment("all");
                   setTargetEnvironments([]);
                 }}
@@ -5285,6 +5408,7 @@ function HistoryView({
                   setTargetEnvironments([]);
                 }}
               >
+                <option value="all">All stages</option>
                 {selectableUnitStages.map((value) => (
                   <option key={value} value={value}>{value}</option>
                 ))}
@@ -5316,7 +5440,7 @@ function HistoryView({
                 value={environment}
                 onChange={(event) => {
                   setEnvironment(event.target.value);
-                  setUnitStage("");
+                  setUnitStage("all");
                   setTargetEnvironments([]);
                 }}
               >
@@ -5369,7 +5493,9 @@ function HistoryView({
                 type="button"
                 onClick={() => setTargetEnvironments([])}
               >
-                {resolvedUnitStage}
+                {resolvedUnitStage === "all"
+                  ? "All stages"
+                  : resolvedUnitStage}
               </button>
             </>
           )}
@@ -5552,7 +5678,9 @@ function HistoryView({
                 <div className="panel-heading unit-health-matrix-heading">
                   <div>
                     <h2>
-                      {category} · {resolvedUnitStage || "Stage not recorded"}
+                      {category} · {resolvedUnitStage === "all"
+                        ? "All stages"
+                        : resolvedUnitStage || "Stage not recorded"}
                       {selectedUnitTarget === "all"
                         ? " · health matrix"
                         : ` · ${selectedUnitTarget}`}

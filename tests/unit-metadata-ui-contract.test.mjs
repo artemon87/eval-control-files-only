@@ -49,6 +49,22 @@ test("stage is a first-class scope independent from target environment", () => {
   assert.match(pageSource, /Stage → target → skill/);
   assert.match(pageSource, /run-group--stage-band/);
   assert.match(pageSource, /aria-label="Unit history stage"/);
+  assert.match(
+    pageSource,
+    /aria-label="Unit history stage"[\s\S]*<option value="all">All stages<\/option>/,
+  );
+  assert.match(
+    pageSource,
+    /unitStage === "all" \|\| selectableUnitStages\.includes\(unitStage\)/,
+  );
+  assert.match(
+    pageSource,
+    /resolvedUnitStage === "all" \|\| point\.stage === resolvedUnitStage/,
+  );
+  assert.doesNotMatch(
+    pageSource,
+    /const resolvedUnitStage = selectableUnitStages\.includes\(unitStage\)[\s\S]{0,120}selectableUnitStages\[0\]/,
+  );
   assert.match(cssSource, /\.stage-multiselect-menu/);
   assert.match(cssSource, /\.run-group--stage-band/);
   assert.match(
@@ -278,4 +294,21 @@ test("multi-stage grouping lenses use quiet nested scope headings", () => {
   assert.match(cssSource, /\.run-nested-section-heading/);
   assert.match(cssSource, /\.run-nested-section-chevron\.collapsed/);
   assert.match(cssSource, /\.run-nested-section--active \.run-subgroup/);
+});
+
+test("attention grouping nests stages, targets, and skills consistently", () => {
+  assert.match(pageSource, /Attention → stage → target → skill/);
+  assert.match(
+    pageSource,
+    /resolvedLens === "attention"[\s\S]*groupRuns\.reduce\(\(stages, run\)/,
+  );
+  assert.match(pageSource, /stageName,[\s\S]*childLabel: "skill"/);
+  assert.match(pageSource, /className="run-attention-stage-heading"/);
+  assert.match(pageSource, /onClick=\{\(\) => toggleNestedSection\(stageKey\)\}/);
+  assert.match(pageSource, /run-nested-section--attention-target/);
+  assert.match(cssSource, /\.run-attention-stage-heading/);
+  assert.match(
+    cssSource,
+    /\.run-nested-section--attention-target \.run-subgroup/,
+  );
 });
