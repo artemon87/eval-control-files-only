@@ -266,10 +266,16 @@ test("multi-stage grouping lenses use quiet nested scope headings", () => {
   assert.match(pageSource, /childLabel: "skill"/);
   assert.match(pageSource, /childLabel: "target"/);
   assert.match(pageSource, /className="run-nested-section-heading"/);
+  assert.match(pageSource, /const \[collapsedSections, setCollapsedSections\]/);
+  assert.match(pageSource, /aria-expanded=\{!sectionCollapsed\}/);
+  assert.match(pageSource, /onClick=\{\(\) => toggleNestedSection\(sectionKey\)\}/);
+  assert.match(pageSource, /run-nested-section-counts/);
+  assert.match(pageSource, /run-nested-section-rate/);
   assert.match(
     pageSource,
     /section\.subgroups\.map\(\(\[subgroupName, subgroupRuns\]\)/,
   );
   assert.match(cssSource, /\.run-nested-section-heading/);
+  assert.match(cssSource, /\.run-nested-section-chevron\.collapsed/);
   assert.match(cssSource, /\.run-nested-section--active \.run-subgroup/);
 });

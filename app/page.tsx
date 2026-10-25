@@ -995,6 +995,9 @@ function RunGroups({
   const [expandedMetrics, setExpandedMetrics] = useState<Set<string>>(
     () => new Set(),
   );
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [metricCasesByRun, setMetricCasesByRun] = useState<
     Record<string, EvalCase[]>
   >({});
@@ -1004,6 +1007,15 @@ function RunGroups({
   const [metricRowErrors, setMetricRowErrors] = useState<Set<string>>(
     () => new Set(),
   );
+
+  const toggleNestedSection = (sectionKey: string) => {
+    setCollapsedSections((current) => {
+      const next = new Set(current);
+      if (next.has(sectionKey)) next.delete(sectionKey);
+      else next.add(sectionKey);
+      return next;
+    });
+  };
 
   const toggleMetricRow = async (rowKey: string, rowRuns: EvalRun[]) => {
     if (!selectedMetrics.length) return;
@@ -1320,41 +1332,55 @@ function RunGroups({
                 <span className="run-group-chevron">›</span>
               </summary>
               <div className="run-subgroup-list">
-                {subgroupSections.map((section) => (
+                {subgroupSections.map((section) => {
+                  const sectionKey = `${groupName}::${section.name ?? "subgroups"}`;
+                  const sectionCollapsed = collapsedSections.has(sectionKey);
+                  const sectionCases = section.runs.reduce(
+                    (sum, run) => sum + run.summary.total,
+                    0,
+                  );
+                  const sectionPassed = section.runs.reduce(
+                    (sum, run) => sum + run.summary.passed,
+                    0,
+                  );
+                  const sectionPassRate = sectionCases
+                    ? (sectionPassed / sectionCases) * 100
+                    : 0;
+                  return (
                   <section
                     className={`run-nested-section${section.name ? " run-nested-section--active" : ""}`}
-                    key={section.name ?? "subgroups"}
+                    key={sectionKey}
                   >
                     {section.name && (
-                      <header className="run-nested-section-heading">
-                        <span>
-                          <strong>{section.name}</strong>
-                          <small>
-                            {section.subgroups.length} {section.childLabel}
-                            {section.subgroups.length === 1 ? "" : "s"} ·{" "}
-                            {section.runs.length} run
-                            {section.runs.length === 1 ? "" : "s"}
-                          </small>
+                      <button
+                        type="button"
+                        className="run-nested-section-heading"
+                        aria-expanded={!sectionCollapsed}
+                        onClick={() => toggleNestedSection(sectionKey)}
+                      >
+                        <strong className="run-nested-section-name">
+                          {section.name}
+                        </strong>
+                        <span className="run-nested-section-counts">
+                          {section.subgroups.length} {section.childLabel}
+                          {section.subgroups.length === 1 ? "" : "s"} ·{" "}
+                          {section.runs.length} run
+                          {section.runs.length === 1 ? "" : "s"}
                         </span>
-                        <span>
+                        <span className="run-nested-section-rate">
                           <small>Pass rate</small>
-                          <strong>
-                            {(() => {
-                              const total = section.runs.reduce(
-                                (sum, run) => sum + run.summary.total,
-                                0,
-                              );
-                              const passed = section.runs.reduce(
-                                (sum, run) => sum + run.summary.passed,
-                                0,
-                              );
-                              return `${(total ? (passed / total) * 100 : 0).toFixed(1)}%`;
-                            })()}
-                          </strong>
+                          <strong>{sectionPassRate.toFixed(1)}%</strong>
                         </span>
-                      </header>
+                        <span
+                          className={`run-nested-section-chevron${sectionCollapsed ? " collapsed" : ""}`}
+                          aria-hidden="true"
+                        >
+                          ›
+                        </span>
+                      </button>
                     )}
-                    {section.subgroups.map(([subgroupName, subgroupRuns]) => {
+                    {(!section.name || !sectionCollapsed) &&
+                      section.subgroups.map(([subgroupName, subgroupRuns]) => {
                       const latest = [...subgroupRuns].sort((left, right) =>
                         right.startedAt.localeCompare(left.startedAt),
                       )[0];
@@ -1529,9 +1555,10 @@ function RunGroups({
                       )}
                     </div>
                       );
-                    })}
+                      })}
                   </section>
-                ))}
+                  );
+                })}
               </div>
             </details>
           );
