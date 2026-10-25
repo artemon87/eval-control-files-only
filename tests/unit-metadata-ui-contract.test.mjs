@@ -34,6 +34,12 @@ test("stage is a first-class scope independent from target environment", () => {
     /const stage = run\.unit_config\.stage\?\.trim\(\) \|\| environment/,
   );
   assert.match(pageSource, /function StageMultiSelect/);
+  assert.match(pageSource, /className="run-scope-field"/);
+  assert.match(pageSource, /aria-label="Filter stages"/);
+  assert.match(
+    pageSource,
+    /setOpen\(false\);\s*triggerRef\.current\?\.focus\(\)/,
+  );
   assert.match(pageSource, /Skill → stage → target/);
   assert.match(pageSource, /Stage → target → skill/);
   assert.match(pageSource, /run-group--stage-band/);

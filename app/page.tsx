@@ -912,6 +912,7 @@ function StageMultiSelect({
       <button
         type="button"
         className="stage-multiselect-trigger"
+        aria-label="Filter stages"
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
@@ -946,7 +947,15 @@ function StageMultiSelect({
           ))}
           <div className="stage-multiselect-footer">
             <span>{selected.length || "All"} selected</span>
-            <button type="button" onClick={() => setOpen(false)}>Done</button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                triggerRef.current?.focus();
+              }}
+            >
+              Done
+            </button>
           </div>
         </div>
       )}
@@ -2603,7 +2612,7 @@ export default function Home() {
                         ))}
                       </select>
                     </label>
-                    <label>
+                    <div className="run-scope-field">
                       <span>Stage</span>
                       <StageMultiSelect
                         options={filterOptions.stages}
@@ -2614,7 +2623,7 @@ export default function Home() {
                           setRunPage(0);
                         }}
                       />
-                    </label>
+                    </div>
                     <label>
                       <span>Skill</span>
                       <select

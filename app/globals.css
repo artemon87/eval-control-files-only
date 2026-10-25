@@ -4125,13 +4125,15 @@ select:not([multiple]):disabled {
   background: #fbfcfd;
 }
 
-.run-scope-filters label {
+.run-scope-filters label,
+.run-scope-field {
   display: grid;
   min-width: 0;
   gap: 6px;
 }
 
-.run-scope-filters label > span {
+.run-scope-filters label > span,
+.run-scope-field > span {
   color: #748596;
   font-size: 8px;
   font-weight: 800;
