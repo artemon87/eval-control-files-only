@@ -4758,15 +4758,15 @@ select:not([multiple]):disabled {
   background: #f8fafb;
 }
 
-.run-target-section {
+.run-nested-section {
   min-width: 860px;
 }
 
-.run-target-section--nested + .run-target-section--nested {
+.run-nested-section--active + .run-nested-section--active {
   border-top: 8px solid #f1f5f7;
 }
 
-.run-target-section-heading {
+.run-nested-section-heading {
   display: grid;
   grid-template-columns: minmax(210px, 1fr) minmax(80px, auto);
   align-items: center;
@@ -4777,23 +4777,23 @@ select:not([multiple]):disabled {
   background: #f7fafb;
 }
 
-.run-target-section-heading > span:last-child {
+.run-nested-section-heading > span:last-child {
   justify-self: end;
   min-width: 76px;
   text-align: left;
 }
 
-.run-target-section-heading strong,
-.run-target-section-heading small {
+.run-nested-section-heading strong,
+.run-nested-section-heading small {
   display: block;
 }
 
-.run-target-section-heading strong {
+.run-nested-section-heading strong {
   color: #344a5e;
   font-size: 10px;
 }
 
-.run-target-section-heading small {
+.run-nested-section-heading small {
   margin-top: 3px;
   color: #8a98a5;
   font-size: 8px;
@@ -4812,7 +4812,7 @@ select:not([multiple]):disabled {
   transition: background 150ms ease, box-shadow 150ms ease;
 }
 
-.run-target-section--nested .run-subgroup {
+.run-nested-section--active .run-subgroup {
   padding-left: 52px;
 }
 
