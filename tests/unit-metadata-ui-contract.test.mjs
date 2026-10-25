@@ -279,3 +279,20 @@ test("multi-stage grouping lenses use quiet nested scope headings", () => {
   assert.match(cssSource, /\.run-nested-section-chevron\.collapsed/);
   assert.match(cssSource, /\.run-nested-section--active \.run-subgroup/);
 });
+
+test("attention grouping nests stages, targets, and skills consistently", () => {
+  assert.match(pageSource, /Attention → stage → target → skill/);
+  assert.match(
+    pageSource,
+    /resolvedLens === "attention"[\s\S]*groupRuns\.reduce\(\(stages, run\)/,
+  );
+  assert.match(pageSource, /stageName,[\s\S]*childLabel: "skill"/);
+  assert.match(pageSource, /className="run-attention-stage-heading"/);
+  assert.match(pageSource, /onClick=\{\(\) => toggleNestedSection\(stageKey\)\}/);
+  assert.match(pageSource, /run-nested-section--attention-target/);
+  assert.match(cssSource, /\.run-attention-stage-heading/);
+  assert.match(
+    cssSource,
+    /\.run-nested-section--attention-target \.run-subgroup/,
+  );
+});
