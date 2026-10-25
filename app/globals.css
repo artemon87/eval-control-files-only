@@ -4758,6 +4758,47 @@ select:not([multiple]):disabled {
   background: #f8fafb;
 }
 
+.run-target-section {
+  min-width: 860px;
+}
+
+.run-target-section--nested + .run-target-section--nested {
+  border-top: 8px solid #f1f5f7;
+}
+
+.run-target-section-heading {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) minmax(80px, auto);
+  align-items: center;
+  gap: 16px;
+  min-height: 52px;
+  padding: 9px 28px 9px 34px;
+  border-bottom: 1px solid #e3eaee;
+  background: #f7fafb;
+}
+
+.run-target-section-heading > span:last-child {
+  justify-self: end;
+  min-width: 76px;
+  text-align: left;
+}
+
+.run-target-section-heading strong,
+.run-target-section-heading small {
+  display: block;
+}
+
+.run-target-section-heading strong {
+  color: #344a5e;
+  font-size: 10px;
+}
+
+.run-target-section-heading small {
+  margin-top: 3px;
+  color: #8a98a5;
+  font-size: 8px;
+}
+
 .run-subgroup {
   display: grid;
   grid-template-columns: minmax(190px, 240px) repeat(var(--visible-run-count, 1), 72px) minmax(72px, 1fr) max-content;
@@ -4769,6 +4810,10 @@ select:not([multiple]):disabled {
   border-bottom: 1px solid #e7ecef;
   background: #fff;
   transition: background 150ms ease, box-shadow 150ms ease;
+}
+
+.run-target-section--nested .run-subgroup {
+  padding-left: 52px;
 }
 
 .run-subgroup:hover {

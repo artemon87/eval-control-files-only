@@ -33,6 +33,11 @@ test("stage is a first-class scope independent from target environment", () => {
     apiSource,
     /const stage = run\.unit_config\.stage\?\.trim\(\) \|\| environment/,
   );
+  assert.doesNotMatch(apiSource, /configuredStage/);
+  assert.match(
+    apiSource,
+    /unitConfig:\s*\{[\s\S]*category,[\s\S]*stage,[\s\S]*targetEnvironment,/,
+  );
   assert.match(pageSource, /function StageMultiSelect/);
   assert.match(pageSource, /className="run-scope-field"/);
   assert.match(pageSource, /aria-label="Filter stages"/);
@@ -247,4 +252,18 @@ test("grouped runs expose selectable lazy metric matrices without stealing run c
   assert.match(cssSource, /\.run-visible-metrics/);
   assert.match(cssSource, /\.run-metric-cell--passed/);
   assert.match(cssSource, /\.run-metric-cell--failed/);
+});
+
+test("multi-stage target lens nests skills under a non-repeating target heading", () => {
+  assert.match(
+    pageSource,
+    /resolvedLens === "target" && multipleStages[\s\S]*runTargetLabel\(run\)/,
+  );
+  assert.match(pageSource, /className="run-target-section-heading"/);
+  assert.match(
+    pageSource,
+    /section\.subgroups\.map\(\(\[subgroupName, subgroupRuns\]\)/,
+  );
+  assert.match(cssSource, /\.run-target-section-heading/);
+  assert.match(cssSource, /\.run-target-section--nested \.run-subgroup/);
 });

@@ -1212,6 +1212,28 @@ function RunGroups({
               return items;
             }, new Map<string, EvalRun[]>()),
           ).sort(([left], [right]) => left.localeCompare(right));
+          const subgroupSections =
+            resolvedLens === "target" && multipleStages
+              ? Array.from(
+                  groupRuns.reduce((targets, run) => {
+                    const target = runTargetLabel(run);
+                    targets.set(target, [...(targets.get(target) ?? []), run]);
+                    return targets;
+                  }, new Map<string, EvalRun[]>()),
+                )
+                  .sort(([left], [right]) => left.localeCompare(right))
+                  .map(([targetName, targetRuns]) => ({
+                    name: targetName,
+                    runs: targetRuns,
+                    subgroups: Array.from(
+                      targetRuns.reduce((skills, run) => {
+                        const skill = runSkillLabel(run);
+                        skills.set(skill, [...(skills.get(skill) ?? []), run]);
+                        return skills;
+                      }, new Map<string, EvalRun[]>()),
+                    ).sort(([left], [right]) => left.localeCompare(right)),
+                  }))
+              : [{ name: null, runs: groupRuns, subgroups }];
           const recordedTargetCount = new Set(
             groupRuns.flatMap((run) => {
               const target = recordedRunTarget(run);
@@ -1222,13 +1244,15 @@ function RunGroups({
             (run) => recordedRunTarget(run) === null,
           ).length;
           const subgroupCount =
-            resolvedLens === "skill" && !multipleStages
-              ? recordedTargetCount
-              : subgroups.length;
+            resolvedLens === "target" && multipleStages
+              ? subgroupSections.length
+              : resolvedLens === "skill" && !multipleStages
+                ? recordedTargetCount
+                : subgroups.length;
           const subgroupLabel = multipleStages
             ? resolvedLens === "skill"
               ? "stage × target"
-              : "target × skill"
+              : "target"
             : resolvedLens === "skill"
               ? "target"
               : "skill";
@@ -1270,27 +1294,61 @@ function RunGroups({
                 <span className="run-group-chevron">›</span>
               </summary>
               <div className="run-subgroup-list">
-                {subgroups.map(([subgroupName, subgroupRuns]) => {
-                  const latest = [...subgroupRuns].sort((left, right) =>
-                    right.startedAt.localeCompare(left.startedAt),
-                  )[0];
-                  const rowKey = `${groupName}::${subgroupName}`;
-                  const metricsOpen = expandedMetrics.has(rowKey);
-                  const scopeRun = subgroupRuns[0];
-                  const rowScope = {
-                    skill: runSkillLabel(scopeRun),
-                    stage: scopeRun.stage,
-                    targetEnvironment: recordedRunTarget(scopeRun),
-                  };
-                  // filteredRuns already carries the selected sort order. The
-                  // grouping reductions preserve it, so do not replace it with
-                  // a chronological timeline here.
-                  const displayedRuns = subgroupRuns.slice(0, RUN_HISTORY_LIMIT);
-                  // The metric matrix must use the exact same run selection and
-                  // order as the markers above it. Sorting again here makes the
-                  // two views disagree and ignores "Sort within groups".
-                  const matrixRuns = displayedRuns;
-                  return (
+                {subgroupSections.map((section) => (
+                  <section
+                    className={`run-target-section${section.name ? " run-target-section--nested" : ""}`}
+                    key={section.name ?? "subgroups"}
+                  >
+                    {section.name && (
+                      <header className="run-target-section-heading">
+                        <span>
+                          <strong>{section.name}</strong>
+                          <small>
+                            {section.subgroups.length} skill
+                            {section.subgroups.length === 1 ? "" : "s"} ·{" "}
+                            {section.runs.length} run
+                            {section.runs.length === 1 ? "" : "s"}
+                          </small>
+                        </span>
+                        <span>
+                          <small>Pass rate</small>
+                          <strong>
+                            {(() => {
+                              const total = section.runs.reduce(
+                                (sum, run) => sum + run.summary.total,
+                                0,
+                              );
+                              const passed = section.runs.reduce(
+                                (sum, run) => sum + run.summary.passed,
+                                0,
+                              );
+                              return `${(total ? (passed / total) * 100 : 0).toFixed(1)}%`;
+                            })()}
+                          </strong>
+                        </span>
+                      </header>
+                    )}
+                    {section.subgroups.map(([subgroupName, subgroupRuns]) => {
+                      const latest = [...subgroupRuns].sort((left, right) =>
+                        right.startedAt.localeCompare(left.startedAt),
+                      )[0];
+                      const rowKey = `${groupName}::${section.name ?? ""}::${subgroupName}`;
+                      const metricsOpen = expandedMetrics.has(rowKey);
+                      const scopeRun = subgroupRuns[0];
+                      const rowScope = {
+                        skill: runSkillLabel(scopeRun),
+                        stage: scopeRun.stage,
+                        targetEnvironment: recordedRunTarget(scopeRun),
+                      };
+                      // filteredRuns already carries the selected sort order. The
+                      // grouping reductions preserve it, so do not replace it with
+                      // a chronological timeline here.
+                      const displayedRuns = subgroupRuns.slice(0, RUN_HISTORY_LIMIT);
+                      // The metric matrix must use the exact same run selection and
+                      // order as the markers above it. Sorting again here makes the
+                      // two views disagree and ignores "Sort within groups".
+                      const matrixRuns = displayedRuns;
+                      return (
                     <div
                       className={`run-subgroup-block${metricsOpen ? " run-subgroup-block--metrics-open" : ""}`}
                       key={subgroupName}
@@ -1444,8 +1502,10 @@ function RunGroups({
                         </div>
                       )}
                     </div>
-                  );
-                })}
+                      );
+                    })}
+                  </section>
+                ))}
               </div>
             </details>
           );
