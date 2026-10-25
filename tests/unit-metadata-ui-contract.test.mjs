@@ -49,6 +49,22 @@ test("stage is a first-class scope independent from target environment", () => {
   assert.match(pageSource, /Stage → target → skill/);
   assert.match(pageSource, /run-group--stage-band/);
   assert.match(pageSource, /aria-label="Unit history stage"/);
+  assert.match(
+    pageSource,
+    /aria-label="Unit history stage"[\s\S]*<option value="all">All stages<\/option>/,
+  );
+  assert.match(
+    pageSource,
+    /unitStage === "all" \|\| selectableUnitStages\.includes\(unitStage\)/,
+  );
+  assert.match(
+    pageSource,
+    /resolvedUnitStage === "all" \|\| point\.stage === resolvedUnitStage/,
+  );
+  assert.doesNotMatch(
+    pageSource,
+    /const resolvedUnitStage = selectableUnitStages\.includes\(unitStage\)[\s\S]{0,120}selectableUnitStages\[0\]/,
+  );
   assert.match(cssSource, /\.stage-multiselect-menu/);
   assert.match(cssSource, /\.run-group--stage-band/);
   assert.match(

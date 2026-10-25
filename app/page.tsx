@@ -5027,7 +5027,7 @@ function HistoryView({
   const initialUnitStage =
     initialFocus?.stage && initialUnitStages.includes(initialFocus.stage)
       ? initialFocus.stage
-      : (initialUnitStages[0] ?? "");
+      : "all";
   const [historyType, setHistoryType] = useState<EvalType>(
     initialFocus?.type ?? "e2e",
   );
@@ -5124,9 +5124,10 @@ function HistoryView({
         .map((point) => point.stage),
     ),
   ).sort();
-  const resolvedUnitStage = selectableUnitStages.includes(unitStage)
-    ? unitStage
-    : (selectableUnitStages[0] ?? "");
+  const resolvedUnitStage =
+    unitStage === "all" || selectableUnitStages.includes(unitStage)
+      ? unitStage
+      : "all";
   const availableTargetEnvironments = Array.from(
     new Set(
       unitSource
@@ -5134,7 +5135,8 @@ function HistoryView({
           (point) =>
             point.category === category &&
             (skillId === "all" || point.skillId === skillId) &&
-            point.stage === resolvedUnitStage &&
+            (resolvedUnitStage === "all" ||
+              point.stage === resolvedUnitStage) &&
             (environment === "all" || point.environment === environment),
         )
         .map((point) => point.targetEnvironment),
@@ -5146,7 +5148,7 @@ function HistoryView({
         inRange(point.startedAt) &&
         point.category === category &&
         (skillId === "all" || point.skillId === skillId) &&
-        point.stage === resolvedUnitStage &&
+        (resolvedUnitStage === "all" || point.stage === resolvedUnitStage) &&
         (environment === "all" || point.environment === environment) &&
         (targetEnvironments.length === 0 ||
           targetEnvironments.includes(point.targetEnvironment)),
@@ -5199,7 +5201,8 @@ function HistoryView({
           inRange(point.startedAt) &&
           point.category === category &&
           point.skillId === skillId &&
-          point.stage === resolvedUnitStage &&
+          (resolvedUnitStage === "all" ||
+            point.stage === resolvedUnitStage) &&
           (environment === "all" || point.environment === environment) &&
           point.targetEnvironment === targetId,
       )
@@ -5235,7 +5238,7 @@ function HistoryView({
       (point) =>
         inRange(point.startedAt) &&
         point.category === category &&
-        point.stage === resolvedUnitStage &&
+        (resolvedUnitStage === "all" || point.stage === resolvedUnitStage) &&
         (environment === "all" || point.environment === environment) &&
         matrixTargets.includes(point.targetEnvironment),
     )
@@ -5363,7 +5366,7 @@ function HistoryView({
                   const nextCategory = event.target.value;
                   setCategory(nextCategory);
                   setSkillId("all");
-                  setUnitStage("");
+                  setUnitStage("all");
                   setEnvironment("all");
                   setTargetEnvironments([]);
                 }}
@@ -5382,7 +5385,7 @@ function HistoryView({
                 value={skillId}
                 onChange={(event) => {
                   setSkillId(event.target.value);
-                  setUnitStage("");
+                  setUnitStage("all");
                   setEnvironment("all");
                   setTargetEnvironments([]);
                 }}
@@ -5405,6 +5408,7 @@ function HistoryView({
                   setTargetEnvironments([]);
                 }}
               >
+                <option value="all">All stages</option>
                 {selectableUnitStages.map((value) => (
                   <option key={value} value={value}>{value}</option>
                 ))}
@@ -5436,7 +5440,7 @@ function HistoryView({
                 value={environment}
                 onChange={(event) => {
                   setEnvironment(event.target.value);
-                  setUnitStage("");
+                  setUnitStage("all");
                   setTargetEnvironments([]);
                 }}
               >
@@ -5489,7 +5493,9 @@ function HistoryView({
                 type="button"
                 onClick={() => setTargetEnvironments([])}
               >
-                {resolvedUnitStage}
+                {resolvedUnitStage === "all"
+                  ? "All stages"
+                  : resolvedUnitStage}
               </button>
             </>
           )}
@@ -5672,7 +5678,9 @@ function HistoryView({
                 <div className="panel-heading unit-health-matrix-heading">
                   <div>
                     <h2>
-                      {category} · {resolvedUnitStage || "Stage not recorded"}
+                      {category} · {resolvedUnitStage === "all"
+                        ? "All stages"
+                        : resolvedUnitStage || "Stage not recorded"}
                       {selectedUnitTarget === "all"
                         ? " · health matrix"
                         : ` · ${selectedUnitTarget}`}
