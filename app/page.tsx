@@ -2824,98 +2824,105 @@ export default function Home() {
                         : ""}
                     </button>
                   </div>
-                  <div className="run-scope-filters" aria-label="Evaluation scope filters">
-                    <label>
-                      <span>Category</span>
-                      <select
-                        value={category}
-                        onChange={(event) => {
-                          setCategory(event.target.value);
-                          setSkillFilter("all");
-                          setTargetEnvironment("all");
-                          setAgentName("all");
-                          setRunPage(0);
-                        }}
-                      >
-                        <option value="all">All categories</option>
-                        {filterOptions.categories.map((value) => (
-                          <option value={value} key={value}>
-                            {value}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="run-scope-field">
-                      <span>Stage</span>
-                      <StageMultiSelect
-                        options={filterOptions.stages}
-                        selected={selectedStages}
-                        onChange={(stages) => {
-                          setSelectedStages(stages);
-                          setTargetEnvironment("all");
-                          setRunPage(0);
-                        }}
-                      />
+                  <section
+                    className="run-scope-panel"
+                    aria-label="Evaluation scope filters"
+                  >
+                    <div className="run-scope-filters">
+                      <label>
+                        <span>Category</span>
+                        <select
+                          value={category}
+                          onChange={(event) => {
+                            setCategory(event.target.value);
+                            setSkillFilter("all");
+                            setTargetEnvironment("all");
+                            setAgentName("all");
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="all">All categories</option>
+                          {filterOptions.categories.map((value) => (
+                            <option value={value} key={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="run-scope-field">
+                        <span>Stage</span>
+                        <StageMultiSelect
+                          options={filterOptions.stages}
+                          selected={selectedStages}
+                          onChange={(stages) => {
+                            setSelectedStages(stages);
+                            setTargetEnvironment("all");
+                            setRunPage(0);
+                          }}
+                        />
+                      </div>
+                      <label>
+                        <span>Target environment</span>
+                        <select
+                          value={targetEnvironment}
+                          onChange={(event) => {
+                            setTargetEnvironment(event.target.value);
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="all">All targets</option>
+                          {filterOptions.targetEnvironments.map((value) => (
+                            <option value={value} key={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
-                    <label>
-                      <span>Skill</span>
-                      <select
-                        value={skillFilter}
-                        onChange={(event) => {
-                          setSkillFilter(event.target.value);
-                          setTargetEnvironment("all");
-                          setAgentName("all");
-                          setRunPage(0);
-                        }}
-                      >
-                        <option value="all">
-                          {category === "all"
-                            ? "All skills"
-                            : `All skills in ${category}`}
-                        </option>
-                        {filterOptions.skills.map((value) => (
-                          <option value={value} key={value}>
-                            {value}
+                    <div className="run-scope-secondary">
+                      <label>
+                        <span>Skill</span>
+                        <select
+                          value={skillFilter}
+                          onChange={(event) => {
+                            setSkillFilter(event.target.value);
+                            setTargetEnvironment("all");
+                            setAgentName("all");
+                            setRunPage(0);
+                          }}
+                        >
+                          <option value="all">
+                            {category === "all"
+                              ? "All skills"
+                              : `All skills in ${category}`}
                           </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span>Target environment</span>
-                      <select
-                        value={targetEnvironment}
-                        onChange={(event) => {
-                          setTargetEnvironment(event.target.value);
-                          setRunPage(0);
-                        }}
-                      >
-                        <option value="all">All targets</option>
-                        {filterOptions.targetEnvironments.map((value) => (
-                          <option value={value} key={value}>
-                            {value}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span>Sort within groups</span>
-                      <select
-                        value={sortOrder}
-                        onChange={(event) => {
-                          setSortOrder(event.target.value as typeof sortOrder);
-                          setRunPage(0);
-                        }}
-                        aria-label="Sort runs"
-                      >
-                        <option value="newest">Newest first</option>
-                        <option value="oldest">Oldest first</option>
-                        <option value="pass-high">Highest pass rate</option>
-                        <option value="pass-low">Lowest pass rate</option>
-                        <option value="score-high">Highest mean score</option>
-                        <option value="score-low">Lowest mean score</option>
-                      </select>
-                    </label>
-                  </div>
+                          {filterOptions.skills.map((value) => (
+                            <option value={value} key={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Sort within groups</span>
+                        <select
+                          value={sortOrder}
+                          onChange={(event) => {
+                            setSortOrder(event.target.value as typeof sortOrder);
+                            setRunPage(0);
+                          }}
+                          aria-label="Sort runs"
+                        >
+                          <option value="newest">Newest first</option>
+                          <option value="oldest">Oldest first</option>
+                          <option value="pass-high">Highest pass rate</option>
+                          <option value="pass-low">Lowest pass rate</option>
+                          <option value="score-high">Highest mean score</option>
+                          <option value="score-low">Lowest mean score</option>
+                        </select>
+                      </label>
+                    </div>
+                  </section>
                   {moreFiltersOpen && (
                     <div className="advanced-filters" id="advanced-run-filters">
                       <label>

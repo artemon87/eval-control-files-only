@@ -4036,7 +4036,10 @@ button {
 /* Keep the expanded Runs filters aligned inside the panel at every width. */
 .advanced-filters {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 16px 14px;
   padding: 18px 20px;
+  border: 1px solid #e1e7eb;
+  border-radius: 10px;
   overflow: hidden;
 }
 
@@ -4059,10 +4062,11 @@ button {
 }
 
 .active-requirement-chips {
-  margin: 0;
+  margin: 0 16px 14px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--line);
-  background: #fbfcfd;
+  border: 1px solid #e1e7eb;
+  border-radius: 10px;
+  background: white;
 }
 
 .active-requirement-chips button {
@@ -4116,24 +4120,47 @@ select:not([multiple]):disabled {
 
 /* Runs use separate scope and organization controls: filters decide which
    records qualify; the grouping lens decides how those records are read. */
+.runs-panel > .filter-bar {
+  padding: 16px 16px 10px;
+  border-bottom: 0;
+}
+
+.run-scope-panel {
+  margin: 0 16px 14px;
+  border: 1px solid #e1e7eb;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 4px 14px rgba(40, 62, 78, 0.04);
+}
+
 .run-scope-filters {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--line);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  padding: 16px;
+}
+
+.run-scope-secondary {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr);
+  gap: 14px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid #edf1f3;
+  border-radius: 0 0 12px 12px;
   background: #fbfcfd;
 }
 
 .run-scope-filters label,
-.run-scope-field {
+.run-scope-field,
+.run-scope-secondary label {
   display: grid;
   min-width: 0;
   gap: 6px;
 }
 
 .run-scope-filters label > span,
-.run-scope-field > span {
+.run-scope-field > span,
+.run-scope-secondary label > span {
   color: #748596;
   font-size: 8px;
   font-weight: 800;
@@ -4141,7 +4168,8 @@ select:not([multiple]):disabled {
   text-transform: uppercase;
 }
 
-.run-scope-filters select {
+.run-scope-filters select,
+.run-scope-secondary select {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -4267,9 +4295,11 @@ select:not([multiple]):disabled {
   align-items: center;
   flex-wrap: wrap;
   gap: 7px;
+  margin: 0 16px 14px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--line);
-  background: #fbfcfd;
+  border: 1px solid #e1e7eb;
+  border-radius: 10px;
+  background: white;
 }
 
 .active-scope-chips > span {
@@ -4310,8 +4340,10 @@ select:not([multiple]):disabled {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  margin: 0 16px 16px;
   padding: 13px 16px;
-  border-bottom: 1px solid var(--line);
+  border: 1px solid #e1e7eb;
+  border-radius: 10px;
   background: #f4f7f8;
 }
 
@@ -4435,9 +4467,11 @@ select:not([multiple]):disabled {
   align-items: center;
   gap: 16px;
   min-height: 47px;
+  margin: 0 16px 12px;
   padding: 8px 16px;
-  border-top: 1px solid #edf1f3;
-  background: #fbfcfd;
+  border: 1px solid #e1e7eb;
+  border-radius: 10px;
+  background: white;
 }
 
 .run-visible-metrics > strong {
@@ -5270,6 +5304,10 @@ select:not([multiple]):disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .run-scope-secondary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .run-grouping-lens {
     align-items: flex-start;
     flex-direction: column;
@@ -5305,8 +5343,19 @@ select:not([multiple]):disabled {
 }
 
 @media (max-width: 620px) {
-  .run-scope-filters {
+  .run-scope-filters,
+  .run-scope-secondary {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .run-scope-panel,
+  .advanced-filters,
+  .active-requirement-chips,
+  .active-scope-chips,
+  .run-visible-metrics,
+  .run-grouping-lens {
+    margin-right: 12px;
+    margin-left: 12px;
   }
 
   .run-groups-view {
