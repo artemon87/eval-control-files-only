@@ -1225,6 +1225,7 @@ function RunGroups({
                   .map(([targetName, targetRuns]) => ({
                     name: targetName,
                     runs: targetRuns,
+                    childLabel: "skill",
                     subgroups: Array.from(
                       targetRuns.reduce((skills, run) => {
                         const skill = runSkillLabel(run);
@@ -1233,7 +1234,31 @@ function RunGroups({
                       }, new Map<string, EvalRun[]>()),
                     ).sort(([left], [right]) => left.localeCompare(right)),
                   }))
-              : [{ name: null, runs: groupRuns, subgroups }];
+              : resolvedLens === "skill" && multipleStages
+                ? Array.from(
+                    groupRuns.reduce((stages, run) => {
+                      const stage = run.stage;
+                      stages.set(stage, [...(stages.get(stage) ?? []), run]);
+                      return stages;
+                    }, new Map<string, EvalRun[]>()),
+                  )
+                    .sort(([left], [right]) => left.localeCompare(right))
+                    .map(([stageName, stageRuns]) => ({
+                      name: stageName,
+                      runs: stageRuns,
+                      childLabel: "target",
+                      subgroups: Array.from(
+                        stageRuns.reduce((targets, run) => {
+                          const target = runTargetLabel(run);
+                          targets.set(target, [
+                            ...(targets.get(target) ?? []),
+                            run,
+                          ]);
+                          return targets;
+                        }, new Map<string, EvalRun[]>()),
+                      ).sort(([left], [right]) => left.localeCompare(right)),
+                    }))
+                : [{ name: null, runs: groupRuns, childLabel: null, subgroups }];
           const recordedTargetCount = new Set(
             groupRuns.flatMap((run) => {
               const target = recordedRunTarget(run);
@@ -1244,14 +1269,15 @@ function RunGroups({
             (run) => recordedRunTarget(run) === null,
           ).length;
           const subgroupCount =
-            resolvedLens === "target" && multipleStages
+            multipleStages &&
+            (resolvedLens === "target" || resolvedLens === "skill")
               ? subgroupSections.length
               : resolvedLens === "skill" && !multipleStages
                 ? recordedTargetCount
                 : subgroups.length;
           const subgroupLabel = multipleStages
             ? resolvedLens === "skill"
-              ? "stage × target"
+              ? "stage"
               : "target"
             : resolvedLens === "skill"
               ? "target"
@@ -1296,15 +1322,15 @@ function RunGroups({
               <div className="run-subgroup-list">
                 {subgroupSections.map((section) => (
                   <section
-                    className={`run-target-section${section.name ? " run-target-section--nested" : ""}`}
+                    className={`run-nested-section${section.name ? " run-nested-section--active" : ""}`}
                     key={section.name ?? "subgroups"}
                   >
                     {section.name && (
-                      <header className="run-target-section-heading">
+                      <header className="run-nested-section-heading">
                         <span>
                           <strong>{section.name}</strong>
                           <small>
-                            {section.subgroups.length} skill
+                            {section.subgroups.length} {section.childLabel}
                             {section.subgroups.length === 1 ? "" : "s"} ·{" "}
                             {section.runs.length} run
                             {section.runs.length === 1 ? "" : "s"}

@@ -254,16 +254,22 @@ test("grouped runs expose selectable lazy metric matrices without stealing run c
   assert.match(cssSource, /\.run-metric-cell--failed/);
 });
 
-test("multi-stage target lens nests skills under a non-repeating target heading", () => {
+test("multi-stage grouping lenses use quiet nested scope headings", () => {
   assert.match(
     pageSource,
     /resolvedLens === "target" && multipleStages[\s\S]*runTargetLabel\(run\)/,
   );
-  assert.match(pageSource, /className="run-target-section-heading"/);
+  assert.match(
+    pageSource,
+    /resolvedLens === "skill" && multipleStages[\s\S]*const stage = run\.stage/,
+  );
+  assert.match(pageSource, /childLabel: "skill"/);
+  assert.match(pageSource, /childLabel: "target"/);
+  assert.match(pageSource, /className="run-nested-section-heading"/);
   assert.match(
     pageSource,
     /section\.subgroups\.map\(\(\[subgroupName, subgroupRuns\]\)/,
   );
-  assert.match(cssSource, /\.run-target-section-heading/);
-  assert.match(cssSource, /\.run-target-section--nested \.run-subgroup/);
+  assert.match(cssSource, /\.run-nested-section-heading/);
+  assert.match(cssSource, /\.run-nested-section--active \.run-subgroup/);
 });
