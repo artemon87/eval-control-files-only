@@ -1620,7 +1620,7 @@ button {
 }
 .history-controls--unit {
   grid-template-columns:
-    minmax(190px, 1.05fr) repeat(4, minmax(125px, 0.8fr))
+    minmax(190px, 1.05fr) repeat(5, minmax(110px, 0.75fr))
     auto;
 }
 .history-control-copy {
@@ -4125,13 +4125,15 @@ select:not([multiple]):disabled {
   background: #fbfcfd;
 }
 
-.run-scope-filters label {
+.run-scope-filters label,
+.run-scope-field {
   display: grid;
   min-width: 0;
   gap: 6px;
 }
 
-.run-scope-filters label > span {
+.run-scope-filters label > span,
+.run-scope-field > span {
   color: #748596;
   font-size: 8px;
   font-weight: 800;

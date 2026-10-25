@@ -288,15 +288,9 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
   const skill = run.skill;
   const environment = run.environment?.trim() || "unknown";
   const category = run.unit_config.category?.trim() || undefined;
-  const configuredStage = run.unit_config.stage?.trim() || undefined;
-  const recordedTargetEnvironment =
+  const stage = run.unit_config.stage?.trim() || environment;
+  const targetEnvironment =
     run.unit_config.target_environment?.trim() || undefined;
-  // Historical runs stored the stage in target_environment. Preserve those
-  // records without presenting the legacy stage value as a real target.
-  const stage = configuredStage ?? recordedTargetEnvironment ?? environment;
-  const targetEnvironment = configuredStage
-    ? recordedTargetEnvironment
-    : undefined;
   const agentName = run.unit_config.agent_name?.trim() || undefined;
   return {
     runId: run.run_id,
