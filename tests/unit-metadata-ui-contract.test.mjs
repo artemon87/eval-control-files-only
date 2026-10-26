@@ -95,7 +95,9 @@ test("run history supports category scoping and multi-target comparison", () => 
 });
 
 test("runs separate evaluation scope filters from the grouping lens", () => {
+  assert.match(pageSource, /className="run-scope-panel"/);
   assert.match(pageSource, /className="run-scope-filters"/);
+  assert.match(pageSource, /className="run-scope-secondary"/);
   assert.match(pageSource, /All skills in \$\{category\}/);
   assert.match(pageSource, /className="run-grouping-lens"/);
   assert.match(pageSource, /Skill → target/);
@@ -112,6 +114,8 @@ test("runs separate evaluation scope filters from the grouping lens", () => {
     /const latest = \[\.\.\.subgroupRuns\]\.sort\(\(left, right\) =>/,
   );
   assert.match(pageSource, /className="run-group-list"/);
+  assert.match(cssSource, /\.run-scope-panel/);
+  assert.match(cssSource, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(cssSource, /\.run-group-metrics/);
   assert.match(cssSource, /\.run-sequence-mark--failed/);
 });
@@ -174,6 +178,9 @@ test("run ordering offers quality and chronological choices", () => {
 
 
 test("advanced run requirements filter configured and observed quality", () => {
+  for (const section of ["Execution", "Source", "Quality"]) {
+    assert.match(pageSource, new RegExp(`<strong>${section}</strong>`));
+  }
   for (const label of [
     "Configured gate at least",
     "Observed pass rate at least",
@@ -185,6 +192,9 @@ test("advanced run requirements filter configured and observed quality", () => {
   assert.match(pageSource, /run\.summary\.passRatePct >= Number\(minimumPassRate\)/);
   assert.match(pageSource, /run\.summary\.meanScore >= Number\(minimumMeanScore\)/);
   assert.match(pageSource, /aria-label="Active score requirements"/);
+  assert.match(pageSource, /advanced-filter-grid--execution/);
+  assert.match(cssSource, /\.advanced-filter-section/);
+  assert.match(cssSource, /\.advanced-filter-grid--execution/);
   assert.match(cssSource, /\.active-requirement-chips/);
 });
 
