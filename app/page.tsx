@@ -2925,192 +2925,216 @@ export default function Home() {
                   </section>
                   {moreFiltersOpen && (
                     <div className="advanced-filters" id="advanced-run-filters">
-                      <label>
-                        <span>Execution status</span>
-                        <select
-                          value={executionStatus}
-                          onChange={(event) =>
-                            setExecutionStatus(
-                              event.target.value as "all" | ExecutionStatus,
-                            )
-                          }
-                        >
-                          <option value="all">All statuses</option>
-                          <option value="queued">Queued</option>
-                          <option value="running">Running</option>
-                          <option value="completed">Completed</option>
-                          <option value="error">Error</option>
-                          <option value="cancelled">Cancelled</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>Agent</span>
-                        <select
-                          value={agentName}
-                          onChange={(event) => {
-                            setAgentName(event.target.value);
-                            setRunPage(0);
-                          }}
-                        >
-                          <option value="all">All agents</option>
-                          {filterOptions.agentNames.map((value) => (
-                            <option value={value} key={value}>
-                              {value}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span>Trigger</span>
-                        <select
-                          value={trigger}
-                          onChange={(event) => setTrigger(event.target.value)}
-                        >
-                          <option value="all">All triggers</option>
-                          {filterOptions.triggers.map((value) => (
-                            <option value={value} key={value}>
-                              {value}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span>Actor</span>
-                        <select
-                          value={actor}
-                          onChange={(event) => setActor(event.target.value)}
-                        >
-                          <option value="all">All actors</option>
-                          {filterOptions.actors.map((value) => (
-                            <option value={value} key={value}>
-                              {value}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span>Started</span>
-                        <select
-                          value={startedWithin}
-                          onChange={(event) =>
-                            setStartedWithin(
-                              event.target.value as typeof startedWithin,
-                            )
-                          }
-                        >
-                          <option value="all">Any time</option>
-                          <option value="24h">Last 24 hours</option>
-                          <option value="7d">Last 7 days</option>
-                          <option value="30d">Last 30 days</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>Repository</span>
-                        <select
-                          value={repositoryFilter}
-                          onChange={(event) => {
-                            setRepositoryFilter(event.target.value);
-                            setBranchFilter("");
-                            setRunPage(0);
-                          }}
-                        >
-                          <option value="">All repositories</option>
-                          {filterOptions.repositories.map((repository) => (
-                            <option key={repository} value={repository}>
-                              {repository}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span>Branch</span>
-                        <select
-                          value={branchFilter}
-                          onChange={(event) => {
-                            setBranchFilter(event.target.value);
-                            setRunPage(0);
-                          }}
-                        >
-                          <option value="">All branches</option>
-                          {filterOptions.branches.map((branch) => (
-                            <option key={branch} value={branch}>
-                              {branch}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span>Commit SHA</span>
-                        <input
-                          type="text"
-                          value={shaFilter}
-                          placeholder="Full or short SHA"
-                          onChange={(event) => {
-                            setShaFilter(event.target.value);
-                            setRunPage(0);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        <span>Configured gate at least</span>
-                        <select
-                          value={minimumGateThreshold}
-                          disabled={filterOptions.gateThresholds.length === 0}
-                          onChange={(event) => {
-                            setMinimumGateThreshold(event.target.value);
-                            setRunPage(0);
-                          }}
-                        >
-                          <option value="">
-                            {filterOptions.gateThresholds.length
-                              ? "Any gate threshold"
-                              : "No recorded gate thresholds"}
-                          </option>
-                          <option value="70">70%</option>
-                          <option value="80">80%</option>
-                          <option value="90">90%</option>
-                          <option value="95">95%</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>Observed pass rate at least</span>
-                        <select
-                          value={minimumPassRate}
-                          onChange={(event) => {
-                            setMinimumPassRate(event.target.value);
-                            setRunPage(0);
-                          }}
-                        >
-                          <option value="">Any pass rate</option>
-                          <option value="70">70%</option>
-                          <option value="80">80%</option>
-                          <option value="90">90%</option>
-                          <option value="95">95%</option>
-                          <option value="100">100%</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>Mean score at least</span>
-                        <select
-                          value={minimumMeanScore}
-                          disabled={!filterOptions.hasMeanScores}
-                          onChange={(event) => {
-                            setMinimumMeanScore(event.target.value);
-                            setRunPage(0);
-                          }}
-                        >
-                          <option value="">
-                            {filterOptions.hasMeanScores
-                              ? "Any mean score"
-                              : "No recorded mean scores"}
-                          </option>
-                          <option value="2">2.0</option>
-                          <option value="3">3.0</option>
-                          <option value="4">4.0</option>
-                          <option value="4.5">4.5</option>
-                          <option value="5">5.0</option>
-                        </select>
-                      </label>
+                      <section className="advanced-filter-section">
+                        <header>
+                          <strong>Execution</strong>
+                          <span>When and how the run was started</span>
+                        </header>
+                        <div className="advanced-filter-grid advanced-filter-grid--execution">
+                          <label>
+                            <span>Execution status</span>
+                            <select
+                              value={executionStatus}
+                              onChange={(event) =>
+                                setExecutionStatus(
+                                  event.target.value as "all" | ExecutionStatus,
+                                )
+                              }
+                            >
+                              <option value="all">All statuses</option>
+                              <option value="queued">Queued</option>
+                              <option value="running">Running</option>
+                              <option value="completed">Completed</option>
+                              <option value="error">Error</option>
+                              <option value="cancelled">Cancelled</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>Agent</span>
+                            <select
+                              value={agentName}
+                              onChange={(event) => {
+                                setAgentName(event.target.value);
+                                setRunPage(0);
+                              }}
+                            >
+                              <option value="all">All agents</option>
+                              {filterOptions.agentNames.map((value) => (
+                                <option value={value} key={value}>
+                                  {value}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>Trigger</span>
+                            <select
+                              value={trigger}
+                              onChange={(event) => setTrigger(event.target.value)}
+                            >
+                              <option value="all">All triggers</option>
+                              {filterOptions.triggers.map((value) => (
+                                <option value={value} key={value}>
+                                  {value}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>Actor</span>
+                            <select
+                              value={actor}
+                              onChange={(event) => setActor(event.target.value)}
+                            >
+                              <option value="all">All actors</option>
+                              {filterOptions.actors.map((value) => (
+                                <option value={value} key={value}>
+                                  {value}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>Started</span>
+                            <select
+                              value={startedWithin}
+                              onChange={(event) =>
+                                setStartedWithin(
+                                  event.target.value as typeof startedWithin,
+                                )
+                              }
+                            >
+                              <option value="all">Any time</option>
+                              <option value="24h">Last 24 hours</option>
+                              <option value="7d">Last 7 days</option>
+                              <option value="30d">Last 30 days</option>
+                            </select>
+                          </label>
+                        </div>
+                      </section>
+                      <section className="advanced-filter-section">
+                        <header>
+                          <strong>Source</strong>
+                          <span>Repository and revision</span>
+                        </header>
+                        <div className="advanced-filter-grid">
+                          <label>
+                            <span>Repository</span>
+                            <select
+                              value={repositoryFilter}
+                              onChange={(event) => {
+                                setRepositoryFilter(event.target.value);
+                                setBranchFilter("");
+                                setRunPage(0);
+                              }}
+                            >
+                              <option value="">All repositories</option>
+                              {filterOptions.repositories.map((repository) => (
+                                <option key={repository} value={repository}>
+                                  {repository}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>Branch</span>
+                            <select
+                              value={branchFilter}
+                              onChange={(event) => {
+                                setBranchFilter(event.target.value);
+                                setRunPage(0);
+                              }}
+                            >
+                              <option value="">All branches</option>
+                              {filterOptions.branches.map((branch) => (
+                                <option key={branch} value={branch}>
+                                  {branch}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>Commit SHA</span>
+                            <input
+                              type="text"
+                              value={shaFilter}
+                              placeholder="Full or short SHA"
+                              onChange={(event) => {
+                                setShaFilter(event.target.value);
+                                setRunPage(0);
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </section>
+                      <section className="advanced-filter-section">
+                        <header>
+                          <strong>Quality</strong>
+                          <span>Minimum configured and observed results</span>
+                        </header>
+                        <div className="advanced-filter-grid">
+                          <label>
+                            <span>Configured gate at least</span>
+                            <select
+                              value={minimumGateThreshold}
+                              disabled={filterOptions.gateThresholds.length === 0}
+                              onChange={(event) => {
+                                setMinimumGateThreshold(event.target.value);
+                                setRunPage(0);
+                              }}
+                            >
+                              <option value="">
+                                {filterOptions.gateThresholds.length
+                                  ? "Any gate threshold"
+                                  : "No recorded gate thresholds"}
+                              </option>
+                              <option value="70">70%</option>
+                              <option value="80">80%</option>
+                              <option value="90">90%</option>
+                              <option value="95">95%</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>Observed pass rate at least</span>
+                            <select
+                              value={minimumPassRate}
+                              onChange={(event) => {
+                                setMinimumPassRate(event.target.value);
+                                setRunPage(0);
+                              }}
+                            >
+                              <option value="">Any pass rate</option>
+                              <option value="70">70%</option>
+                              <option value="80">80%</option>
+                              <option value="90">90%</option>
+                              <option value="95">95%</option>
+                              <option value="100">100%</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>Mean score at least</span>
+                            <select
+                              value={minimumMeanScore}
+                              disabled={!filterOptions.hasMeanScores}
+                              onChange={(event) => {
+                                setMinimumMeanScore(event.target.value);
+                                setRunPage(0);
+                              }}
+                            >
+                              <option value="">
+                                {filterOptions.hasMeanScores
+                                  ? "Any mean score"
+                                  : "No recorded mean scores"}
+                              </option>
+                              <option value="2">2.0</option>
+                              <option value="3">3.0</option>
+                              <option value="4">4.0</option>
+                              <option value="4.5">4.5</option>
+                              <option value="5">5.0</option>
+                            </select>
+                          </label>
+                        </div>
+                      </section>
                       <div className="advanced-filter-actions">
                         <span>
                           {activeMoreFilterCount
