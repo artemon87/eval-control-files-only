@@ -1696,6 +1696,12 @@ function RunGroups({
 
 export default function Home() {
   const RUNS_PAGE_SIZE = 25;
+  // Grouping and filter options are derived from the loaded runs. Use the
+  // backend's maximum page size for the initial scope so "All categories"
+  // is not accidentally represented by whichever category owns the newest
+  // 50 runs. Older pages can still be fetched incrementally.
+  const RUN_SCOPE_LOAD_LIMIT = 200;
+  const RUN_OLDER_LOAD_LIMIT = 50;
   // Resolve the public API URL after hydration. Reading a build-time public
   // environment variable during the first render can produce different server
   // and browser trees in local Vite/vinext builds, leaving the page visible but
@@ -1860,7 +1866,7 @@ export default function Home() {
     try {
       const batch = await api.listRunBatch(
         undefined,
-        50,
+        RUN_SCOPE_LOAD_LIMIT,
         undefined,
         runListFilters,
       );
@@ -1885,7 +1891,12 @@ export default function Home() {
     if (!api) return;
     const controller = new AbortController();
     void api
-      .listRunBatch(undefined, 50, controller.signal, runListFilters)
+      .listRunBatch(
+        undefined,
+        RUN_SCOPE_LOAD_LIMIT,
+        controller.signal,
+        runListFilters,
+      )
       .then((batch) => {
         setRuns(batch.items);
         setRunCursors(batch.nextCursors);
@@ -1916,7 +1927,7 @@ export default function Home() {
     try {
       const batch = await api.listRunBatch(
         runCursors,
-        50,
+        RUN_OLDER_LOAD_LIMIT,
         undefined,
         runListFilters,
       );
