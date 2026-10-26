@@ -227,6 +227,23 @@ test("run filters restore category-scoped skill selection", () => {
   assert.match(apiSource, /params\.set\("skill", filters\.skill\)/);
 });
 
+test("broad run scope is not derived from a category-biased 50-run page", () => {
+  assert.match(pageSource, /const RUN_SCOPE_LOAD_LIMIT = 200/);
+  assert.match(pageSource, /const RUN_OLDER_LOAD_LIMIT = 50/);
+  assert.equal(
+    (
+      pageSource.match(
+        /listRunBatch\(\s*undefined,\s*RUN_SCOPE_LOAD_LIMIT/g,
+      ) ?? []
+    ).length,
+    2,
+  );
+  assert.match(
+    pageSource,
+    /listRunBatch\(\s*runCursors,\s*RUN_OLDER_LOAD_LIMIT/,
+  );
+});
+
 test("quality filters distinguish missing data from real zero scores", () => {
   assert.match(apiSource, /mean_scores\?:/);
   assert.match(apiSource, /function summaryMeanScore/);
@@ -278,6 +295,10 @@ test("grouped runs expose selectable lazy metric matrices without stealing run c
   assert.match(cssSource, /\.run-visible-metrics/);
   assert.match(cssSource, /\.run-metric-cell--passed/);
   assert.match(cssSource, /\.run-metric-cell--failed/);
+  assert.match(
+    cssSource,
+    /\.run-nested-section--active \.run-subgroup[\s\S]*padding-left: 52px[\s\S]*\.run-nested-section--active \.run-metric-matrix[\s\S]*padding-left: 52px/,
+  );
 });
 
 test("multi-stage grouping lenses use quiet nested scope headings", () => {

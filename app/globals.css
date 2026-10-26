@@ -4976,6 +4976,11 @@ select:not([multiple]):disabled {
   padding-left: 52px;
 }
 
+/* Keep expanded metric cells on the same run columns as their nested row. */
+.run-nested-section--active .run-metric-matrix {
+  padding-left: 52px;
+}
+
 .run-subgroup:hover {
   background: #fbfdfd;
 }
