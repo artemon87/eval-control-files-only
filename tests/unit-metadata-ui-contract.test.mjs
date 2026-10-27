@@ -73,6 +73,21 @@ test("stage is a first-class scope independent from target environment", () => {
   );
 });
 
+test("stage multi-select keeps unselected options available", () => {
+  assert.match(
+    pageSource,
+    /const \[stageOptionRuns, setStageOptionRuns\] = useState<EvalRun\[]>\(\[\]\)/,
+  );
+  assert.match(
+    pageSource,
+    /if \(selectedStages\.length === 0\) setStageOptionRuns\(batch\.items\)/,
+  );
+  assert.match(
+    pageSource,
+    /\(stageOptionRuns\.length \? stageOptionRuns : runs\)/,
+  );
+});
+
 test("unit metadata filters preserve repository, branch, and SHA scoping", () => {
   assert.match(pageSource, /githubRepository: repositoryFilter\.trim\(\)/);
   assert.match(pageSource, /gitRef: branchFilter\.trim\(\)/);

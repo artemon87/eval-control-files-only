@@ -1733,6 +1733,7 @@ export default function Home() {
   const [branchFilter, setBranchFilter] = useState("");
   const [shaFilter, setShaFilter] = useState("");
   const [selectedStages, setSelectedStages] = useState<string[]>([]);
+  const [stageOptionRuns, setStageOptionRuns] = useState<EvalRun[]>([]);
   const [category, setCategory] = useState("all");
   const [skillFilter, setSkillFilter] = useState("all");
   const [targetEnvironment, setTargetEnvironment] = useState("all");
@@ -1880,6 +1881,7 @@ export default function Home() {
         runListFilters,
       );
       setRuns(batch.items);
+      if (selectedStages.length === 0) setStageOptionRuns(batch.items);
       setRunCursors(batch.nextCursors);
       setRunPage(0);
       setDataState("live");
@@ -1894,7 +1896,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [api, runListFilters]);
+  }, [api, runListFilters, selectedStages.length]);
 
   useEffect(() => {
     if (!api) return;
@@ -1908,6 +1910,7 @@ export default function Home() {
       )
       .then((batch) => {
         setRuns(batch.items);
+        if (selectedStages.length === 0) setStageOptionRuns(batch.items);
         setRunCursors(batch.nextCursors);
         setDataState("live");
         setApiError(null);
@@ -1928,7 +1931,7 @@ export default function Home() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [api, runListFilters]);
+  }, [api, runListFilters, selectedStages.length]);
 
   const loadOlderRuns = useCallback(async () => {
     if (!api || !hasOlderRuns || loadingMoreRuns) return 0;
@@ -1941,6 +1944,13 @@ export default function Home() {
         runListFilters,
       );
       setRunCursors(batch.nextCursors);
+      if (selectedStages.length === 0) {
+        setStageOptionRuns((current) => {
+          const byId = new Map(current.map((run) => [run.runId, run]));
+          batch.items.forEach((run) => byId.set(run.runId, run));
+          return Array.from(byId.values());
+        });
+      }
       setRuns((current) => {
         const byId = new Map(current.map((run) => [run.runId, run]));
         batch.items.forEach((run) => byId.set(run.runId, run));
@@ -1957,7 +1967,14 @@ export default function Home() {
     } finally {
       setLoadingMoreRuns(false);
     }
-  }, [api, hasOlderRuns, loadingMoreRuns, runCursors, runListFilters]);
+  }, [
+    api,
+    hasOlderRuns,
+    loadingMoreRuns,
+    runCursors,
+    runListFilters,
+    selectedStages.length,
+  ]);
 
   useEffect(() => {
     if (!selectedRunId || selectedRun || !api || dataState !== "live") return;
@@ -2004,7 +2021,7 @@ export default function Home() {
     () => ({
       stages: Array.from(
         new Set(
-          runs
+          (stageOptionRuns.length ? stageOptionRuns : runs)
             .filter(
               (run) =>
                 category === "all" ||
@@ -2097,7 +2114,14 @@ export default function Home() {
       }),
       hasMeanScores: runs.some((run) => run.summary.meanScoreRecorded),
     }),
-    [runs, repositoryFilter, category, skillFilter, selectedStages],
+    [
+      runs,
+      stageOptionRuns,
+      repositoryFilter,
+      category,
+      skillFilter,
+      selectedStages,
+    ],
   );
 
   const activeMoreFilterCount =
@@ -2836,6 +2860,7 @@ export default function Home() {
                           value={category}
                           onChange={(event) => {
                             setCategory(event.target.value);
+                            setSelectedStages([]);
                             setSkillFilter("all");
                             setTargetEnvironment("all");
                             setAgentName("all");
