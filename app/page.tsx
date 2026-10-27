@@ -17,7 +17,6 @@ import {
   type EvaluationView,
 } from "./components/sidebar-navigation";
 import { configuredEvalApi, type EvalApi } from "./lib/eval-api";
-import { fixedTimeWindow } from "./lib/time-window";
 import type {
   EvalCase,
   EvalRun,
@@ -1742,7 +1741,7 @@ export default function Home() {
   const [actor, setActor] = useState("all");
   const [sortOrder, setSortOrder] = useState<RunSortOrder>("newest");
   const [startedWithin, setStartedWithin] = useState<
-    "all" | "24h" | "7d" | "30d" | "90d"
+    "all" | "24h" | "7d" | "30d"
   >("all");
   const [minimumGateThreshold, setMinimumGateThreshold] = useState("");
   const [minimumPassRate, setMinimumPassRate] = useState("");
@@ -1778,11 +1777,6 @@ export default function Home() {
     [runs, selectedRunId],
   );
   const hasOlderRuns = Boolean(runCursors.e2e || runCursors.unit);
-  const runTimeWindow = useMemo(
-    () =>
-      startedWithin === "all" ? null : fixedTimeWindow(startedWithin),
-    [startedWithin],
-  );
   const runListFilters = useMemo(
     () => ({
       skill: skillFilter === "all" ? undefined : skillFilter,
@@ -1794,15 +1788,12 @@ export default function Home() {
       targetEnvironment:
         targetEnvironment === "all" ? undefined : targetEnvironment,
       agentName: agentName === "all" ? undefined : agentName,
-      startedFrom: runTimeWindow?.startedFrom,
-      startedBefore: runTimeWindow?.startedBefore,
     }),
     [
       agentName,
       branchFilter,
       category,
       repositoryFilter,
-      runTimeWindow,
       selectedStages,
       shaFilter,
       skillFilter,
@@ -2160,6 +2151,23 @@ export default function Home() {
       const matching = runs.filter((run) => {
         const haystack =
           `${run.runId} ${run.actor} ${run.stage} ${run.target} ${run.gitSha} ${run.unitConfig?.skillId ?? ""} ${run.unitConfig?.skillVersion ?? ""} ${run.unitConfig?.category ?? ""} ${run.unitConfig?.stage ?? ""} ${run.unitConfig?.targetEnvironment ?? ""} ${run.unitConfig?.agentName ?? ""} ${run.e2eConfig?.selectedSuites.join(" ") ?? ""}`.toLowerCase();
+        const hours =
+          startedWithin === "24h"
+            ? 24
+            : startedWithin === "7d"
+              ? 24 * 7
+              : startedWithin === "30d"
+                ? 24 * 30
+                : null;
+        const referenceTime = runs.reduce(
+          (latest, item) =>
+            Math.max(latest, new Date(item.startedAt).getTime()),
+          0,
+        );
+        const startedMatches =
+          hours === null ||
+          new Date(run.startedAt).getTime() >=
+            referenceTime - hours * 3_600_000;
         const configuredGate =
           run.evalType === "unit"
             ? run.unitConfig?.passRateThreshold
@@ -2199,7 +2207,8 @@ export default function Home() {
           (actor === "all" || run.actor === actor) &&
           gateMatches &&
           passRateMatches &&
-          meanScoreMatches
+          meanScoreMatches &&
+          startedMatches
         );
       });
       return matching.sort((left, right) => {
@@ -2232,6 +2241,7 @@ export default function Home() {
       skillFilter,
       sortOrder,
       selectedStages,
+      startedWithin,
       targetEnvironment,
       trigger,
       type,
@@ -3034,7 +3044,6 @@ export default function Home() {
                               <option value="24h">Last 24 hours</option>
                               <option value="7d">Last 7 days</option>
                               <option value="30d">Last 30 days</option>
-                              <option value="90d">Last 90 days</option>
                             </select>
                           </label>
                         </div>
