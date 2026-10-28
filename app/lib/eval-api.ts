@@ -413,6 +413,8 @@ export type RunListFilters = {
   targetEnvironment?: string;
   category?: string;
   agentName?: string;
+  startedFrom?: string;
+  startedBefore?: string;
 };
 
 export class EvalApi {
@@ -474,6 +476,12 @@ export class EvalApi {
       }
       if (filters.gitRef) params.set("git_ref", filters.gitRef);
       if (filters.gitSha) params.set("git_sha", filters.gitSha);
+      if (filters.startedFrom) {
+        params.set("started_from", filters.startedFrom);
+      }
+      if (filters.startedBefore) {
+        params.set("started_before", filters.startedBefore);
+      }
 
       if (evalType === "unit") {
         if (filters.skill) params.set("skill", filters.skill);
