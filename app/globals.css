@@ -4880,6 +4880,22 @@ select:not([multiple]):disabled {
   font-size: 10px;
 }
 
+.run-attention-stage-heading .run-nested-section-rate small,
+.run-attention-stage-heading .run-nested-section-rate strong {
+  display: block;
+}
+
+.run-attention-stage-heading .run-nested-section-rate small {
+  color: #8a98a5;
+  font-size: 8px;
+}
+
+.run-attention-stage-heading .run-nested-section-rate strong {
+  margin-top: 3px;
+  color: #344a5e;
+  font-size: 10px;
+}
+
 .run-attention-stage-heading > span:not(.run-nested-section-rate):not(.run-nested-section-chevron) {
   color: #718290;
   font-size: 9px;
