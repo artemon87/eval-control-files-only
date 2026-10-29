@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { signIn, useSession } from "next-auth/react";
 
 import { SectionPage } from "../components/section-page";
 import { markSuggestionIdsSeen } from "../lib/suggestion-notifications";
@@ -106,6 +107,7 @@ function isAcceptedImage(file: File): boolean {
 }
 
 export default function SuggestionsPage() {
+  const { status: sessionStatus } = useSession();
   const [items, setItems] = useState<Suggestion[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -179,8 +181,27 @@ export default function SuggestionsPage() {
     }
   }, []);
 
+  useEffect(() => {
+    if (sessionStatus !== "authenticated") {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      void load(controller.signal);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [load, sessionStatus]);
 
   useEffect(() => {
+    if (sessionStatus !== "authenticated") {
+      return;
+    }
+
     let cancelled = false;
 
     async function loadSuggestionAuthorization() {
@@ -203,8 +224,7 @@ export default function SuggestionsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
+  }, [sessionStatus]);
 
   useEffect(
     () => () => {
@@ -384,6 +404,52 @@ export default function SuggestionsPage() {
     } finally {
       setUpdatingStatusId(null);
     }
+  }
+
+  if (sessionStatus === "loading") {
+    return (
+      <SectionPage
+        eyebrow="Product feedback"
+        title="Suggestions"
+        description="Propose EvalHub improvements and vote on the work that matters most."
+      >
+        <div className={styles.authPrompt} aria-live="polite">
+          <span className={styles.authPromptIcon}>…</span>
+          <h2>Checking your session</h2>
+          <p>One moment while we confirm your sign-in status.</p>
+        </div>
+      </SectionPage>
+    );
+  }
+
+  if (sessionStatus === "unauthenticated") {
+    return (
+      <SectionPage
+        eyebrow="Product feedback"
+        title="Suggestions"
+        description="Propose EvalHub improvements and vote on the work that matters most."
+      >
+        <div className={styles.authPrompt}>
+          <span className={styles.authPromptIcon} aria-hidden="true">◇</span>
+          <span className={styles.authPromptEyebrow}>Community feedback</span>
+          <h2>Sign in to view suggestions</h2>
+          <p>
+            Join the conversation, vote on community priorities, and propose
+            improvements for EvalHub.
+          </p>
+          <button
+            type="button"
+            onClick={() =>
+              void signIn("microsoft-entra-id", {
+                redirectTo: "/suggestions",
+              })
+            }
+          >
+            Sign in to continue
+          </button>
+        </div>
+      </SectionPage>
+    );
   }
 
   return (

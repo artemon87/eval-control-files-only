@@ -188,14 +188,31 @@ button {
   letter-spacing: 0.06em;
 }
 .nav-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   margin-left: auto;
-  padding: 2px 5px;
+  padding: 4px 8px;
+  border: 1px solid rgba(136, 242, 218, 0.58);
   border-radius: 999px;
-  background: rgba(46, 195, 163, 0.16);
-  color: #52d5b8;
-  font-size: 7px;
+  background: linear-gradient(135deg, #27bfa1 0%, #3f91dc 100%);
+  color: #fff;
+  box-shadow:
+    0 0 0 2px rgba(39, 191, 161, 0.1),
+    0 4px 12px rgba(16, 43, 61, 0.3);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
+}
+.nav-new::before {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #dffff7;
+  box-shadow: 0 0 7px rgba(223, 255, 247, 0.95);
+  content: "";
 }
 .sidebar nav .nav-link {
   width: 100%;
