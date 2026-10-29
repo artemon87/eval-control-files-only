@@ -16,6 +16,12 @@ import { signIn, useSession } from "next-auth/react";
 
 import { SectionPage } from "../components/section-page";
 import { markSuggestionIdsSeen } from "../lib/suggestion-notifications";
+import type {
+  Suggestion,
+  SuggestionAttachment,
+  SuggestionStatus,
+  StatusFilter,
+} from "../lib/suggestion-types";
 import styles from "./suggestions.module.css";
 
 import {
@@ -26,28 +32,6 @@ import {
   patchSuggestionStatus,
 } from "../lib/suggestion-api";
 
-
-type SuggestionStatus = "open" | "planned" | "completed" | "declined";
-type StatusFilter = "all" | SuggestionStatus;
-
-type SuggestionAttachment = {
-  id: string;
-  filename: string;
-  content_type: "image/png" | "image/jpeg";
-  size_bytes: number;
-};
-
-type Suggestion = {
-  id: string;
-  title: string;
-  description: string;
-  author: string;
-  status: SuggestionStatus;
-  vote_count: number;
-  created_at: string;
-  attachments: SuggestionAttachment[];
-  viewer_has_voted: boolean;
-};
 
 type SelectedImage = {
   id: string;
@@ -119,6 +103,7 @@ export default function SuggestionsPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lightboxRef = useRef<HTMLDivElement>(null);
   const objectUrlsRef = useRef(new Set<string>());
   //new
   const [updatingStatusId, setUpdatingStatusId] =
@@ -198,6 +183,51 @@ export default function SuggestionsPage() {
   }, [load, sessionStatus]);
 
   useEffect(() => {
+    if (!lightbox) return;
+
+    const trigger = document.activeElement as HTMLElement | null;
+    const dialog = lightboxRef.current;
+    dialog?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setLightbox(null);
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) return;
+
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>("button:not([disabled])"),
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+
+      if (event.shiftKey && (active === first || active === dialog)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (!dialog.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      trigger?.focus();
+    };
+  }, [lightbox]);
+
+  useEffect(() => {
     if (sessionStatus !== "authenticated") {
       return;
     }
@@ -240,15 +270,8 @@ export default function SuggestionsPage() {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setLightbox(null);
-    };
-
-    window.addEventListener("keydown", closeOnEscape);
-
     return () => {
       document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", closeOnEscape);
     };
   }, [lightbox]);
 
@@ -377,6 +400,8 @@ export default function SuggestionsPage() {
     suggestionId: string,
     nextStatus: SuggestionStatus,
   ) {
+    if (updatingStatusId !== null) return;
+
     setUpdatingStatusId(suggestionId);
     setError(null);
 
@@ -746,7 +771,9 @@ export default function SuggestionsPage() {
             onClick={() => setLightbox(null)}
           >
             <div
+              ref={lightboxRef}
               className={styles.lightbox}
+              tabIndex={-1}
               onClick={(event) => event.stopPropagation()}
             >
               <button
