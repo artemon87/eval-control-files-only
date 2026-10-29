@@ -104,6 +104,7 @@ export default function SuggestionsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lightboxRef = useRef<HTMLDivElement>(null);
+  const isLightboxOpen = lightbox !== null;
   const objectUrlsRef = useRef(new Set<string>());
   //new
   const [updatingStatusId, setUpdatingStatusId] =
@@ -183,7 +184,7 @@ export default function SuggestionsPage() {
   }, [load, sessionStatus]);
 
   useEffect(() => {
-    if (!lightbox) return;
+    if (!isLightboxOpen) return;
 
     const trigger = document.activeElement as HTMLElement | null;
     const dialog = lightboxRef.current;
@@ -225,7 +226,7 @@ export default function SuggestionsPage() {
       document.removeEventListener("keydown", handleKeyDown);
       trigger?.focus();
     };
-  }, [lightbox]);
+  }, [isLightboxOpen]);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated") {
@@ -265,7 +266,7 @@ export default function SuggestionsPage() {
   );
 
   useEffect(() => {
-    if (!lightbox) return;
+    if (!isLightboxOpen) return;
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -273,7 +274,7 @@ export default function SuggestionsPage() {
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [lightbox]);
+  }, [isLightboxOpen]);
 
   function addImages(selected: File[]) {
     setError(null);
