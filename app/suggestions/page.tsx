@@ -183,21 +183,22 @@ export default function SuggestionsPage() {
 
   useEffect(() => {
     if (sessionStatus !== "authenticated") {
-      setItems([]);
-      setError(null);
-      setLoading(sessionStatus === "loading");
       return;
     }
 
     const controller = new AbortController();
-    void load(controller.signal);
+    const timeoutId = window.setTimeout(() => {
+      void load(controller.signal);
+    }, 0);
 
-    return () => controller.abort();
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [load, sessionStatus]);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated") {
-      setCanManageSuggestions(false);
       return;
     }
 
