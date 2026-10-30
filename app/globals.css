@@ -3398,10 +3398,6 @@ button {
   font: inherit;
 }
 .trend-run-id {
-  color: #2e5662;
-  font:
-    700 8.5px var(--font-geist-mono),
-    monospace;
   white-space: nowrap;
 }
 .trend-score-cell,
@@ -3415,18 +3411,10 @@ button {
 .trend-score-cell span {
   color: #8b99a5;
 }
-.trend-open-run {
-  padding: 6px 9px;
-  border: 0;
-  background: transparent;
-  color: #168c7b;
-  font-size: 8px;
-  font-weight: 800;
-}
-.trend-open-run:hover {
+.trend-run-id:hover {
   text-decoration: underline;
 }
-.trend-open-run:focus-visible {
+.trend-run-id:focus-visible {
   outline: 2px solid #36a38f;
   outline-offset: 2px;
   border-radius: 3px;
