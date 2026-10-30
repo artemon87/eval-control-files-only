@@ -2170,6 +2170,11 @@ export default function Home() {
   const filteredRuns = useMemo(
     () => {
       const matching = runs.filter((run) => {
+        const startedAt = Date.parse(run.startedAt);
+        const withinTimeWindow =
+          !runTimeWindow ||
+          (startedAt >= Date.parse(runTimeWindow.startedFrom) &&
+            startedAt < Date.parse(runTimeWindow.startedBefore));
         const haystack =
           `${run.runId} ${run.actor} ${run.stage} ${run.target} ${run.gitSha} ${run.unitConfig?.skillId ?? ""} ${run.unitConfig?.skillVersion ?? ""} ${run.unitConfig?.category ?? ""} ${run.unitConfig?.stage ?? ""} ${run.unitConfig?.targetEnvironment ?? ""} ${run.unitConfig?.agentName ?? ""} ${run.e2eConfig?.selectedSuites.join(" ") ?? ""}`.toLowerCase();
         const configuredGate =
@@ -2211,7 +2216,8 @@ export default function Home() {
           (actor === "all" || run.actor === actor) &&
           gateMatches &&
           passRateMatches &&
-          meanScoreMatches
+          meanScoreMatches &&
+          withinTimeWindow
         );
       });
       return matching.sort((left, right) => {
@@ -2240,6 +2246,7 @@ export default function Home() {
       minimumMeanScore,
       minimumPassRate,
       runs,
+      runTimeWindow,
       search,
       skillFilter,
       sortOrder,
@@ -4484,6 +4491,7 @@ function DrilldownTrendDrawer({
     { length: Math.min(5, historyPageCount) },
     (_, index) => pageWindowStart + index,
   );
+  const lastPageIsPartial = newestPoints.length % historyPageSize !== 0;
   const showNextHistoryPage = async () => {
     if (currentHistoryPage < historyPageCount) {
       setHistoryPage(currentHistoryPage + 1);
@@ -4491,7 +4499,9 @@ function DrilldownTrendDrawer({
     }
     if (!nextCursor) return;
     const loadedCount = await loadOlder();
-    if (loadedCount > 0) setHistoryPage(currentHistoryPage + 1);
+    if (loadedCount > 0 && !lastPageIsPartial) {
+      setHistoryPage(currentHistoryPage + 1);
+    }
   };
   return (
     <div
@@ -4717,7 +4727,13 @@ function DrilldownTrendDrawer({
                       }
                       onClick={() => void showNextHistoryPage()}
                     >
-                      {loadingOlder ? "Loading…" : "Next"}
+                      {loadingOlder
+                        ? "Loading…"
+                        : nextCursor &&
+                            currentHistoryPage === historyPageCount &&
+                            lastPageIsPartial
+                          ? "Load more"
+                          : "Next"}
                     </button>
                   </nav>
                 </div>
