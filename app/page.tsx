@@ -4629,12 +4629,28 @@ function DrilldownTrendDrawer({
                     </thead>
                     <tbody>
                       {visibleHistoryPoints.map((point) => (
-                        <tr key={`${point.runId}-${point.startedAt}`}>
+                        <tr
+                          key={`${point.runId}-${point.startedAt}`}
+                          className="clickable-row"
+                          tabIndex={0}
+                          aria-label={`Open run ${point.runId}`}
+                          onClick={() => onOpenRun(point.runId)}
+                          onKeyDown={(event) => {
+                            if (event.target !== event.currentTarget) return;
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              onOpenRun(point.runId);
+                            }
+                          }}
+                        >
                           <td>
                             <button
                               type="button"
                               className="run-link trend-run-id"
-                              onClick={() => onOpenRun(point.runId)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onOpenRun(point.runId);
+                              }}
                             >
                               {point.runId}
                             </button>
