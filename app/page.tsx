@@ -4625,16 +4625,19 @@ function DrilldownTrendDrawer({
                         <th>Verdict</th>
                         <th>Score / gate</th>
                         <th>Started</th>
-                        <th>
-                          <span className="sr-only">Action</span>
-                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {visibleHistoryPoints.map((point) => (
                         <tr key={`${point.runId}-${point.startedAt}`}>
                           <td>
-                            <span className="trend-run-id">{point.runId}</span>
+                            <button
+                              type="button"
+                              className="run-link trend-run-id"
+                              onClick={() => onOpenRun(point.runId)}
+                            >
+                              {point.runId}
+                            </button>
                           </td>
                           <td>
                             {request.evalType === "unit"
@@ -4650,14 +4653,6 @@ function DrilldownTrendDrawer({
                           </td>
                           <td className="trend-started-cell">
                             {formatTime(point.startedAt)}
-                          </td>
-                          <td>
-                            <button
-                              className="trend-open-run"
-                              onClick={() => onOpenRun(point.runId)}
-                            >
-                              Open
-                            </button>
                           </td>
                         </tr>
                       ))}
