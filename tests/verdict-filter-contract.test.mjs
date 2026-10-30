@@ -52,6 +52,25 @@ test("loads isolated skill and case trends on demand", async () => {
   assert.match(api, /\/unit\/trends\/skills/);
 });
 
+test("paginates loaded trend history and fetches older cursor pages", async () => {
+  const [page, styles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /const \[historyPage, setHistoryPage\] = useState\(1\)/);
+  assert.match(
+    page,
+    /const \[historyPageSize, setHistoryPageSize\] = useState\(5\)/,
+  );
+  assert.match(page, /Rows per page/);
+  assert.match(page, /showNextHistoryPage/);
+  assert.match(page, /await loadOlder\(\)/);
+  assert.match(page, /aria-label="Run history pages"/);
+  assert.match(styles, /\.trend-history-card/);
+  assert.match(styles, /\.trend-pagination/);
+});
+
 test("never substitutes operational demo data", async () => {
   const page = await readFile(
     new URL("../app/page.tsx", import.meta.url),
