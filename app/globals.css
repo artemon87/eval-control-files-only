@@ -2251,14 +2251,18 @@ button {
 .history-table .run-link {
   display: block;
 }
-.history-table .clickable-row {
+.history-table .clickable-row,
+.trend-table-wrap .clickable-row {
   cursor: pointer;
 }
 .history-table .clickable-row:hover,
-.history-table .clickable-row:focus-visible {
+.history-table .clickable-row:focus-visible,
+.trend-table-wrap .clickable-row:hover,
+.trend-table-wrap .clickable-row:focus-visible {
   background: #f2faf8;
 }
-.history-table .clickable-row:focus-visible {
+.history-table .clickable-row:focus-visible,
+.trend-table-wrap .clickable-row:focus-visible {
   outline: 2px solid #36a38f;
   outline-offset: -2px;
 }
@@ -3350,9 +3354,6 @@ button {
 .trend-table-wrap tbody tr {
   transition: background 0.15s ease;
 }
-.trend-table-wrap tbody tr:hover {
-  background: #f3faf8;
-}
 .trend-history-card {
   margin-top: 14px;
   overflow: hidden;
@@ -3410,9 +3411,6 @@ button {
 }
 .trend-score-cell span {
   color: #8b99a5;
-}
-.trend-run-id:hover {
-  text-decoration: underline;
 }
 .trend-run-id:focus-visible {
   outline: 2px solid #36a38f;
