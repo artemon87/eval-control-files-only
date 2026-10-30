@@ -4381,6 +4381,8 @@ function DrilldownTrendDrawer({
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(5);
   useEffect(() => {
     const controller = new AbortController();
     void Promise.resolve()
@@ -4390,6 +4392,7 @@ function DrilldownTrendDrawer({
         setError(null);
         setNextCursor(null);
         setPoints([]);
+        setHistoryPage(1);
         if (!api)
           throw new Error(
             "Eval API is not configured. Trend data is unavailable.",
@@ -4416,8 +4419,8 @@ function DrilldownTrendDrawer({
       });
     return () => controller.abort();
   }, [api, request]);
-  const loadOlder = async () => {
-    if (!api || !nextCursor || loadingOlder) return;
+  const loadOlder = async (): Promise<number> => {
+    if (!api || !nextCursor || loadingOlder) return 0;
     setLoadingOlder(true);
     setError(null);
     try {
@@ -4430,12 +4433,14 @@ function DrilldownTrendDrawer({
           a.startedAt.localeCompare(b.startedAt),
         );
       });
+      return page.items.length;
     } catch (reason) {
       setError(
         reason instanceof Error
           ? reason.message
           : "Unable to load older trend data",
       );
+      return 0;
     } finally {
       setLoadingOlder(false);
     }
@@ -4460,6 +4465,34 @@ function DrilldownTrendDrawer({
         : request.kind === "case"
           ? "Case history"
           : "Skill trend";
+  const newestPoints = useMemo(() => [...points].reverse(), [points]);
+  const historyPageCount = Math.max(
+    1,
+    Math.ceil(newestPoints.length / historyPageSize),
+  );
+  const currentHistoryPage = Math.min(historyPage, historyPageCount);
+  const historyStartIndex = (currentHistoryPage - 1) * historyPageSize;
+  const visibleHistoryPoints = newestPoints.slice(
+    historyStartIndex,
+    historyStartIndex + historyPageSize,
+  );
+  const pageWindowStart = Math.max(
+    1,
+    Math.min(currentHistoryPage - 2, historyPageCount - 4),
+  );
+  const visibleHistoryPages = Array.from(
+    { length: Math.min(5, historyPageCount) },
+    (_, index) => pageWindowStart + index,
+  );
+  const showNextHistoryPage = async () => {
+    if (currentHistoryPage < historyPageCount) {
+      setHistoryPage(currentHistoryPage + 1);
+      return;
+    }
+    if (!nextCursor) return;
+    const loadedCount = await loadOlder();
+    if (loadedCount > 0) setHistoryPage(currentHistoryPage + 1);
+  };
   return (
     <div
       className="drawer-layer"
@@ -4552,63 +4585,136 @@ function DrilldownTrendDrawer({
                 </div>
                 <DrilldownScoreChart points={points} onOpenRun={onOpenRun} />
               </section>
-              <div className="trend-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Run</th>
-                      <th>
-                        {request.evalType === "unit"
-                          ? "Skill version"
-                          : "Dataset"}
-                      </th>
-                      <th>Verdict</th>
-                      <th>Score / gate</th>
-                      <th>Started</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...points].reverse().map((point) => (
-                      <tr
-                        key={`${point.runId}-${point.startedAt}`}
-                        onClick={() => onOpenRun(point.runId)}
-                      >
-                        <td>
-                          <button className="run-link">{point.runId}</button>
-                        </td>
-                        <td>
+              <section className="trend-history-card" aria-label="Run history">
+                <div className="trend-history-heading">
+                  <div>
+                    <h3>Run history</h3>
+                    <p>
+                      {points.length} loaded matching run
+                      {points.length === 1 ? "" : "s"}
+                      {nextCursor ? " · older runs available" : ""}
+                    </p>
+                  </div>
+                  <label className="trend-page-size">
+                    <span>Rows per page</span>
+                    <select
+                      value={historyPageSize}
+                      onChange={(event) => {
+                        setHistoryPageSize(Number(event.target.value));
+                        setHistoryPage(1);
+                      }}
+                    >
+                      {[5, 10, 20].map((size) => (
+                        <option key={size} value={size}>
+                          {size}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="trend-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Run</th>
+                        <th>
                           {request.evalType === "unit"
-                            ? `v${point.skillVersion ?? "unknown"} · BSA ${point.bsaVersion ?? "unknown"}`
-                            : point.datasetVersion}
-                        </td>
-                        <td>
-                          <StatusBadge verdict={point.verdict} />
-                        </td>
-                        <td>
-                          <strong>{point.score.toFixed(2)}</strong> /{" "}
-                          {point.threshold.toFixed(2)}
-                        </td>
-                        <td>{formatTime(point.startedAt)}</td>
+                            ? "Skill version"
+                            : "Dataset"}
+                        </th>
+                        <th>Verdict</th>
+                        <th>Score / gate</th>
+                        <th>Started</th>
+                        <th>
+                          <span className="sr-only">Action</span>
+                        </th>
                       </tr>
+                    </thead>
+                    <tbody>
+                      {visibleHistoryPoints.map((point) => (
+                        <tr key={`${point.runId}-${point.startedAt}`}>
+                          <td>
+                            <span className="trend-run-id">{point.runId}</span>
+                          </td>
+                          <td>
+                            {request.evalType === "unit"
+                              ? `v${point.skillVersion ?? "unknown"} · BSA ${point.bsaVersion ?? "unknown"}`
+                              : (point.datasetVersion ?? "Unknown")}
+                          </td>
+                          <td>
+                            <StatusBadge verdict={point.verdict} />
+                          </td>
+                          <td className="trend-score-cell">
+                            <strong>{point.score.toFixed(2)}</strong>
+                            <span> / {point.threshold.toFixed(2)}</span>
+                          </td>
+                          <td className="trend-started-cell">
+                            {formatTime(point.startedAt)}
+                          </td>
+                          <td>
+                            <button
+                              className="trend-open-run"
+                              onClick={() => onOpenRun(point.runId)}
+                            >
+                              Open
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="trend-pagination">
+                  <span>
+                    Showing {historyStartIndex + 1}–
+                    {Math.min(
+                      historyStartIndex + historyPageSize,
+                      newestPoints.length,
+                    )}{" "}
+                    of {newestPoints.length} loaded
+                  </span>
+                  <nav aria-label="Run history pages">
+                    <button
+                      disabled={currentHistoryPage === 1}
+                      onClick={() =>
+                        setHistoryPage((page) => Math.max(1, page - 1))
+                      }
+                    >
+                      Previous
+                    </button>
+                    {visibleHistoryPages.map((page) => (
+                      <button
+                        key={page}
+                        className={
+                          page === currentHistoryPage
+                            ? "trend-page-active"
+                            : undefined
+                        }
+                        aria-current={
+                          page === currentHistoryPage ? "page" : undefined
+                        }
+                        onClick={() => setHistoryPage(page)}
+                      >
+                        {page}
+                      </button>
                     ))}
-                  </tbody>
-                </table>
-              </div>
+                    <button
+                      disabled={
+                        loadingOlder ||
+                        (currentHistoryPage === historyPageCount &&
+                          !nextCursor)
+                      }
+                      onClick={() => void showNextHistoryPage()}
+                    >
+                      {loadingOlder ? "Loading…" : "Next"}
+                    </button>
+                  </nav>
+                </div>
+              </section>
               {error && (
                 <div className="trend-error">
                   <span>{error}</span>
                 </div>
-              )}
-              {nextCursor && (
-                <button
-                  className="secondary-button trend-load-more"
-                  disabled={loadingOlder}
-                  onClick={() => void loadOlder()}
-                >
-                  {loadingOlder
-                    ? "Loading older runs…"
-                    : "Load 30 older matching runs"}
-                </button>
               )}
             </>
           ) : (
