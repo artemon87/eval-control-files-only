@@ -186,6 +186,11 @@ export interface ApiTrendPage {
   nextCursor: string | null;
 }
 
+export interface UnitSkillOption {
+  skill: string;
+  github_repository: string | null;
+}
+
 export interface RunBatch {
   items: EvalRun[];
   nextCursors: Record<EvalType, string | null>;
@@ -523,6 +528,59 @@ export class EvalApi {
     };
   }
 
+  async listUnitSkills(signal?: AbortSignal): Promise<UnitSkillOption[]> {
+    return this.request<UnitSkillOption[]>("/unit/skills", signal);
+  }
+
+  // Follow every server cursor before publishing analytics: charts and totals
+  // must describe the complete query, not whichever pages the Runs view loaded.
+  async listRunCollection(
+    filters: RunListFilters,
+    signal?: AbortSignal,
+    evalType: "all" | EvalType = "all",
+  ): Promise<EvalRun[]> {
+    let cursors: Partial<Record<EvalType, string | null>> = {
+      unit: evalType === "e2e" ? null : undefined,
+      e2e: evalType === "unit" ? null : undefined,
+    };
+    const byId = new Map<string, EvalRun>();
+    const seen = new Set<string>();
+    do {
+      signal?.throwIfAborted();
+      const cursorKey = JSON.stringify(cursors);
+      if (seen.has(cursorKey)) throw new Error("Run pagination did not advance");
+      seen.add(cursorKey);
+      const batch = await this.listRunBatch(cursors, 200, signal, filters);
+      signal?.throwIfAborted();
+      batch.items.forEach((run) => {
+        const at = Date.parse(run.startedAt);
+        if (
+          (!filters.startedFrom || at >= Date.parse(filters.startedFrom)) &&
+          (!filters.startedBefore || at < Date.parse(filters.startedBefore))
+        ) byId.set(`${run.evalType}:${run.runId}`, run);
+      });
+      cursors = batch.nextCursors;
+    } while (cursors.unit || cursors.e2e);
+    return [...byId.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  private async allPages<T>(path: string, signal?: AbortSignal): Promise<T[]> {
+    const items: T[] = [];
+    const seen = new Set<string>();
+    let cursor: string | null = null;
+    do {
+      signal?.throwIfAborted();
+      const params = new URLSearchParams({ limit: "200" });
+      if (cursor) params.set("cursor", cursor);
+      const page: Page<T> = await this.request<Page<T>>(`${path}?${params}`, signal);
+      items.push(...page.items);
+      cursor = page.next_cursor ?? null;
+      if (cursor && seen.has(cursor)) throw new Error("Case pagination did not advance");
+      if (cursor) seen.add(cursor);
+    } while (cursor);
+    return items;
+  }
+
   async listRuns(signal?: AbortSignal): Promise<EvalRun[]> {
     return (await this.listRunBatch(undefined, 50, signal)).items;
   }
@@ -608,11 +666,11 @@ export class EvalApi {
 
   async listCases(run: EvalRun, signal?: AbortSignal): Promise<EvalCase[]> {
     if (run.evalType === "e2e") {
-      const page = await this.request<Page<E2EApiCase>>(
-        `/e2e/runs/${encodeURIComponent(run.runId)}/cases?limit=200`,
+      const items = await this.allPages<E2EApiCase>(
+        `/e2e/runs/${encodeURIComponent(run.runId)}/cases`,
         signal,
       );
-      return page.items.map((item) => ({
+      return items.map((item) => ({
         caseId: item.case_id,
         runId: item.run_id,
         suite: item.suite,
@@ -630,11 +688,11 @@ export class EvalApi {
         bugRef: item.bug_ref ?? undefined,
       }));
     }
-    const page = await this.request<Page<UnitApiCase>>(
-      `/unit/runs/${encodeURIComponent(run.runId)}/cases?limit=200`,
+    const items = await this.allPages<UnitApiCase>(
+      `/unit/runs/${encodeURIComponent(run.runId)}/cases`,
       signal,
     );
-    return page.items.map((item) => {
+    return items.map((item) => {
       const mappedScores = item.scores ?? {};
       const scores = Object.values(mappedScores);
       const mappedThresholds = item.thresholds ?? {};
@@ -690,3 +748,4 @@ export class EvalApi {
 export function configuredEvalApi(): EvalApi {
   return new EvalApi("/api/eval");
 }
+
