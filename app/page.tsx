@@ -20,6 +20,8 @@ import {
 import { configuredEvalApi, type UnitSkillOption, type EvalApi } from "./lib/eval-api";
 import { fixedTimeWindow, type FixedTimeWindow } from "./lib/time-window";
 import { useRunCollection } from "./lib/use-run-collection";
+import { useOverview } from "./lib/use-overview";
+import { overviewView } from "./lib/overview";
 import { selectUnitRuns, unitStage, unitTargetKey, unitTargetLabel, unitScopeLabel } from "./lib/comparison-scope";
 import type {
   EvalCase,
@@ -226,16 +228,6 @@ function isNeedsAttentionRun(run: EvalRun) {
       run.verdict === "xpassed" ||
       isDegradedRun(run))
   );
-}
-
-function attentionSignal(run: EvalRun) {
-  if (run.executionStatus === "error") return "Error";
-  if (run.verdict === "xpassed") return "XPASS";
-  if (isDegradedRun(run)) {
-    const threshold = runGateThresholdPct(run);
-    return `${run.summary.passRatePct}% < ${threshold}%`;
-  }
-  return `${run.summary.passRatePct}%`;
 }
 
 function shortGitSha(sha?: string) {
@@ -510,12 +502,6 @@ function TrendChart({
 
 function dateKey(value: string | number | Date) {
   return new Date(value).toISOString().slice(0, 10);
-}
-
-function percentile(values: number[], percentileValue: number) {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.max(0, Math.ceil(percentileValue * sorted.length) - 1)];
 }
 
 function summarizeCases(run: EvalRun, items: EvalCase[]): SuiteSummary[] {
@@ -1773,7 +1759,7 @@ export default function Home() {
     () => fixedTimeWindow(`${overviewDays}d`, new Date(overviewAnchor)),
     [overviewDays, overviewAnchor],
   );
-  const overviewCollection = useRunCollection(api, overviewTimeWindow, view === "overview");
+  const overviewCollection = useOverview(api, overviewTimeWindow, view === "overview");
   const [overviewType, setOverviewType] = useState<"all" | EvalType>("all");
   const [overviewInboxTab, setOverviewInboxTab] = useState<
     "blocked" | "attention"
@@ -2307,115 +2293,15 @@ export default function Home() {
     availableRunMetrics.includes(metric),
   );
 
-  const overview = useMemo(() => {
-    const now = Date.parse(overviewTimeWindow.startedBefore);
-    const start = Date.parse(overviewTimeWindow.startedFrom);
-    const inView = overviewCollection.runs
-      .filter((run) => {
-        const timestamp = new Date(run.startedAt).getTime();
-        return (
-          timestamp >= start &&
-          timestamp < now &&
-          (overviewType === "all" || run.evalType === overviewType)
-        );
-      })
-      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-    const completed = inView.filter(
-      (run) => run.executionStatus === "completed",
-    );
-    const passed = completed.filter((run) => run.verdict === "passed").length;
-    const runningRuns = inView.filter(
-      (run) => run.executionStatus === "running",
-    );
-    const queuedRuns = inView.filter((run) => run.executionStatus === "queued");
-    const blockedRuns = inView.filter(isBlockedRun);
-    const attentionRuns = inView.filter(isNeedsAttentionRun);
-    const p95 = percentile(
-      completed.flatMap((run) =>
-        typeof run.durationMs === "number" ? [run.durationMs] : [],
-      ),
-      0.95,
-    );
-    const firstDay = Date.parse(`${dateKey(start)}T00:00:00.000Z`);
-    const lastDay = Date.parse(`${dateKey(now - 1)}T00:00:00.000Z`);
-    const dayCount = Math.round((lastDay - firstDay) / 86_400_000) + 1;
-    const daily = Array.from({ length: dayCount }, (_, index) => {
-      const date = new Date(firstDay + index * 86_400_000);
-      return {
-        date: dateKey(date),
-        e2e: undefined,
-        unit: undefined,
-      } as DailyTrend;
-    });
-    const dailyByType = (evalType: EvalType) =>
-      daily.map((day) => {
-        const dayRuns = completed.filter(
-          (run) =>
-            run.evalType === evalType && dateKey(run.startedAt) === day.date,
-        );
-        const total = dayRuns.reduce((sum, run) => sum + run.summary.total, 0);
-        return total
-          ? (dayRuns.reduce((sum, run) => sum + run.summary.passed, 0) /
-              total) *
-              100
-          : undefined;
-      });
-    const e2eDaily = dailyByType("e2e");
-    const unitDaily = dailyByType("unit");
-    daily.forEach((day, index) => {
-      day.e2e = e2eDaily[index];
-      day.unit = unitDaily[index];
-    });
-    const recentDays = daily.slice(-Math.min(7, daily.length));
-    const dailyCount = (predicate: (run: EvalRun) => boolean) =>
-      recentDays.map(
-        (day) =>
-          inView.filter(
-            (run) => dateKey(run.startedAt) === day.date && predicate(run),
-          ).length,
-      );
-    const dailyDuration = recentDays.map((day) =>
-      percentile(
-        completed
-          .filter((run) => dateKey(run.startedAt) === day.date)
-          .flatMap((run) => (run.durationMs ? [run.durationMs] : [])),
-        0.95,
-      ),
-    );
-    const passSpark = recentDays.map((day) => {
-      const values = [day.e2e, day.unit].filter(
-        (value): value is number => typeof value === "number",
-      );
-      return values.length
-        ? values.reduce((sum, value) => sum + value, 0) / values.length
-        : 0;
-    });
-    return {
-      inView,
-      completed,
-      passed,
-      runningRuns,
-      queuedRuns,
-      blockedRuns,
-      attentionRuns,
-      p95,
-      daily,
-      passSpark,
-      failureSpark: dailyCount(
-        (run) => isBlockedRun(run) || isNeedsAttentionRun(run),
-      ),
-      progressSpark: dailyCount(
-        (run) =>
-          run.executionStatus === "running" || run.executionStatus === "queued",
-      ),
-      durationSpark: dailyDuration,
-    };
-  }, [overviewType, overviewTimeWindow, overviewCollection.runs]);
-
-  const overviewInboxRuns =
-    overviewInboxTab === "blocked"
-      ? overview.blockedRuns
-      : overview.attentionRuns;
+  const overview = useMemo(
+    () => overviewView(overviewCollection.data, overviewType, overviewTimeWindow.startedFrom, overviewTimeWindow.startedBefore),
+    [overviewCollection.data, overviewType, overviewTimeWindow],
+  );
+  const overviewInboxRuns = overviewInboxTab === "blocked"
+    ? overview.blockedRuns.map(run => ({run, signal: "Blocked"}))
+    : overview.attentionRuns.map(entry => ({run: entry.run, signal: entry.degraded
+      ? `${entry.run.summary.meanScore.toFixed(2)} · ${(entry.run.summary.meanScore - (entry.previous_mean_score ?? entry.run.summary.meanScore)).toFixed(2)}`
+      : entry.run.verdict === "xpassed" ? "XPASS" : `${entry.run.summary.passRatePct}%`}));
 
   const openRun = (run: EvalRun) => {
     setRuns((current) => current.some((item) => item.runId === run.runId) ? current : [run, ...current]);
@@ -2608,43 +2494,43 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-              {overviewCollection.loading && <section className="panel empty" role="status">Loading every run in the selected window…</section>}
+              {overviewCollection.loading && <section className="panel empty" role="status">Loading Overview…</section>}
               {overviewCollection.error && <div className="toast toast--error" role="alert">{overviewCollection.error}</div>}
               <div hidden={overviewCollection.loading || Boolean(overviewCollection.error)}>
               <section className="metrics-grid">
                 <MetricCard
                   label="Gate pass rate"
                   value={
-                    overview.completed.length
-                      ? `${Math.round((overview.passed / overview.completed.length) * 100)}%`
+                    overview.counts.completed
+                      ? `${Math.round((overview.counts.passed / overview.counts.completed) * 100)}%`
                       : "—"
                   }
-                  note={`${overview.passed} passed · ${overview.completed.length} completed`}
+                  note={`${overview.counts.passed} passed · ${overview.counts.completed} completed`}
                   tone="green"
                   spark={overview.passSpark}
                 />
                 <MetricCard
                   label="Runs in progress"
                   value={String(
-                    overview.runningRuns.length + overview.queuedRuns.length,
+                    overview.counts.running + overview.counts.queued,
                   )}
-                  note={`${overview.runningRuns.length} running · ${overview.queuedRuns.length} queued`}
+                  note={`${overview.counts.running} running · ${overview.counts.queued} queued`}
                   tone="blue"
                   spark={overview.progressSpark}
                 />
                 <MetricCard
                   label="Actionable runs"
                   value={String(
-                    overview.blockedRuns.length + overview.attentionRuns.length,
+                    overview.counts.blocked + overview.counts.attention,
                   )}
-                  note={`${overview.blockedRuns.length} blocked · ${overview.attentionRuns.length} degraded/review`}
+                  note={`${overview.counts.blocked} blocked · ${overview.counts.attention} degraded/review`}
                   tone="red"
                   spark={overview.failureSpark}
                 />
                 <MetricCard
                   label="P95 duration"
                   value={overview.p95 ? formatDuration(overview.p95) : "—"}
-                  note={`${overview.completed.filter((run) => run.durationMs).length} timed completed runs`}
+                  note={`${overview.counts.timed_completed} timed completed runs`}
                   tone="violet"
                   spark={overview.durationSpark}
                 />
@@ -2707,7 +2593,7 @@ export default function Home() {
                           onClick={() => setOverviewInboxTab("blocked")}
                         >
                           Blocked
-                          <b>{overview.blockedRuns.length}</b>
+                          <b>{overview.counts.blocked}</b>
                         </button>
                         <button
                           type="button"
@@ -2719,7 +2605,7 @@ export default function Home() {
                           onClick={() => setOverviewInboxTab("attention")}
                         >
                           Needs attention
-                          <b>{overview.attentionRuns.length}</b>
+                          <b>{overview.counts.attention}</b>
                         </button>
                       </div>
                       <p>
@@ -2751,7 +2637,7 @@ export default function Home() {
                         : "Runs needing attention"
                     }
                   >
-                    {overviewInboxRuns.slice(0, 4).map((run) => (
+                    {overviewInboxRuns.slice(0, 4).map(({run, signal}) => (
                       <button key={run.runId} onClick={() => openRun(run)}>
                         <span
                           className={`alert-icon ${overviewInboxTab === "blocked" ? "blocked" : run.verdict === "xpassed" ? "xpassed" : ""}`}
@@ -2771,7 +2657,7 @@ export default function Home() {
                         <b>
                           {overviewInboxTab === "blocked"
                             ? "Blocked"
-                            : attentionSignal(run)}
+                            : signal}
                         </b>
                       </button>
                     ))}
@@ -5242,7 +5128,7 @@ function E2EHistoryCollection({
       </section>
       {collection.loading && (
         <section className="panel empty" role="status">
-          Loading every run in the selected window…
+          Loading Overview…
         </section>
       )}
       {collection.error && (
@@ -7524,4 +7410,5 @@ function NewRunModal({
 }
 
 void NewRunModal;
+
 

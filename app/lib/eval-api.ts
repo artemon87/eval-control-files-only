@@ -1,3 +1,4 @@
+import type { OverviewData, OverviewCounts } from "./overview";
 import type { UnitHistoryInsights, UnitHistoryQuery, UnitHistoryScope } from "./unit-history-types";
 import type {
   CaseVerdict,
@@ -419,9 +420,48 @@ export type RunListFilters = {
   targetEnvironment?: string;
   category?: string;
   agentName?: string;
+  e2eStage?: string;
+  e2eTarget?: string;
   startedFrom?: string;
   startedBefore?: string;
 };
+
+function runFilterParams(params: URLSearchParams, filters: RunListFilters, evalType: EvalType | "all"): URLSearchParams {
+  if (filters.githubRepository) {
+    params.set("github_repository", filters.githubRepository);
+  }
+  if (filters.gitRef) params.set("git_ref", filters.gitRef);
+  if (filters.gitSha) params.set("git_sha", filters.gitSha);
+  if (filters.startedFrom) {
+    params.set("started_from", filters.startedFrom);
+  }
+  if (filters.startedBefore) {
+    params.set("started_before", filters.startedBefore);
+  }
+
+  if (evalType !== "e2e") {
+    if (filters.skill) params.set("skill", filters.skill);
+    if (filters.environment) {
+      params.set("environment", filters.environment);
+    }
+    filters.stages?.forEach((stage) => params.append("stage", stage));
+    if (filters.targetEnvironment) {
+      params.set("target_environment", filters.targetEnvironment);
+    }
+    if (filters.category) params.set("category", filters.category);
+    if (filters.agentName) params.set("agent_name", filters.agentName);
+  }
+
+  if (evalType === "e2e") {
+    if (filters.e2eStage) params.set("stage", filters.e2eStage);
+    if (filters.e2eTarget) params.set("target", filters.e2eTarget);
+  }
+  if (evalType === "all") {
+    if (filters.e2eStage) params.set("e2e_stage", filters.e2eStage);
+    if (filters.e2eTarget) params.set("e2e_target", filters.e2eTarget);
+  }
+  return params;
+}
 
 export class EvalApi {
   constructor(private readonly baseUrl: string) {}
@@ -477,31 +517,7 @@ export class EvalApi {
     ): string => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (cursor) params.set("cursor", cursor);
-      if (filters.githubRepository) {
-        params.set("github_repository", filters.githubRepository);
-      }
-      if (filters.gitRef) params.set("git_ref", filters.gitRef);
-      if (filters.gitSha) params.set("git_sha", filters.gitSha);
-      if (filters.startedFrom) {
-        params.set("started_from", filters.startedFrom);
-      }
-      if (filters.startedBefore) {
-        params.set("started_before", filters.startedBefore);
-      }
-
-      if (evalType === "unit") {
-        if (filters.skill) params.set("skill", filters.skill);
-        if (filters.environment) {
-          params.set("environment", filters.environment);
-        }
-        filters.stages?.forEach((stage) => params.append("stage", stage));
-        if (filters.targetEnvironment) {
-          params.set("target_environment", filters.targetEnvironment);
-        }
-        if (filters.category) params.set("category", filters.category);
-        if (filters.agentName) params.set("agent_name", filters.agentName);
-      }
-
+      runFilterParams(params, filters, evalType);
       return `?${params.toString()}`;
     };
     const [unit, e2e] = await Promise.all([
@@ -527,6 +543,31 @@ export class EvalApi {
         e2e: e2e.next_cursor ?? null,
       },
     };
+  }
+
+  async getFacets(signal?: AbortSignal): Promise<{
+    unit: Array<{skill: string; category?: string | null; environment?: string | null;
+      stage?: string | null; target_environment?: string | null; agent_name?: string | null;
+      evaluation_layer?: string | null; github_repository?: string | null}>;
+    e2e: Array<{stage?: string | null; target: string; github_repository?: string | null}>;
+    git_refs: Array<{github_repository?: string | null; git_ref: string}>;
+    actors: string[]; triggers: string[]; pass_rate_thresholds: number[];
+  }> {
+    return this.request("/facets", signal);
+  }
+
+  async getOverview(filters: RunListFilters, signal?: AbortSignal): Promise<OverviewData> {
+    const params = runFilterParams(new URLSearchParams(), filters, "all");
+    type RawRun = UnitApiRun | E2EApiRun;
+    const data = await this.request<{
+      started_from: string; started_before: string;
+      totals: OverviewData["totals"]; days: Array<OverviewCounts & {date: string; eval_type: EvalType | null}>;
+      recent_runs: RawRun[]; blocked_runs: RawRun[];
+      attention_runs: Array<{run: RawRun; degraded: boolean; previous_mean_score: number | null}>;
+    }>(`/overview?${params}`, signal);
+    const mapRun = (run: RawRun) => run.eval_type === "e2e" ? mapE2ERun(run) : mapUnitRun(run);
+    return { ...data, recent_runs: data.recent_runs.map(mapRun), blocked_runs: data.blocked_runs.map(mapRun),
+      attention_runs: data.attention_runs.map(entry => ({...entry, run: mapRun(entry.run)})) };
   }
 
   async listUnitHistoryScopes(signal?: AbortSignal): Promise<UnitHistoryScope[]> {
@@ -763,4 +804,5 @@ export class EvalApi {
 export function configuredEvalApi(): EvalApi {
   return new EvalApi("/api/eval");
 }
+
 
