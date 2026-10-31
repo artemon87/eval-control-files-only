@@ -1,0 +1,502 @@
+.root {
+  min-width: 0;
+}
+.controls {
+  display: grid;
+  grid-template-columns:
+    minmax(210px, 2fr) minmax(120px, 1fr) minmax(180px, 1.5fr)
+    auto auto;
+  align-items: end;
+  gap: 12px;
+  padding: 15px 17px;
+  margin-bottom: 12px;
+}
+.controls label,
+.patternControls label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.controls label > span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.controls select,
+.patternControls select,
+.contextLine select,
+.supporting select {
+  min-width: 0;
+  max-width: 100%;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  padding: 0 11px;
+  color: var(--ink);
+  font-size: 11px;
+}
+.contextLine {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+  margin: 12px 0 18px;
+}
+.contextLine label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.contextLine select {
+  height: 34px;
+  max-width: min(100%, 520px);
+}
+.root section[aria-label="Branch evolution"] {
+  margin-bottom: 16px;
+}
+.branchHeader,
+.branchRow {
+  display: grid;
+  grid-template-columns: minmax(165px, 1.3fr) minmax(0, 2fr) minmax(
+      130px,
+      0.8fr
+    );
+  gap: 16px;
+}
+.branchHeader {
+  padding: 10px 18px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--bg);
+}
+.branchHeader > :last-child {
+  text-align: right;
+}
+.branchRow {
+  padding: 16px 18px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+}
+.focused {
+  background: var(--green-bg);
+}
+.branchName {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: var(--ink);
+}
+.branchName strong {
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.branchName small,
+.direction small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.commits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: stretch;
+  min-width: 0;
+}
+.commit {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 6px;
+  min-width: 72px;
+  max-width: 120px;
+  padding: 9px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--ink);
+}
+.commit:hover {
+  border-color: var(--green);
+}
+.commit strong {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.commit code,
+.commit small {
+  font-size: 10px;
+}
+.commit small {
+  color: var(--muted);
+}
+.selectedCommit {
+  background: var(--green-bg);
+  border-color: var(--green);
+}
+.direction {
+  display: grid;
+  gap: 6px;
+  text-align: right;
+}
+.direction strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.good {
+  color: var(--green);
+}
+.bad {
+  color: var(--red);
+}
+.branchContext {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.branchContext button,
+.commits > button:not(.commit) {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 10px;
+}
+.signals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.signals button {
+  padding: 17px 18px;
+  text-align: left;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  color: var(--ink);
+}
+.signals button:hover:not(:disabled) {
+  border-color: var(--green);
+}
+.signals button:disabled {
+  cursor: default;
+}
+.signals span {
+  color: var(--muted);
+  font-size: 10px;
+}
+.signals strong {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+}
+.signals small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.patternControls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 0 18px 16px;
+}
+.patternControls label {
+  font-size: 10px;
+  color: var(--muted);
+}
+.patternControls > span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.matrix table {
+  min-width: 600px;
+}
+.matrix th {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 11px;
+}
+.matrix tbody th {
+  background: var(--panel);
+  font-weight: 400;
+  min-width: 200px;
+}
+.matrix thead th:not(:first-child),
+.matrix td {
+  text-align: center;
+  min-width: 120px;
+}
+.matrix th small {
+  display: block;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 10px;
+  line-height: 1.6;
+  margin-top: 5px;
+}
+.columnName,
+.caseName {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.columnName {
+  text-align: center;
+}
+.focusedColumn {
+  box-shadow: inset 0 -2px 0 var(--green);
+}
+.selectedCase th {
+  background: var(--green-bg) !important;
+}
+.cell {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 54px;
+  padding: 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.failureCell {
+  background: color-mix(
+    in srgb,
+    var(--red) var(--failure-tint, 12%),
+    var(--panel)
+  );
+  color: var(--ink);
+}
+.passCell {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.neutralCell {
+  color: var(--muted);
+}
+.legend {
+  padding: 12px 18px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.7;
+  border-top: 1px solid var(--line);
+}
+.caseEvidence {
+  padding: 16px 18px;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.caseEvidence > strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.caseEvidence p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.caseEvidence > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px 18px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.7;
+  margin-top: 10px;
+}
+.supporting {
+  margin-top: 18px;
+}
+.supporting summary {
+  padding: 17px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+.supporting table {
+  min-width: 740px;
+}
+.supporting :global(.run-link) {
+  text-decoration: none;
+}
+.supporting :global(.trend-pagination) {
+  flex-wrap: wrap;
+}
+.supporting :global(.trend-pagination) label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.supporting :global(.trend-pagination) nav {
+  flex-wrap: wrap;
+}
+.root :global(.clickable-row) {
+  cursor: pointer;
+}
+.root :global(.clickable-row):focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: -2px;
+}
+@media (max-width: 1150px) {
+  .controls {
+    grid-template-columns: minmax(180px, 2fr) minmax(110px, 1fr) minmax(
+        160px,
+        1.5fr
+      );
+  }
+  .branchHeader,
+  .branchRow {
+    grid-template-columns: minmax(150px, 1fr) minmax(0, 1.5fr) minmax(
+        115px,
+        0.8fr
+      );
+  }
+}
+@media (max-width: 760px) {
+  .controls {
+    grid-template-columns: 1fr 1fr;
+  }
+  .controls label:first-child {
+    grid-column: 1/-1;
+  }
+  .signals {
+    grid-template-columns: 1fr;
+  }
+  .signals button {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 7px;
+  }
+  .signals small {
+    grid-column: 1/-1;
+  }
+  .branchHeader {
+    display: none;
+  }
+  .branchRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+  }
+  .branchName {
+    grid-column: 1;
+  }
+  .direction {
+    grid-column: 2;
+    grid-row: 1;
+    max-width: 130px;
+  }
+  .commits {
+    grid-column: 1/-1;
+    grid-row: 2;
+  }
+  .patternControls > span {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+@media (max-width: 420px) {
+  .controls {
+    grid-template-columns: 1fr;
+  }
+  .controls label {
+    grid-column: 1/-1;
+  }
+  .controls :global(.range-switch) {
+    width: max-content;
+  }
+  .contextLine label {
+    width: 100%;
+  }
+  .contextLine select {
+    width: 100%;
+  }
+}
+@media (pointer: coarse) {
+  .controls select,
+  .patternControls select,
+  .contextLine select,
+  .supporting select {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .root button {
+    min-height: 44px;
+  }
+}
+.analysisDetails {
+  margin: 0 0 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.analysisDetails summary {
+  padding: 12px 16px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.analysisDetails ul {
+  margin: 0;
+  padding: 0 32px 14px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.root .matrix tbody th {
+  text-transform: none;
+  letter-spacing: normal;
+}
+.root .matrix td > span.cell {
+  display: inline-flex;
+}
+@media (max-width: 420px) {
+  .signals button {
+    grid-template-columns: 1fr;
+  }
+}
