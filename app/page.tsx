@@ -10,7 +10,8 @@ import {
   useState,
 } from "react";
 import type { CSSProperties } from "react";
-import { UnitHistoryInsightsView } from "./components/unit-history-insights";
+import { UnitHistoryTrendExplorer } from "./components/unit-history-explorer";
+import { HistoryWorkspace } from "./components/history-workspace";
 import { SidebarFooter } from "./components/sidebar-footer";
 import {
   evaluationNavItems,
@@ -5169,18 +5170,22 @@ function HistoryCollection(props: {
   onOpenRun: (runId: string, evalType: EvalType) => void;
 }) {
   const [historyType, setHistoryType] = useState<EvalType>(props.initialFocus?.type ?? "e2e");
-  return historyType === "unit" ? (
-    <UnitHistoryInsightsView
-      {...props}
-      initialFocus={props.initialFocus ?? undefined}
-      onShowE2E={() => setHistoryType("e2e")}
-    />
-  ) : (
-    <E2EHistoryCollection
-      {...props}
-      initialFocus={props.initialFocus?.type === "e2e" ? props.initialFocus : null}
-      onShowUnit={() => setHistoryType("unit")}
-    />
+  return (
+    <HistoryWorkspace>
+      {historyType === "unit" ? (
+        <UnitHistoryTrendExplorer
+          {...props}
+          initialFocus={props.initialFocus ?? undefined}
+          onShowE2E={() => setHistoryType("e2e")}
+        />
+      ) : (
+        <E2EHistoryCollection
+          {...props}
+          initialFocus={props.initialFocus?.type === "e2e" ? props.initialFocus : null}
+          onShowUnit={() => setHistoryType("unit")}
+        />
+      )}
+    </HistoryWorkspace>
   );
 }
 

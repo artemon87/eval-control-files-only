@@ -22,14 +22,17 @@ export function UnitSkillPerformanceTrend({
   onHighlightBranch,
   onOpenRun,
   onInspectRun,
+  selectedRunId,
 }: {
   onInspectRun?: (runId: string) => void;
+  selectedRunId?: string;
   data: UnitHistoryInsights;
   focusedBranch: string | null;
   openingRunId: string | null;
   onHighlightBranch: (key: string | null) => void;
   onOpenRun: (runId: string, evalType: "unit") => void;
 }) {
+  const [showAllBranches, setShowAllBranches] = useState(false);
   const [metric, setMetric] = useState<HistoryTrendMetric>("passRate");
   const container = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
@@ -55,6 +58,24 @@ export function UnitSkillPerformanceTrend({
   );
   const operational = data.runs.filter(isOperationalHistoryRun);
   const ceiling = historyTrendCeiling(series, metric);
+  const floor =
+    metric === "passRate" && series.some((branch) => branch.points.length)
+      ? Math.max(
+          0,
+          Math.floor(
+            (series.reduce(
+              (minimum, branch) =>
+                branch.points.reduce(
+                  (value, point) => Math.min(value, point.value),
+                  minimum,
+                ),
+              100,
+            ) -
+              5) /
+              10,
+          ) * 10,
+        )
+      : 0;
   const height = 310,
     left = 54,
     right = width - 20,
@@ -65,7 +86,8 @@ export function UnitSkillPerformanceTrend({
   const x = (at: string) =>
     left +
     ((Date.parse(at) - start) / Math.max(end - start, 1)) * (right - left);
-  const y = (value: number) => bottom - (value / ceiling) * (bottom - top);
+  const y = (value: number) =>
+    bottom - ((value - floor) / Math.max(ceiling - floor, 1)) * (bottom - top);
   const tickCount = width < 480 ? 3 : 5;
   const unit = metric === "passRate" ? "%" : "s";
   const formatValue = (value: number) =>
@@ -108,12 +130,10 @@ export function UnitSkillPerformanceTrend({
           </select>
         </label>
       </div>
-      <details>
-        <summary className={styles.branchSummary}>
-          Branch highlights · {series.length} measured branches
-        </summary>
-        <div className={styles.legend} aria-label="Trend branch highlights">
-          {series.map((branch, index) => (
+      <div className={styles.legend} aria-label="Trend branch highlights">
+        {series
+          .slice(0, showAllBranches ? undefined : 6)
+          .map((branch, index) => (
             <button
               key={branch.branchKey}
               type="button"
@@ -139,8 +159,17 @@ export function UnitSkillPerformanceTrend({
               {branch.label}
             </button>
           ))}
-        </div>
-      </details>
+      </div>
+      {series.length > 6 && (
+        <button
+          className="secondary-button"
+          onClick={() => setShowAllBranches((value) => !value)}
+        >
+          {showAllBranches
+            ? "Show fewer branches"
+            : `Show ${series.length - 6} more branches`}
+        </button>
+      )}
       {!pointCount && (
         <div className="empty" role="status">
           {metric === "duration"
@@ -168,7 +197,7 @@ export function UnitSkillPerformanceTrend({
             {metric === "passRate" ? "Pass rate (%)" : "Duration (s)"}
           </text>
           {[0, 1, 2, 3, 4].map((index) => {
-            const value = (ceiling * index) / 4;
+            const value = floor + ((ceiling - floor) * index) / 4;
             return (
               <g key={index}>
                 <line
@@ -251,10 +280,10 @@ export function UnitSkillPerformanceTrend({
                         className={styles.point}
                         cx={x(run.startedAt)}
                         cy={y(value)}
-                        r="3.5"
+                        r={selectedRunId === run.runId ? "5" : "3.5"}
                         fill="var(--panel)"
                         stroke={color}
-                        strokeWidth="2"
+                        strokeWidth={selectedRunId === run.runId ? "3" : "2"}
                       />
                     </a>
                   );
