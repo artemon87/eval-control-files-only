@@ -152,32 +152,39 @@ test("history pages retain every row and reset when scope, window or size change
   for (const field of ["historyType", "stage", "target", "category", "skillId", "resolvedUnitStage", "environment", "targetEnvironments", "timeWindow", "pageSize"]) assert.ok(fields.includes(field), field);
 });
 
-test("overview aggregates its independent complete window including the first partial UTC day", () => {
-  const home = ast.statements.find((n) => ts.isFunctionDeclaration(n) && n.name?.text === "Home");
-  let memo;
-  function find(node) {
-    if (ts.isVariableDeclaration(node) && node.name.getText(ast) === "overview") memo = node.initializer;
-    ts.forEachChild(node, find);
-  }
-  find(home);
-  const calculate = ts.transpileModule(`(${memo.arguments[0].getText(ast)})`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const bounds = fixedTimeWindow("7d", new Date("2026-10-30T15:45:00Z"));
-  const summary = { total: 1, passed: 1, passRatePct: 100 };
-  const context = {
-    overviewTimeWindow: bounds, overviewType: "all", runs: [],
-    overviewCollection: { runs: [
-      run("start", { startedAt: bounds.startedFrom, summary, verdict: "passed" }),
-      run("inside", { startedAt: "2026-10-30T12:00:00Z", summary, verdict: "passed" }),
-      run("end", { startedAt: bounds.startedBefore, summary, verdict: "passed" }),
-    ] },
-    dateKey: (at) => new Date(at).toISOString().slice(0, 10),
-    isBlockedRun: () => false, isNeedsAttentionRun: () => false, percentile: () => 0,
-  };
-  const result = runInNewContext(calculate, context)();
-  assert.deepEqual(Array.from(result.inView, (r) => r.runId), ["inside", "start"]);
-  assert.equal(result.completed.length, 2);
+test("overview renders server totals and preserves the first partial UTC day", async () => {
+  const {overviewView, emptyCounts} = await loadModule("../app/lib/overview.ts");
+  const counts = {...emptyCounts, runs: 501, completed: 501, passed: 499, total_cases: 1002, passed_cases: 998};
+  const result = overviewView({totals: {all: counts, unit: counts, e2e: emptyCounts},
+    days: [{...counts, date: "2026-10-23", eval_type: "unit"}, {...counts, date: "2026-10-23", eval_type: null}],
+    recent_runs: [], blocked_runs: [], attention_runs: []}, "all", "2026-10-23T15:45:00Z", "2026-10-30T15:45:00Z");
+  assert.equal(result.counts.runs, 501);
   assert.equal(result.daily.length, 8);
   assert.equal(result.daily[0].date, "2026-10-23");
-  assert.equal(result.daily[0].unit, 100);
-  assert.equal(result.daily.at(-1).unit, 100);
+  assert.equal(result.daily[0].unit, 100 * 998 / 1002);
+});
+
+test("Overview hook clears old-scope results and rejects late successes", async () => {
+  let effect, state = null;
+  const react = {useState: () => [state, value => {state = value;}], useEffect: fn => {effect = fn;}};
+  const {useOverview} = await loadModule("../app/lib/use-overview.ts", {require: () => react});
+  let finish;
+  const api = {getOverview: () => new Promise(resolve => {finish = resolve;})};
+  useOverview(api, {startedFrom: "first"}, true);
+  let cleanup = effect();
+  cleanup(); finish({totals: "stale"}); await Promise.resolve();
+  assert.equal(state, null);
+  useOverview(api, {startedFrom: "first"}, true); cleanup = effect();
+  finish({totals: "first"}); await Promise.resolve(); cleanup();
+  const next = useOverview(api, {startedFrom: "second"}, true);
+  assert.equal(next.data, null);
+  assert.equal(next.loading, true);
+});
+
+test("Overview transport carries the selected window and shared filters", async () => {
+  const api = new EvalApi("/api"); let path;
+  api.request = async value => {path=value; return {totals: {},days: [],recent_runs: [],blocked_runs: [],attention_runs: []};};
+  await api.getOverview({startedFrom: "from", startedBefore: "until", skill:"skill", environment:"runner", stages:["stage"], e2eStage:"prod", e2eTarget:"target"});
+  const query = new URLSearchParams(path.split("?")[1]);
+  for (const [key,value] of Object.entries({started_from:"from",started_before:"until",skill:"skill",environment:"runner",stage:"stage",e2e_stage:"prod",e2e_target:"target"})) assert.equal(query.get(key),value);
 });
