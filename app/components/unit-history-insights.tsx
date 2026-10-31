@@ -27,6 +27,11 @@ import {
   type CasePatternView,
 } from "../lib/unit-history-utils";
 import styles from "./unit-history-insights.module.css";
+import {
+  HistoryExecution,
+  HistoryCaseInvestigation,
+  HistoryExecutionIssues,
+} from "./unit-history-investigation";
 import { UnitSkillPerformanceTrend } from "./unit-history-trend";
 
 interface Props {
@@ -340,7 +345,12 @@ export function UnitHistoryInsightsView({
               </ul>
             </details>
           )}
-          <HistoryInsightContent key={requestKey} data={data} {...navigation} />
+          <HistoryInsightContent
+            key={requestKey}
+            api={api}
+            data={data}
+            {...navigation}
+          />
         </>
       )}
     </div>
@@ -359,19 +369,35 @@ function activateRow(
 }
 
 export function HistoryInsightContent({
+  api = null,
   data,
   openingRunId,
   onOpenRun,
 }: {
+  api?: EvalApi | null;
   data: UnitHistoryInsights;
   openingRunId: string | null;
   onOpenRun: Props["onOpenRun"];
 }) {
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [matrixPage, setMatrixPage] = useState(0);
+  const [branchSearch, setBranchSearch] = useState("");
+  const matchingBranches = data.branches.filter((branch) =>
+    branch.label.toLowerCase().includes(branchSearch.toLowerCase()),
+  );
+  const matrixCurrent = Math.min(
+    matrixPage,
+    Math.max(0, Math.ceil(matchingBranches.length / 3) - 1),
+  );
+  const matrixBranches = matchingBranches.slice(
+    matrixCurrent * 3,
+    (matrixCurrent + 1) * 3,
+  );
   const [focusedBranch, setFocusedBranch] = useState<string | null>(null);
   const [focusedCommit, setFocusedCommit] = useState<string | null>(null);
   const [expandedBranches, setExpandedBranches] = useState<string[]>([]);
   const [branchPage, setBranchPage] = useState(0);
-  const [view, setView] = useState<CasePatternView>("latest");
+  const [view, setView] = useState<CasePatternView>("period");
   const [filter, setFilter] = useState<CasePatternFilter>("failed");
   const [selectedCase, setSelectedCase] = useState<string | null>(null);
   const [casePagination, setCasePagination] = useState({ key: "", page: 0 });
@@ -399,9 +425,31 @@ export function HistoryInsightContent({
   const focus = data.branches.find((item) => item.key === focusedBranch);
   const commit = focus?.commits.find((item) => item.key === focusedCommit);
   const focusBranch = (branch: HistoryBranch, chosen?: HistoryCommit) => {
+    setSelectedRunId(chosen?.runIds.at(-1) ?? branch.latestRunId);
     setFocusedBranch(branch.key);
-    setFocusedCommit((chosen ?? branch.commits.at(-1))?.key ?? null);
+    setFocusedCommit(
+      (
+        chosen ??
+        branch.commits.find((commit) =>
+          commit.runIds.includes(branch.latestRunId),
+        )
+      )?.key ?? null,
+    );
     setBranchPage(Math.floor(data.branches.indexOf(branch) / 10));
+  };
+  const inspectedRun =
+    data.runs.find((run) => run.runId === selectedRunId) ?? data.runs[0];
+  const inspectRun = (id: string) => {
+    const run = data.runs.find((run) => run.runId === id);
+    const branch = data.branches.find(
+      (branch) => branch.key === run?.branchKey,
+    );
+    if (branch)
+      focusBranch(
+        branch,
+        branch.commits.find((commit) => commit.runIds.includes(id)),
+      );
+    setSelectedRunId(id);
   };
   const showPattern = (
     nextView: CasePatternView,
@@ -451,6 +499,7 @@ export function HistoryInsightContent({
         <>
           <UnitSkillPerformanceTrend
             data={data}
+            onInspectRun={inspectRun}
             focusedBranch={focusedBranch}
             openingRunId={openingRunId}
             onOpenRun={onOpenRun}
@@ -463,6 +512,9 @@ export function HistoryInsightContent({
               }
             }}
           />
+          {inspectedRun && (
+            <HistoryExecution run={inspectedRun} onOpenRun={onOpenRun} />
+          )}
           <section className="panel" aria-label="Branch evolution">
             <div className="panel-heading">
               <div>
@@ -523,7 +575,7 @@ export function HistoryInsightContent({
                               : ""}
                           </strong>
                           <code>
-                            {item.sha?.slice(0, 7) ?? "SHA not recorded"}
+                            {item.sha?.slice(0, 8) ?? "SHA not recorded"}
                           </code>
                           <small>
                             {item.runIds.length} run
@@ -576,7 +628,7 @@ export function HistoryInsightContent({
                 <>
                   <span>
                     {focus.label} ·{" "}
-                    {commit?.sha?.slice(0, 7) ?? "SHA not recorded"} ·{" "}
+                    {commit?.sha?.slice(0, 8) ?? "SHA not recorded"} ·{" "}
                     {commit?.runIds.length ?? 0} executions · all branches
                     remain visible.
                   </span>
@@ -606,7 +658,7 @@ export function HistoryInsightContent({
               <span>Most recurring failure during period</span>
               <strong>
                 {recurring
-                  ? `${recurring.failed} / ${recurring.executions} runs`
+                  ? `${recurring.failed} failed executions`
                   : matching
                     ? "No failed verdicts"
                     : "No comparable results"}
@@ -668,8 +720,8 @@ export function HistoryInsightContent({
                     setView(event.target.value as CasePatternView)
                   }
                 >
-                  <option value="latest">Latest result per branch</option>
-                  <option value="period">Failure frequency</option>
+                  <option value="latest">Latest execution per branch</option>
+                  <option value="period">During period</option>
                 </select>
               </label>
               <label>
@@ -690,6 +742,39 @@ export function HistoryInsightContent({
                 {focus ? `Highlight: ${focus.label}` : "All branches"}
               </span>
             </div>
+            <div className={styles.matrixPager}>
+              <label>
+                Find branch{" "}
+                <input
+                  aria-label="Find matrix branch"
+                  value={branchSearch}
+                  onChange={(event) => {
+                    setBranchSearch(event.target.value);
+                    setMatrixPage(0);
+                  }}
+                />
+              </label>
+              <span>
+                Branches {matchingBranches.length ? matrixCurrent * 3 + 1 : 0}–
+                {Math.min((matrixCurrent + 1) * 3, matchingBranches.length)} of{" "}
+                {matchingBranches.length} · Global counts include all{" "}
+                {data.branches.length} branches
+              </span>
+              <nav aria-label="Matrix branch pages">
+                <button
+                  disabled={!matrixCurrent}
+                  onClick={() => setMatrixPage(matrixCurrent - 1)}
+                >
+                  Previous branches
+                </button>
+                <button
+                  disabled={(matrixCurrent + 1) * 3 >= matchingBranches.length}
+                  onClick={() => setMatrixPage(matrixCurrent + 1)}
+                >
+                  Next branches
+                </button>
+              </nav>
+            </div>
             <div className={`table-wrap ${styles.matrix}`}>
               <table>
                 <thead>
@@ -700,7 +785,7 @@ export function HistoryInsightContent({
                         ? "period-wide pattern"
                         : "latest failure spread"}
                     </th>
-                    {data.branches.map((branch) => (
+                    {matrixBranches.map((branch) => (
                       <th
                         scope="col"
                         key={branch.key}
@@ -748,18 +833,28 @@ export function HistoryInsightContent({
                         {item.testType && <small>{item.testType}</small>}
                         <small>
                           {view === "period"
-                            ? `${item.failed}/${item.executions} failed · ${item.affectedBranches} affected branches`
+                            ? `${item.failed} failed executions · ${item.affectedBranches} affected branches`
                             : `${patternFailureCount(item, view)} branches currently failing`}
                         </small>
                       </th>
-                      {item.cells.map((cell) => (
-                        <PatternCell
-                          key={cell.branchKey}
-                          cell={cell}
-                          view={view}
-                          focused={cell.branchKey === focusedBranch}
-                        />
-                      ))}
+                      {item.cells
+                        .filter((cell) =>
+                          matrixBranches.some(
+                            (branch) => branch.key === cell.branchKey,
+                          ),
+                        )
+                        .map((cell) => (
+                          <PatternCell
+                            key={cell.branchKey}
+                            cell={cell}
+                            onInspect={() => {
+                              setSelectedCase(item.key);
+                              inspectRun(cell.latestRunId);
+                            }}
+                            view={view}
+                            focused={cell.branchKey === focusedBranch}
+                          />
+                        ))}
                     </tr>
                   ))}
                 </tbody>
@@ -811,8 +906,8 @@ export function HistoryInsightContent({
             )}
             <div className={styles.legend}>
               {view === "period"
-                ? "Each cell: failed executions / executions where the case ran, within the analysis configuration. Darker tint means more frequent failure."
-                : "Latest observed case verdict on each branch. Not run means the case was absent; Unavailable means its case records are incomplete. † Settings differ from the frequency analysis."}
+                ? "Each cell counts executions of the same case: failed and passed verdicts are separate from blocked/error, XPASS, skipped and pending outcomes. Repeated runs count separately. Global case summaries include off-page branches."
+                : "Case result from the latest execution on each branch. Earlier passes never replace a blocked or unavailable latest result. Not run means the case was absent; Unavailable means its case records are incomplete. † Settings differ from the frequency analysis."}
             </div>
             {inspected && (
               <CaseEvidence
@@ -831,9 +926,28 @@ export function HistoryInsightContent({
               {data.signals.incompleteCaseRuns > 0 &&
                 ` ${data.signals.incompleteCaseRuns} completed runs have incomplete case records.`}
               {data.signals.operationalRuns > 0 &&
-                ` ${data.signals.operationalRuns} blocked/error runs remain in supporting history and are excluded from completed-case frequency analysis.`}
+                ` ${data.signals.operationalRuns} executions have blocked/error evidence. These issues are listed separately and do not produce quality measurements.`}
             </div>
           </section>
+          {inspected && inspectedRun && (
+            <HistoryCaseInvestigation
+              api={api}
+              data={data}
+              item={inspected}
+              runId={inspectedRun.runId}
+              onSelectRun={inspectRun}
+            />
+          )}
+          <HistoryExecutionIssues
+            data={data}
+            onInspectRun={(id, name, type) => {
+              inspectRun(id);
+              const item = data.cases.find(
+                (item) => item.label === name && item.testType === type,
+              );
+              if (item) showPattern(view, "all", item.key);
+            }}
+          />
           <SupportingRunHistory
             runs={data.runs}
             openingRunId={openingRunId}
@@ -887,7 +1001,9 @@ function PatternCell({
   cell,
   view,
   focused,
+  onInspect,
 }: {
+  onInspect: () => void;
   cell: HistoryCaseCell;
   view: CasePatternView;
   focused: boolean;
@@ -907,14 +1023,23 @@ function PatternCell({
       : styles.neutralCell;
   return (
     <td className={focused ? styles.focusedColumn : undefined}>
-      <span
-        className={`${styles.cell} ${tone}`}
-        style={style}
-        title={caseCellContext(cell, view)}
+      <button
+        type="button"
+        className={styles.cellButton}
+        onClick={(event) => {
+          event.stopPropagation();
+          onInspect();
+        }}
       >
-        {caseCellLabel(cell, view)}
-        {view === "latest" && !cell.latestContextMatch ? " †" : ""}
-      </span>
+        <span
+          className={`${styles.cell} ${tone}`}
+          style={style}
+          title={caseCellContext(cell, view)}
+        >
+          {caseCellLabel(cell, view)}
+          {view === "latest" && !cell.latestContextMatch ? " †" : ""}
+        </span>
+      </button>
       {view === "period" && cell.blocked > 0 && (
         <small>{cell.blocked} blocked/error</small>
       )}
@@ -1028,7 +1153,7 @@ function SupportingRunHistory({
                     {openingRunId === run.runId ? "Opening…" : run.runId}
                   </button>
                   <small>
-                    {run.gitSha?.slice(0, 7) ?? "SHA not recorded"}
+                    {run.gitSha?.slice(0, 8) ?? "SHA not recorded"}
                     {run.skillVersion ? ` · v${run.skillVersion}` : ""}
                   </small>
                 </td>
@@ -1040,13 +1165,18 @@ function SupportingRunHistory({
                 </td>
                 <td>
                   <strong>
-                    {run.executionStatus === "completed" &&
+                    {run.qualityMeasured === true &&
                     run.passed !== null &&
                     run.total !== null
                       ? `${run.passed}/${run.total} passed`
                       : run.executionStatus}
                   </strong>
-                  <small>{run.verdict}</small>
+                  <small>
+                    {run.verdict}
+                    {run.qualityMeasured !== true
+                      ? " · Quality not measured"
+                      : ""}
+                  </small>
                 </td>
                 <td>
                   {run.actor ?? "Actor not recorded"}

@@ -11,7 +11,7 @@ runInNewContext(outputText, { exports });
 const { historyTrendSeries, historyTrendValue, historyTrendCeiling } = exports;
 const window = { startedFrom: "2026-10-01T00:00:00Z", startedBefore: "2026-10-31T00:00:00Z" };
 const branches = [{ key: "main", label: "main" }, { key: "feature", label: "feature" }];
-function run(id, day, extra = {}) { return { runId: id, branchKey: "main", executionStatus: "completed", cohortKey: "config", caseSetKey: "set-a", startedAt: `2026-10-${String(day).padStart(2, "0")}T00:00:00Z`, passRatePct: 80, durationMs: 1200, ...extra }; }
+function run(id, day, extra = {}) { return { runId: id, branchKey: "main", branchLabel: "main", qualityMeasured: true, executionStatus: "completed", cohortKey: "config", caseSetKey: "set-a", startedAt: `2026-10-${String(day).padStart(2, "0")}T00:00:00Z`, passRatePct: 80, durationMs: 1200, ...extra }; }
 function series(runs, metric = "passRate", config = "config") { return historyTrendSeries([...runs].reverse(), branches, window, metric, config); }
 
 test("skill trends preserve fixed half-open bounds, completed runs, and separate branch series", () => {
@@ -34,7 +34,7 @@ test("zero metrics stay real, invalid values stay absent, and duration converts 
   assert.equal(series([run("missing", 1, { durationMs: null })], "duration").length, 0);
 });
 
-test("summary-only runs remain visible as isolated points when case analysis is unavailable", () => {
+test("known measurements without a case-set fingerprint remain isolated", () => {
   const result = series([run("one", 1, { cohortKey: null, caseSetKey: null }), run("two", 2, { cohortKey: null, caseSetKey: null })], "passRate", null);
   assert.equal(result[0].points.length, 2);
   assert.ok(result[0].segments.every((segment) => segment.length === 1));
@@ -47,4 +47,38 @@ test("chart domains and duplicate timestamps preserve actual values and API tie 
   assert.equal(historyTrendCeiling(result, "duration"), 100);
   assert.equal(historyTrendCeiling(result, "passRate"), 100);
   assert.equal(historyTrendCeiling([], "duration"), 1);
+});
+
+test("blocked or unmeasured summaries never plot as zero quality or duration", () => {
+  const { isOperationalHistoryRun } = exports;
+  const blocked = run("blocked", 3, {
+    qualityMeasured: false,
+    blockedCases: 1,
+    passRatePct: 0,
+  });
+  assert.equal(isOperationalHistoryRun(blocked), true);
+  assert.equal(historyTrendValue(blocked, "passRate"), null);
+  assert.equal(historyTrendValue(blocked, "duration"), null);
+  assert.equal(
+    historyTrendValue(
+      run("legacy", 4, { qualityMeasured: undefined }),
+      "passRate",
+    ),
+    null,
+  );
+  const result = series([
+    run("one", 1),
+    run("two", 2),
+    blocked,
+    run("four", 4),
+  ])[0];
+  assert.deepEqual(
+    Array.from(result.segments, (s) => Array.from(s, (p) => p.run.runId)),
+    [["one", "two"], ["four"]],
+  );
+  const unknownBranch = series([
+    run("one", 1, { branchLabel: "Branch not recorded" }),
+    run("two", 2, { branchLabel: "Branch not recorded" }),
+  ])[0];
+  assert.ok(unknownBranch.segments.every((s) => s.length === 1));
 });

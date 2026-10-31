@@ -82,7 +82,7 @@ interface E2EApiRun extends BaseApiRun {
   };
 }
 
-interface UnitApiCase {
+export interface UnitApiCase {
   case_id: string;
   run_id: string;
   skill: string;
@@ -677,6 +677,16 @@ export class EvalApi {
       })),
       nextCursor: page.next_cursor ?? null,
     };
+  }
+
+  async listUnitHistoryRunCases(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<UnitApiCase[]> {
+    return this.allPages<UnitApiCase>(
+      `/unit/runs/${encodeURIComponent(runId)}/cases`,
+      signal,
+    );
   }
 
   async listCases(run: EvalRun, signal?: AbortSignal): Promise<EvalCase[]> {

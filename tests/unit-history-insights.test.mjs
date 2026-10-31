@@ -42,7 +42,7 @@ test("case filters follow the selected view rather than retaining historical fai
 });
 
 test("frequency uses executions with case evidence; errors and missing data remain explicit", () => {
-  assert.equal(utils.caseCellLabel(cell("failed"), "period"), "2 / 5");
+  assert.equal(utils.caseCellLabel(cell("failed"), "period"), "2 failed · 2 passed");
   assert.equal(utils.caseCellLabel(cell("passed", { executions: 0, failed: 0 }), "period"), "No matching runs");
   assert.equal(utils.caseCellLabel(cell("not_run"), "latest"), "Not run");
   assert.equal(utils.caseCellLabel(cell("unavailable"), "latest"), "Unavailable");
@@ -86,4 +86,42 @@ test("failed History requests surface errors without substituting incomplete ana
   api.request = async () => { throw new Error("History 500"); };
   await assert.rejects(api.getUnitHistoryInsights({ scopeKey: "x", startedFrom: "a", startedBefore: "b" }), /History 500/);
   await assert.rejects(api.listUnitHistoryScopes(), /History 500/);
+});
+
+test("case investigation exhausts run pages and preserves raw evidence and cancellation", async () => {
+  const api = new EvalApi("/api");
+  const calls = [];
+  const signal = new AbortController().signal;
+  api.request = async (path, s) => {
+    calls.push({ path, s });
+    return calls.length === 1
+      ? {
+          items: [
+            {
+              case_id: "case-a",
+              scores: { accuracy: 0 },
+              thresholds: { accuracy: 0.8 },
+              error: "Recorded failure",
+            },
+          ],
+          next_cursor: "page2",
+        }
+      : {
+          items: [
+            {
+              case_id: "case-b",
+              test_name: "same-name",
+              test_type: "different-type",
+            },
+          ],
+          next_cursor: null,
+        };
+  };
+  const result = await api.listUnitHistoryRunCases("run/a?b", signal);
+  assert.equal(result.length, 2);
+  assert.equal(result[0].scores.accuracy, 0);
+  assert.equal(result[0].thresholds.accuracy, 0.8);
+  assert.equal(result[0].error, "Recorded failure");
+  assert.ok(calls[0].path.startsWith("/unit/runs/run%2Fa%3Fb/cases"));
+  assert.ok(calls.every((call) => call.s === signal));
 });

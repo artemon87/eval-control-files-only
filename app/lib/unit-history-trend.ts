@@ -17,6 +17,7 @@ export function historyTrendValue(
   run: HistoryRun,
   metric: HistoryTrendMetric,
 ): number | null {
+  if (run.qualityMeasured !== true) return null;
   const value = metric === "passRate" ? run.passRatePct : run.durationMs;
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0)
     return null;
@@ -69,9 +70,10 @@ export function historyTrendSeries(
         continue;
       }
       // A recorded case-set identity is required to join runs. Never guess from case count.
-      const nextSignature = run.caseSetKey
-        ? JSON.stringify([run.cohortKey, run.caseSetKey])
-        : null;
+      const nextSignature =
+        run.caseSetKey && run.branchLabel !== "Branch not recorded"
+          ? JSON.stringify([run.cohortKey, run.caseSetKey])
+          : null;
       if (!nextSignature || nextSignature !== signature) finish();
       const point = { run, value };
       points.push(point);
@@ -86,6 +88,14 @@ export function historyTrendSeries(
   });
 }
 
+export function isOperationalHistoryRun(run: HistoryRun): boolean {
+  return (
+    ["error", "blocked"].includes(run.executionStatus) ||
+    ["error", "blocked"].includes(run.verdict) ||
+    (run.blockedCases ?? 0) > 0
+  );
+}
+
 export function historyTrendCeiling(
   series: HistoryTrendSeries[],
   metric: HistoryTrendMetric,
@@ -93,7 +103,10 @@ export function historyTrendCeiling(
   if (metric === "passRate") return 100;
   const maximum = series.reduce(
     (highest, branch) =>
-      branch.points.reduce((value, point) => Math.max(value, point.value), highest),
+      branch.points.reduce(
+        (value, point) => Math.max(value, point.value),
+        highest,
+      ),
     0,
   );
   if (!maximum) return 1;

@@ -30,6 +30,10 @@ export interface HistoryRun {
   /** Missing on older backends; such runs are shown as unconnected trend points. */
   caseSetKey?: string | null;
   contextMatch: boolean;
+  qualityMeasured?: boolean;
+  blockedCases?: number;
+  passRateThreshold?: number | null;
+  error?: string | null;
 }
 
 export interface HistoryCommit {
@@ -120,6 +124,14 @@ export interface UnitHistoryInsights {
   runs: HistoryRun[];
   branches: HistoryBranch[];
   cases: HistoryCase[];
+  executionIssues?: Array<{
+    runId: string;
+    branchKey: string;
+    startedAt: string;
+    caseName: string | null;
+    testType: string | null;
+    error: string | null;
+  }>;
   signals: {
     recurringCaseKey: string | null;
     inconsistentUpdates: number;

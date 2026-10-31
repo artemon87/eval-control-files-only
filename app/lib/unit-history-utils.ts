@@ -59,7 +59,7 @@ export function caseCellLabel(
 ): string {
   if (view === "latest") return STATE_LABELS[cell.latestState];
   return cell.executions
-    ? `${cell.failed} / ${cell.executions}`
+    ? `${cell.failed} failed · ${cell.passed} passed`
     : "No matching runs";
 }
 

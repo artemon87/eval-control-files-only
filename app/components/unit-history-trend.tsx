@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import type { UnitHistoryInsights } from "../lib/unit-history-types";
 import { historyTime, rateLabel } from "../lib/unit-history-utils";
 import {
+  isOperationalHistoryRun,
   historyTrendCeiling,
   historyTrendSeries,
   type HistoryTrendMetric,
@@ -20,7 +21,9 @@ export function UnitSkillPerformanceTrend({
   openingRunId,
   onHighlightBranch,
   onOpenRun,
+  onInspectRun,
 }: {
+  onInspectRun?: (runId: string) => void;
   data: UnitHistoryInsights;
   focusedBranch: string | null;
   openingRunId: string | null;
@@ -38,19 +41,25 @@ export function UnitSkillPerformanceTrend({
     observer.observe(container.current);
     return () => observer.disconnect();
   }, []);
+  const configuration = data.cohorts.find(
+    (cohort) => cohort.key === data.selectedCohortKey,
+  );
   const series = historyTrendSeries(
-    data.runs,
+    configuration?.configurationComplete
+      ? data.runs
+      : data.runs.map((run) => ({ ...run, caseSetKey: null })),
     data.branches,
     data,
     metric,
     data.selectedCohortKey,
   );
+  const operational = data.runs.filter(isOperationalHistoryRun);
   const ceiling = historyTrendCeiling(series, metric);
-  const height = 270,
+  const height = 310,
     left = 54,
     right = width - 20,
     top = 27,
-    bottom = 218;
+    bottom = 200;
   const start = Date.parse(data.startedFrom),
     end = Date.parse(data.startedBefore);
   const x = (at: string) =>
@@ -69,7 +78,8 @@ export function UnitSkillPerformanceTrend({
     0,
   );
   const openRun = (runId: string) => {
-    if (runId !== openingRunId) onOpenRun(runId, "unit");
+    if (onInspectRun) onInspectRun(runId);
+    else if (runId !== openingRunId) onOpenRun(runId, "unit");
   };
   return (
     <section
@@ -98,42 +108,51 @@ export function UnitSkillPerformanceTrend({
           </select>
         </label>
       </div>
-      <div className={styles.legend} aria-label="Trend branch highlights">
-        {series.map((branch, index) => (
-          <button
-            key={branch.branchKey}
-            type="button"
-            aria-pressed={focusedBranch === branch.branchKey}
-            className={
-              focusedBranch === branch.branchKey
-                ? styles.highlighted
-                : undefined
-            }
-            onClick={() =>
-              onHighlightBranch(
-                focusedBranch === branch.branchKey ? null : branch.branchKey,
-              )
-            }
-          >
-            <span
-              style={
-                {
-                  "--branch-color": COLORS[index % COLORS.length],
-                } as CSSProperties
+      <details>
+        <summary className={styles.branchSummary}>
+          Branch highlights · {series.length} measured branches
+        </summary>
+        <div className={styles.legend} aria-label="Trend branch highlights">
+          {series.map((branch, index) => (
+            <button
+              key={branch.branchKey}
+              type="button"
+              aria-pressed={focusedBranch === branch.branchKey}
+              className={
+                focusedBranch === branch.branchKey
+                  ? styles.highlighted
+                  : undefined
               }
-            />
-            {branch.label}
-          </button>
-        ))}
-      </div>
+              onClick={() =>
+                onHighlightBranch(
+                  focusedBranch === branch.branchKey ? null : branch.branchKey,
+                )
+              }
+            >
+              <span
+                style={
+                  {
+                    "--branch-color": COLORS[index % COLORS.length],
+                  } as CSSProperties
+                }
+              />
+              {branch.label}
+            </button>
+          ))}
+        </div>
+      </details>
       {!pointCount && (
         <div className="empty" role="status">
           {metric === "duration"
-            ? "No recorded execution durations in the selected configuration and window."
-            : "No recorded pass rates for completed runs in the selected configuration and window."}
+            ? "No complete quality measurements with recorded durations in this configuration and window."
+            : "No complete quality measurements in this configuration and window."}
         </div>
       )}
-      <div className={styles.plot} ref={container} hidden={!pointCount}>
+      <div
+        className={styles.plot}
+        ref={container}
+        hidden={!pointCount && !operational.length}
+      >
         <svg
           viewBox={`0 0 ${width} ${height}`}
           role="group"
@@ -202,7 +221,7 @@ export function UnitSkillPerformanceTrend({
                     />
                   ))}
                 {branch.points.map(({ run, value }) => {
-                  const label = `${branch.label} · ${run.runId} · ${metric === "passRate" ? rateLabel(value) : formatValue(value)} · ${run.passed ?? "?"}/${run.total ?? "?"} passed · ${historyTime(run.startedAt)} · SHA ${run.gitSha?.slice(0, 7) ?? "not recorded"}`;
+                  const label = `${branch.label} · ${run.runId} · ${metric === "passRate" ? rateLabel(value) : formatValue(value)} · ${run.passed ?? "?"}/${run.total ?? "?"} passed · ${historyTime(run.startedAt)} · SHA ${run.gitSha?.slice(0, 8) ?? "not recorded"}`;
                   return (
                     <a
                       key={run.runId}
@@ -243,6 +262,51 @@ export function UnitSkillPerformanceTrend({
               </g>
             );
           })}
+          {!!operational.length && (
+            <g aria-label="Execution issues · no quality measurement">
+              <text className={styles.axisTitle} x={left} y="224">
+                Blocked / execution error · no quality score
+              </text>
+              <line
+                className={styles.gridLine}
+                x1={left}
+                x2={right}
+                y1="240"
+                y2="240"
+              />
+              {operational.map((run) => (
+                <a
+                  key={run.runId}
+                  href={`?view=runs&run=${encodeURIComponent(run.runId)}`}
+                  aria-label={`Inspect execution issue ${run.runId}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    openRun(run.runId);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === " ") {
+                      event.preventDefault();
+                      openRun(run.runId);
+                    }
+                  }}
+                >
+                  <title>{`${run.branchLabel} · ${run.runId} · ${run.error ?? "Recorded execution issue"}`}</title>
+                  <circle
+                    cx={x(run.startedAt)}
+                    cy="240"
+                    r="12"
+                    fill="transparent"
+                  />
+                  <circle
+                    cx={x(run.startedAt)}
+                    cy="240"
+                    r="4"
+                    fill="var(--muted)"
+                  />
+                </a>
+              ))}
+            </g>
+          )}
           {Array.from({ length: tickCount }, (_, index) => {
             const progress = index / (tickCount - 1),
               at = start + progress * (end - start);
@@ -251,7 +315,7 @@ export function UnitSkillPerformanceTrend({
                 key={index}
                 className={styles.tick}
                 x={left + progress * (right - left)}
-                y={bottom + 22}
+                y={height - 26}
                 textAnchor={
                   index === 0
                     ? "start"
@@ -279,12 +343,18 @@ export function UnitSkillPerformanceTrend({
         </svg>
       </div>
       <div className={styles.note}>
-        {pointCount} completed executions
+        {pointCount} measured executions
         {data.selectedCohortKey
           ? " in the selected analysis configuration"
           : " with recorded run summaries"}
-        . Each branch has its own series. Lines break when recorded case sets
-        change or the metric is missing. Select a point to open its run.
+        . Dates are on the horizontal axis. Lines join comparable updates within
+        the same branch only; no main-branch baseline or PR approval is assumed.
+        Lines break when recorded case sets change or the metric is missing.
+        Select a point to inspect its execution. {operational.length} executions
+        with recorded issues are shown separately and do not contribute quality
+        scores.
+        {!configuration?.configurationComplete &&
+          " Recorded configuration is incomplete; points are not connected."}
         {pointCount === 1 ? " More runs are needed to establish a trend." : ""}
       </div>
     </section>
