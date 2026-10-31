@@ -55,7 +55,7 @@ test("stage is a first-class scope independent from target environment", () => {
   );
   assert.match(
     pageSource,
-    /unitStage === "all" \|\| selectableUnitStages\.includes\(unitStage\)/,
+    /const resolvedUnitStage = unitStage;/,
   );
   assert.match(
     pageSource,
@@ -358,3 +358,4 @@ test("attention grouping nests stages, targets, and skills consistently", () => 
     /\.run-nested-section--attention-target \.run-subgroup/,
   );
 });
+

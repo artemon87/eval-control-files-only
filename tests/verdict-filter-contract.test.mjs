@@ -100,9 +100,11 @@ test("applies the selected Evaluation History time window", async () => {
 
   assert.match(
     page,
-    /const rangeDays: 7 \| 30 \| 90 =[\s\S]*?range === "7d"[\s\S]*?range === "30d"/,
+    /fixedTimeWindow\(range, new Date/,
+
   );
-  assert.match(page, /timestamp >= rangeStart && timestamp <= referenceTime/);
+  assert.match(page, /timestamp >= Date\.parse\(timeWindow\.startedFrom\)/);
+  assert.match(page, /timestamp < Date\.parse\(timeWindow\.startedBefore\)/);
   assert.match(
     page,
     /e2eSource\.filter\([\s\S]*?inRange\(point\.startedAt\)[\s\S]*?point\.stage === stage/,
@@ -142,3 +144,4 @@ test("lets users toggle chart percentage annotations", async () => {
     /\{showPercentLabels &&[\s\S]*?<text[\s\S]*?className="point-value"/,
   );
 });
+
