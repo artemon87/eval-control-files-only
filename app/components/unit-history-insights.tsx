@@ -27,6 +27,7 @@ import {
   type CasePatternView,
 } from "../lib/unit-history-utils";
 import styles from "./unit-history-insights.module.css";
+import { UnitSkillPerformanceTrend } from "./unit-history-trend";
 
 interface Props {
   api: EvalApi | null;
@@ -448,6 +449,20 @@ export function HistoryInsightContent({
       )}
       {!!data.runs.length && (
         <>
+          <UnitSkillPerformanceTrend
+            data={data}
+            focusedBranch={focusedBranch}
+            openingRunId={openingRunId}
+            onOpenRun={onOpenRun}
+            onHighlightBranch={(key) => {
+              const branch = data.branches.find((item) => item.key === key);
+              if (branch) focusBranch(branch);
+              else {
+                setFocusedBranch(null);
+                setFocusedCommit(null);
+              }
+            }}
+          />
           <section className="panel" aria-label="Branch evolution">
             <div className="panel-heading">
               <div>

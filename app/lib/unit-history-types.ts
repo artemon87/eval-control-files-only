@@ -27,6 +27,8 @@ export interface HistoryRun {
   caseCount: number;
   casesComplete: boolean;
   cohortKey: string | null;
+  /** Missing on older backends; such runs are shown as unconnected trend points. */
+  caseSetKey?: string | null;
   contextMatch: boolean;
 }
 
