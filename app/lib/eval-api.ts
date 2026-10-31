@@ -1,3 +1,4 @@
+import type { UnitHistoryInsights, UnitHistoryQuery, UnitHistoryScope } from "./unit-history-types";
 import type {
   CaseVerdict,
   EvalCase,
@@ -526,6 +527,20 @@ export class EvalApi {
         e2e: e2e.next_cursor ?? null,
       },
     };
+  }
+
+  async listUnitHistoryScopes(signal?: AbortSignal): Promise<UnitHistoryScope[]> {
+    return this.request<UnitHistoryScope[]>("/unit/history/scopes", signal);
+  }
+
+  async getUnitHistoryInsights(query: UnitHistoryQuery, signal?: AbortSignal): Promise<UnitHistoryInsights> {
+    const params = new URLSearchParams({
+      scope_key: query.scopeKey,
+      started_from: query.startedFrom,
+      started_before: query.startedBefore,
+    });
+    if (query.cohortKey) params.set("cohort_key", query.cohortKey);
+    return this.request<UnitHistoryInsights>(`/unit/history/insights?${params}`, signal);
   }
 
   async listUnitSkills(signal?: AbortSignal): Promise<UnitSkillOption[]> {

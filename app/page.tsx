@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import type { CSSProperties } from "react";
+import { UnitHistoryInsightsView } from "./components/unit-history-insights";
 import { SidebarFooter } from "./components/sidebar-footer";
 import {
   evaluationNavItems,
@@ -5160,13 +5161,38 @@ function TargetComparisonChart({
   );
 }
 
-function HistoryCollection({
+function HistoryCollection(props: {
+  api: EvalApi | null;
+  revision: number;
+  initialFocus: HistoryFocus;
+  openingRunId: string | null;
+  onOpenRun: (runId: string, evalType: EvalType) => void;
+}) {
+  const [historyType, setHistoryType] = useState<EvalType>(props.initialFocus?.type ?? "e2e");
+  return historyType === "unit" ? (
+    <UnitHistoryInsightsView
+      {...props}
+      initialFocus={props.initialFocus ?? undefined}
+      onShowE2E={() => setHistoryType("e2e")}
+    />
+  ) : (
+    <E2EHistoryCollection
+      {...props}
+      initialFocus={props.initialFocus?.type === "e2e" ? props.initialFocus : null}
+      onShowUnit={() => setHistoryType("unit")}
+    />
+  );
+}
+
+function E2EHistoryCollection({
   api,
   revision,
+  onShowUnit,
   ...props
 }: {
   api: EvalApi | null;
   revision: number;
+  onShowUnit: () => void;
   initialFocus: HistoryFocus;
   openingRunId: string | null;
   onOpenRun: (runId: string, evalType: EvalType) => void;
@@ -5177,9 +5203,15 @@ function HistoryCollection({
     () => fixedTimeWindow(range, new Date(Math.max(anchor, revision))),
     [range, anchor, revision],
   );
-  const collection = useRunCollection(api, timeWindow);
+  const collection = useRunCollection(api, timeWindow, true, "e2e");
   return (
     <>
+      {(collection.loading || collection.error || !collection.loaded) && (
+        <div className="page-heading history-heading">
+          <div><span className="eyebrow">Longitudinal quality</span><h1>Evaluation history</h1></div>
+          <div className="type-switch"><button className="active">E2E history</button><button onClick={onShowUnit}>Unit skill history</button></div>
+        </div>
+      )}
       <section className="panel analytics-window">
         <div>
           <strong>History time window</strong>
@@ -5224,6 +5256,7 @@ function HistoryCollection({
             {...props}
             runs={collection.runs}
             timeWindow={timeWindow}
+            onShowUnit={onShowUnit}
           />
         </div>
       )}
@@ -5237,8 +5270,10 @@ function HistoryView({
   timeWindow,
   openingRunId,
   onOpenRun,
+  onShowUnit,
 }: {
   initialFocus: HistoryFocus;
+  onShowUnit?: () => void;
   runs: EvalRun[];
   timeWindow: FixedTimeWindow;
   openingRunId: string | null;
@@ -5605,7 +5640,7 @@ function HistoryView({
           </button>
           <button
             className={historyType === "unit" ? "active" : ""}
-            onClick={() => setHistoryType("unit")}
+            onClick={() => onShowUnit ? onShowUnit() : setHistoryType("unit")}
           >
             Unit skill history
           </button>
