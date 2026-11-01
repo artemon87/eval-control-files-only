@@ -11,6 +11,7 @@ import {
 } from "react";
 import type { CSSProperties } from "react";
 import { UnitHistoryTrendExplorer } from "./components/unit-history-explorer";
+import { HistoryInsights, type HistoryInsightsSnapshot } from "./components/history-insights";
 import { HistoryWorkspace } from "./components/history-workspace";
 import { SidebarFooter } from "./components/sidebar-footer";
 import {
@@ -1766,6 +1767,8 @@ export default function Home() {
     category?: string;
     targetEnvironment?: string;
   } | null>(null);
+  const [historySnapshot, setHistorySnapshot] = useState<HistorySnapshot>({ mode: "insights", insights: null });
+  const [runReturnView, setRunReturnView] = useState<"history" | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [overviewDays, setOverviewDays] = useState<7 | 30 | 90>(7);
@@ -2424,6 +2427,7 @@ export default function Home() {
     setSelectedCase(null);
     setSelectedTrend(null);
     setDetailError(null);
+    setRunReturnView(view === "history" ? "history" : null);
     navigate("runs", run.runId);
   };
 
@@ -2455,6 +2459,7 @@ export default function Home() {
   };
 
   const openHistory = (run: EvalRun) => {
+    setHistorySnapshot({ mode: "insights", insights: null });
     setHistoryFocus(
       run.evalType === "e2e"
         ? { type: "e2e", stage: run.stage, target: run.target }
@@ -2831,12 +2836,16 @@ export default function Home() {
                   </p>
                 </div>
                 {selectedRun && (
-                  <button
-                    className="secondary-button"
-                    onClick={() => navigate("runs")}
-                  >
-                    ← All runs
-                  </button>
+                  <div className="run-heading-actions">
+                    {runReturnView === "history" && (
+                      <button className="secondary-button" onClick={() => navigate("history")}>
+                        ← Back to History
+                      </button>
+                    )}
+                    <button className="secondary-button" onClick={() => navigate("runs")}>
+                      ← All runs
+                    </button>
+                  </div>
                 )}
               </div>
               {!selectedRun ? (
@@ -3463,6 +3472,8 @@ export default function Home() {
               api={api}
               revision={historyRevision}
               initialFocus={historyFocus}
+              snapshot={historySnapshot}
+              onSnapshot={setHistorySnapshot}
               openingRunId={openingRunId}
               onOpenRun={(runId, evalType) => void openRunById(runId, evalType)}
             />
@@ -5162,16 +5173,42 @@ function TargetComparisonChart({
   );
 }
 
+type HistorySnapshot = {
+  mode: "insights" | "trend";
+  insights: HistoryInsightsSnapshot | null;
+};
+
 function HistoryCollection(props: {
   api: EvalApi | null;
   revision: number;
   initialFocus: HistoryFocus;
+  snapshot: HistorySnapshot;
+  onSnapshot: (update: (current: HistorySnapshot) => HistorySnapshot) => void;
   openingRunId: string | null;
   onOpenRun: (runId: string, evalType: EvalType) => void;
 }) {
   const [historyType, setHistoryType] = useState<EvalType>(props.initialFocus?.type ?? "e2e");
   return (
-    <HistoryWorkspace>
+    <HistoryWorkspace
+      mode={props.snapshot.mode}
+      onModeChange={(mode) => props.onSnapshot((current) => ({ ...current, mode }))}
+      insights={
+        <HistoryInsights
+          api={props.api}
+          initialFocus={props.initialFocus ? {
+            type: props.initialFocus.type,
+            scope: props.initialFocus.type === "e2e" ? props.initialFocus.target : props.initialFocus.skillId,
+            category: props.initialFocus.category,
+            stage: props.initialFocus.stage,
+            targetEnvironment: props.initialFocus.targetEnvironment,
+          } : null}
+          snapshot={props.snapshot.insights}
+          onSnapshot={(insights) => props.onSnapshot((current) => ({ ...current, insights }))}
+          openingRunId={props.openingRunId}
+          onOpenRun={props.onOpenRun}
+        />
+      }
+    >
       {historyType === "unit" ? (
         <UnitHistoryTrendExplorer
           {...props}
@@ -7529,4 +7566,5 @@ function NewRunModal({
 }
 
 void NewRunModal;
+
 
