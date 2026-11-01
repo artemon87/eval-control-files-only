@@ -152,3 +152,95 @@ test("Trend Explorer requests server window resolution using only its preset and
   assert.equal(urls[1].searchParams.get("window_end"), window.startedBefore);
   assert.equal(urls[1].searchParams.has("started_from"), false);
 });
+
+test("Repository stays rendered for zero, one and multiple repositories; loading retains results", async () => {
+  const { createRequire } = await import("node:module");
+  const require = createRequire(import.meta.url);
+  const React = require("react");
+  const { renderToStaticMarkup } = require("react-dom/server");
+  const uiSource = await readFile(
+    new URL("../app/components/history-insights.tsx", import.meta.url),
+    "utf8",
+  );
+  const { outputText } = ts.transpileModule(uiSource, {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.CommonJS,
+      jsx: ts.JsxEmit.ReactJSX,
+    },
+  });
+  const exports = {};
+  runInNewContext(outputText, {
+    exports,
+    require: (name) =>
+      name.endsWith(".css")
+        ? { default: {} }
+        : name === "../lib/history-insights"
+          ? {
+              cellKey: (a, b) => `${a}\u0000${b}`,
+              runContext: (r) => r.context,
+            }
+          : require(name),
+  });
+  const data = {
+    repositories: [],
+    categories: [],
+    scopeOptions: [],
+    stageOptions: [],
+    targetOptions: [],
+    branchNames: [],
+    activeCategory: "all",
+    activeStage: "all",
+    activeTarget: "all",
+    activeScope: null,
+    baseline: null,
+    mixedStages: 1,
+    mixedTargets: 1,
+    counts: {
+      runCount: 1,
+      scopeCount: 0,
+      branchCount: 0,
+      regressedCells: 0,
+      systemicScopes: 0,
+    },
+    landscape: { scopes: [], branches: [], cells: new Map(), insights: [] },
+    matrix: null,
+  };
+  for (const repositories of [[], ["org/a"], ["org/a", "org/b"]]) {
+    const snapshot = {
+      evalType: "unit",
+      range: "90d",
+      loaded: {
+        key: JSON.stringify([
+          "unit",
+          "30d",
+          0,
+          "org/selected",
+          null,
+          null,
+          "all",
+          null,
+          null,
+        ]),
+        data: { ...data, repositories },
+        error: null,
+      },
+      repository: "org/selected",
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(exports.HistoryInsights, {
+        api: {},
+        initialFocus: null,
+        snapshot,
+        onSnapshot: () => {},
+        openingRunId: null,
+        onOpenRun: () => {},
+      }),
+    );
+    assert.match(html, /aria-label="Insights repository"/);
+    assert.match(html, /<option value="org\/selected" selected=""/);
+    assert.match(html, /aria-label="Insights results" aria-busy="true"/);
+    assert.match(html, /inert=""/);
+    assert.match(html, /Updating… showing previous results/);
+  }
+});

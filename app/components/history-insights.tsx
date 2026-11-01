@@ -327,7 +327,11 @@ export function HistoryInsights({
     baselineOverride,
   ]);
   const loading = loaded.key !== requestKey;
-  const data = loaded.data;
+  const previousQuery = loaded.key
+    ? (JSON.parse(loaded.key) as string[])
+    : null;
+  const data = previousQuery?.[0] === evalType ? loaded.data : null;
+  const displayedRange = loading && data ? previousQuery?.[1] : range;
   const error = loaded.error;
   const {
     repositories = [],
@@ -439,23 +443,26 @@ export function HistoryInsights({
         </div>
       </div>
       <section className={`panel ${styles.controls}`}>
-        {repositories.length > 1 && (
-          <label>
-            <span>Repository</span>
-            <select
-              aria-label="Insights repository"
-              value={repository}
-              onChange={(event) => setRepository(event.target.value)}
-            >
-              <option value="all">All repositories</option>
-              {repositories.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <label>
+          <span>Repository</span>
+          <select
+            aria-label="Insights repository"
+            value={repository}
+            onChange={(event) => setRepository(event.target.value)}
+          >
+            <option value="all">All repositories</option>
+            {Array.from(
+              new Set([
+                ...repositories,
+                ...(repository !== "all" ? [repository] : []),
+              ]),
+            ).map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
         {evalType === "unit" && (
           <label>
             <span>Category</span>
@@ -573,7 +580,9 @@ export function HistoryInsights({
             {!api
               ? "API not configured"
               : loading
-                ? "Loading runs…"
+                ? data
+                  ? "Updating… showing previous results"
+                  : "Loading runs…"
                 : `${counts.runCount} runs · ${branchNames.length} branches · ${counts.scopeCount} ${noun}s`}
           </div>
           <div className="range-switch">
@@ -655,7 +664,7 @@ export function HistoryInsights({
           <strong>Connect the evaluation API to load insights</strong>
         </div>
       )}
-      {loading && api && (
+      {loading && api && !data && (
         <div className="panel" role="status">
           Loading insights…
         </div>
@@ -675,141 +684,143 @@ export function HistoryInsights({
           <span>Widen the window or switch evaluation type.</span>
         </div>
       )}
-      {!error && !loading && counts.runCount > 0 && (
-        <>
-          <section className={styles.kpis}>
-            {matrix ? (
-              <>
-                <Kpi
-                  label="Tests tracked"
-                  value={counts.testsTracked}
-                  detail={`${counts.caseRunCount} runs analysed`}
-                />
-                <Kpi
-                  label="Bottleneck tests"
-                  value={counts.bottleneckTests}
-                  detail="fail on most branches"
-                  tone="bad"
-                />
-                <Kpi
-                  label="Branch regressions"
-                  value={counts.branchRegressions}
-                  detail={`tests passing on ${baseline} but failing elsewhere`}
-                  tone="bad"
-                />
-                <Kpi
-                  label="Flaky tests"
-                  value={counts.flakyTests}
-                  detail="flip on the same branch"
-                  tone="warn"
-                />
-              </>
-            ) : (
-              <>
-                <Kpi
-                  label="Active branches"
-                  value={counts.branchCount}
-                  detail={`baseline: ${baseline ?? "—"}`}
-                />
-                <Kpi
-                  label={`${noun[0].toUpperCase()}${noun.slice(1)}s tracked`}
-                  value={landscape.scopes.length}
-                  detail={`${counts.runCount} runs in ${range}`}
-                />
-                <Kpi
-                  label="Regressions vs baseline"
-                  value={counts.regressedCells}
-                  detail={`${noun} × branch cells ≥${regressionPoints} pts below`}
-                  tone="bad"
-                />
-                <Kpi
-                  label="Failing everywhere"
-                  value={counts.systemicScopes}
-                  detail={`${noun}s failing on every branch`}
-                  tone="warn"
-                />
-              </>
-            )}
-          </section>
-          <section className={`panel ${styles.insightsPanel}`}>
-            <div className="panel-heading">
-              <div>
-                <h2>What stands out</h2>
-                <p>
-                  Ranked by severity. Click one to highlight it{" "}
-                  {activeScope ? "in the matrix" : "or open its deep dive"}.
+      {!error && counts.runCount > 0 && (
+        <section aria-label="Insights results" aria-busy={loading}>
+          <div inert={loading} style={{ opacity: loading ? 0.65 : 1 }}>
+            <section className={styles.kpis}>
+              {matrix ? (
+                <>
+                  <Kpi
+                    label="Tests tracked"
+                    value={counts.testsTracked}
+                    detail={`${counts.caseRunCount} runs analysed`}
+                  />
+                  <Kpi
+                    label="Bottleneck tests"
+                    value={counts.bottleneckTests}
+                    detail="fail on most branches"
+                    tone="bad"
+                  />
+                  <Kpi
+                    label="Branch regressions"
+                    value={counts.branchRegressions}
+                    detail={`tests passing on ${baseline} but failing elsewhere`}
+                    tone="bad"
+                  />
+                  <Kpi
+                    label="Flaky tests"
+                    value={counts.flakyTests}
+                    detail="flip on the same branch"
+                    tone="warn"
+                  />
+                </>
+              ) : (
+                <>
+                  <Kpi
+                    label="Active branches"
+                    value={counts.branchCount}
+                    detail={`baseline: ${baseline ?? "—"}`}
+                  />
+                  <Kpi
+                    label={`${noun[0].toUpperCase()}${noun.slice(1)}s tracked`}
+                    value={landscape.scopes.length}
+                    detail={`${counts.runCount} runs in ${displayedRange}`}
+                  />
+                  <Kpi
+                    label="Regressions vs baseline"
+                    value={counts.regressedCells}
+                    detail={`${noun} × branch cells ≥${regressionPoints} pts below`}
+                    tone="bad"
+                  />
+                  <Kpi
+                    label="Failing everywhere"
+                    value={counts.systemicScopes}
+                    detail={`${noun}s failing on every branch`}
+                    tone="warn"
+                  />
+                </>
+              )}
+            </section>
+            <section className={`panel ${styles.insightsPanel}`}>
+              <div className="panel-heading">
+                <div>
+                  <h2>What stands out</h2>
+                  <p>
+                    Ranked by severity. Click one to highlight it{" "}
+                    {activeScope ? "in the matrix" : "or open its deep dive"}.
+                  </p>
+                </div>
+              </div>
+              {insights.length ? (
+                <div className={styles.insightGrid}>
+                  {insights.slice(0, 8).map((insight) => (
+                    <button
+                      key={insight.id}
+                      type="button"
+                      className={`${styles.insight} ${styles[`insight_${insight.severity}`]}`}
+                      onClick={() => applyInsight(insight)}
+                    >
+                      <span className={styles.insightKind}>
+                        {insight.kind.replaceAll("-", " ")}
+                      </span>
+                      <strong>{insight.title}</strong>
+                      <small>{insight.detail}</small>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className={styles.quiet}>
+                  Nothing unusual. Every branch matches the baseline in this
+                  window.
                 </p>
-              </div>
-            </div>
-            {insights.length ? (
-              <div className={styles.insightGrid}>
-                {insights.slice(0, 8).map((insight) => (
-                  <button
-                    key={insight.id}
-                    type="button"
-                    className={`${styles.insight} ${styles[`insight_${insight.severity}`]}`}
-                    onClick={() => applyInsight(insight)}
-                  >
-                    <span className={styles.insightKind}>
-                      {insight.kind.replaceAll("-", " ")}
-                    </span>
-                    <strong>{insight.title}</strong>
-                    <small>{insight.detail}</small>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className={styles.quiet}>
-                Nothing unusual. Every branch matches the baseline in this
-                window.
-              </p>
-            )}
-          </section>
-          {matrix ? (
-            <TestMatrixPanel
-              matrix={matrix}
-              baseline={baseline}
-              evalType={evalType}
-              loadingCases={0}
-              caseErrors={0}
-              loadedCaseRuns={counts.caseRunCount}
-              totalCaseRuns={counts.caseRunCount}
-              focusBranch={focusBranch}
-              focusTest={focusTest}
-              selectedCell={selectedCell}
-              onSelectCell={setSelectedCell}
-              problemsOnly={
-                problemsOnly ?? matrix.tests.length > PROBLEM_FILTER_THRESHOLD
-              }
-              onProblemsOnly={setProblemsOnly}
-              search={testSearch}
-              onSearch={setTestSearch}
-              openingRunId={openingRunId}
-              onOpenRun={openRun}
-              layout={tableLayout}
-            />
-          ) : (
-            <div className={styles.landscapeLayout}>
-              <LandscapePanel
-                landscape={landscape}
-                regressionPoints={regressionPoints}
+              )}
+            </section>
+            {matrix ? (
+              <TestMatrixPanel
+                matrix={matrix}
                 baseline={baseline}
-                noun={noun}
+                evalType={evalType}
+                loadingCases={0}
+                caseErrors={0}
+                loadedCaseRuns={counts.caseRunCount}
+                totalCaseRuns={counts.caseRunCount}
                 focusBranch={focusBranch}
-                onOpenScope={openScope}
+                focusTest={focusTest}
+                selectedCell={selectedCell}
+                onSelectCell={setSelectedCell}
+                problemsOnly={
+                  problemsOnly ?? matrix.tests.length > PROBLEM_FILTER_THRESHOLD
+                }
+                onProblemsOnly={setProblemsOnly}
+                search={testSearch}
+                onSearch={setTestSearch}
+                openingRunId={openingRunId}
+                onOpenRun={openRun}
                 layout={tableLayout}
               />
-              <BlastRadiusPanel
-                landscape={landscape}
-                baseline={baseline}
-                noun={noun}
-                focusBranch={focusBranch}
-                onFocusBranch={setFocusBranch}
-                hidden={hiddenBranches}
-              />
-            </div>
-          )}
-        </>
+            ) : (
+              <div className={styles.landscapeLayout}>
+                <LandscapePanel
+                  landscape={landscape}
+                  regressionPoints={regressionPoints}
+                  baseline={baseline}
+                  noun={noun}
+                  focusBranch={focusBranch}
+                  onOpenScope={openScope}
+                  layout={tableLayout}
+                />
+                <BlastRadiusPanel
+                  landscape={landscape}
+                  baseline={baseline}
+                  noun={noun}
+                  focusBranch={focusBranch}
+                  onFocusBranch={setFocusBranch}
+                  hidden={hiddenBranches}
+                />
+              </div>
+            )}
+          </div>
+        </section>
       )}
     </div>
   );
