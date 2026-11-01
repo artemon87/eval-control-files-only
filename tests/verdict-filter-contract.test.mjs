@@ -100,7 +100,7 @@ test("applies the selected Evaluation History time window", async () => {
 
   assert.match(
     page,
-    /fixedTimeWindow\(range, new Date/,
+    /useHistoryWindow\(api, range, revision, windowRevision\)/,
 
   );
   assert.match(page, /timestamp >= Date\.parse\(timeWindow\.startedFrom\)/);

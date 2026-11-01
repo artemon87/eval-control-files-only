@@ -1,4 +1,13 @@
-import type { UnitHistoryInsights, UnitHistoryQuery, UnitHistoryScope } from "./unit-history-types";
+import type {
+  InsightsQuery,
+  InsightsResponse,
+  InsightsWireResponse,
+} from "./history-insights";
+import type {
+  UnitHistoryInsights,
+  UnitHistoryQuery,
+  UnitHistoryScope,
+} from "./unit-history-types";
 import type {
   CaseVerdict,
   EvalCase,
@@ -218,7 +227,9 @@ function summaryMeanScore(value: ApiSummary): number | undefined {
     .map(numberOrUndefined)
     .filter((score): score is number => score !== undefined);
   if (!metricMeans.length) return undefined;
-  return metricMeans.reduce((total, score) => total + score, 0) / metricMeans.length;
+  return (
+    metricMeans.reduce((total, score) => total + score, 0) / metricMeans.length
+  );
 }
 
 function summaryMetricMeans(value: ApiSummary): Record<string, number> {
@@ -338,9 +349,7 @@ function mapUnitRun(run: UnitApiRun): EvalRun {
       mode: (run.unit_config.mode ?? "all") as
         "all" | "single-turn" | "multi-turn",
       metrics: run.unit_config.metrics ?? [],
-      passRateThreshold: numberOrUndefined(
-        run.unit_config.pass_rate_threshold,
-      ),
+      passRateThreshold: numberOrUndefined(run.unit_config.pass_rate_threshold),
       evaluationLayer: run.unit_config.evaluation_layer ?? undefined,
       nRuns: run.unit_config.n_runs ?? undefined,
       category,
@@ -394,9 +403,7 @@ function mapE2ERun(run: E2EApiRun): EvalRun {
       targetId: run.target,
       selectedSuites: run.e2e_config.selected_suites,
       maxTier: (run.e2e_config.max_tier ?? "all") as "all" | 1 | 2 | 3,
-      passRateThreshold: numberOrUndefined(
-        run.e2e_config.pass_rate_threshold,
-      ),
+      passRateThreshold: numberOrUndefined(run.e2e_config.pass_rate_threshold),
     },
     summary: summary(run.summary),
     suites: run.e2e_config.selected_suites.map((name) => ({
@@ -529,18 +536,74 @@ export class EvalApi {
     };
   }
 
-  async listUnitHistoryScopes(signal?: AbortSignal): Promise<UnitHistoryScope[]> {
+  async getHistoryWindow(
+    range: "7d" | "30d" | "90d",
+    windowEnd?: string,
+    signal?: AbortSignal,
+  ): Promise<{ startedFrom: string; startedBefore: string }> {
+    const params = new URLSearchParams({ range });
+    if (windowEnd) params.set("window_end", windowEnd);
+    return this.request(`/history/window?${params}`, signal);
+  }
+
+  async getEvaluationInsights(
+    query: InsightsQuery,
+    signal?: AbortSignal,
+  ): Promise<InsightsResponse> {
+    const params = new URLSearchParams({
+      eval_type: query.evalType,
+      range: query.range,
+      repository: query.repository,
+      target_environment: query.targetEnvironment,
+    });
+    for (const [key, value] of Object.entries({
+      window_end: query.windowEnd,
+      category: query.category,
+      stage: query.stage,
+      scope: query.scope,
+      baseline: query.baseline,
+    })) {
+      if (value !== undefined && value !== null) params.set(key, value);
+    }
+    const result = await this.request<InsightsWireResponse>(
+      `/history/insights?${params}`,
+      signal,
+    );
+    return {
+      ...result,
+      landscape: {
+        ...result.landscape,
+        cells: new Map(Object.entries(result.landscape.cells)),
+      },
+      matrix: result.matrix
+        ? {
+            ...result.matrix,
+            cells: new Map(Object.entries(result.matrix.cells)),
+          }
+        : null,
+    };
+  }
+
+  async listUnitHistoryScopes(
+    signal?: AbortSignal,
+  ): Promise<UnitHistoryScope[]> {
     return this.request<UnitHistoryScope[]>("/unit/history/scopes", signal);
   }
 
-  async getUnitHistoryInsights(query: UnitHistoryQuery, signal?: AbortSignal): Promise<UnitHistoryInsights> {
+  async getUnitHistoryInsights(
+    query: UnitHistoryQuery,
+    signal?: AbortSignal,
+  ): Promise<UnitHistoryInsights> {
     const params = new URLSearchParams({
       scope_key: query.scopeKey,
       started_from: query.startedFrom,
       started_before: query.startedBefore,
     });
     if (query.cohortKey) params.set("cohort_key", query.cohortKey);
-    return this.request<UnitHistoryInsights>(`/unit/history/insights?${params}`, signal);
+    return this.request<UnitHistoryInsights>(
+      `/unit/history/insights?${params}`,
+      signal,
+    );
   }
 
   async listUnitSkills(signal?: AbortSignal): Promise<UnitSkillOption[]> {
@@ -563,7 +626,8 @@ export class EvalApi {
     do {
       signal?.throwIfAborted();
       const cursorKey = JSON.stringify(cursors);
-      if (seen.has(cursorKey)) throw new Error("Run pagination did not advance");
+      if (seen.has(cursorKey))
+        throw new Error("Run pagination did not advance");
       seen.add(cursorKey);
       const batch = await this.listRunBatch(cursors, 200, signal, filters);
       signal?.throwIfAborted();
@@ -572,11 +636,14 @@ export class EvalApi {
         if (
           (!filters.startedFrom || at >= Date.parse(filters.startedFrom)) &&
           (!filters.startedBefore || at < Date.parse(filters.startedBefore))
-        ) byId.set(`${run.evalType}:${run.runId}`, run);
+        )
+          byId.set(`${run.evalType}:${run.runId}`, run);
       });
       cursors = batch.nextCursors;
     } while (cursors.unit || cursors.e2e);
-    return [...byId.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    return [...byId.values()].sort((a, b) =>
+      b.startedAt.localeCompare(a.startedAt),
+    );
   }
 
   private async allPages<T>(path: string, signal?: AbortSignal): Promise<T[]> {
@@ -587,10 +654,14 @@ export class EvalApi {
       signal?.throwIfAborted();
       const params = new URLSearchParams({ limit: "200" });
       if (cursor) params.set("cursor", cursor);
-      const page: Page<T> = await this.request<Page<T>>(`${path}?${params}`, signal);
+      const page: Page<T> = await this.request<Page<T>>(
+        `${path}?${params}`,
+        signal,
+      );
       items.push(...page.items);
       cursor = page.next_cursor ?? null;
-      if (cursor && seen.has(cursor)) throw new Error("Case pagination did not advance");
+      if (cursor && seen.has(cursor))
+        throw new Error("Case pagination did not advance");
       if (cursor) seen.add(cursor);
     } while (cursor);
     return items;
@@ -773,4 +844,3 @@ export class EvalApi {
 export function configuredEvalApi(): EvalApi {
   return new EvalApi("/api/eval");
 }
-

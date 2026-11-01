@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   CSSProperties,
   PointerEvent as ReactPointerEvent,
@@ -7,27 +7,20 @@ import type {
   RefObject,
 } from "react";
 import type { EvalApi } from "../lib/eval-api";
-import type { EvalCase, EvalRun, EvalType } from "../lib/eval-types";
+import type { EvalType } from "../lib/eval-types";
 
 import {
-  REGRESSION_POINTS,
-  buildLandscape,
-  buildTestMatrix,
   cellKey,
-  isInsightRun,
-  pickBaselineBranch,
-  runBranch,
-  runCategory,
   runContext,
-  runScopeKey,
-  runTargetEnvironment,
-  runsForCaseLoad,
+  type InsightsRun,
+  type InsightsResponse,
+  type Landscape,
+  type TestMatrix,
   type CellState,
   type Insight,
   type Observation,
   type TestBranchCell,
 } from "../lib/history-insights";
-import { fixedTimeWindow, type TimeWindowPreset } from "../lib/time-window";
 import styles from "./history-insights.module.css";
 function formatTime(iso: string) {
   const date = new Date(iso);
@@ -69,19 +62,14 @@ function formatDateShort(iso: string) {
   return `${months[date.getUTCMonth()]} ${date.getUTCDate()}`;
 }
 
-const RUN_PAGE_LIMIT = 200,
-  RUN_PAGE_CAP = 5,
-  CASE_RUNS_PER_BRANCH = 4,
-  CASE_RUN_BUDGET = 48,
-  CASE_CONCURRENCY = 6,
-  PROBLEM_FILTER_THRESHOLD = 25;
+const PROBLEM_FILTER_THRESHOLD = 25;
 const ROW_HEADER_KEY = "\u0000rows",
   DEFAULT_BRANCH_WIDTH = 84,
   DEFAULT_ROW_HEADER_WIDTH = 260;
 const COLUMN_LIMITS = { min: 64, max: 520 },
   ROW_HEADER_LIMITS = { min: 160, max: 640 },
   BRANCH_SEARCH_THRESHOLD = 8;
-type InsightRange = Exclude<TimeWindowPreset, "24h">;
+type InsightRange = "7d" | "30d" | "90d";
 export type HistoryInsightsFocus = {
   type: EvalType;
   scope?: string;
@@ -120,38 +108,9 @@ function passRateTone(passRate: number) {
 function formatDelta(delta: number) {
   return `${delta > 0 ? "+" : delta < 0 ? "−" : "±"}${Math.abs(delta).toFixed(0)}`;
 }
-export async function loadWindowRuns(
-  api: EvalApi,
-  evalType: EvalType,
-  range: InsightRange,
-  signal: AbortSignal,
-) {
-  const { startedFrom, startedBefore } = fixedTimeWindow(range);
-  const skip = (type: EvalType) => (type === evalType ? undefined : null);
-  let cursors: Partial<Record<EvalType, string | null | undefined>> = {
-    unit: skip("unit"),
-    e2e: skip("e2e"),
-  };
-  const items: EvalRun[] = [];
-  for (let page = 0; page < RUN_PAGE_CAP; page += 1) {
-    const batch = await api.listRunBatch(cursors, RUN_PAGE_LIMIT, signal, {
-      startedFrom,
-      startedBefore,
-    });
-    items.push(...batch.items);
-    const next = batch.nextCursors[evalType];
-    if (!next) return { items, truncated: false };
-    cursors = {
-      [evalType]: next,
-      [evalType === "unit" ? "e2e" : "unit"]: null,
-    };
-  }
-  return { items, truncated: true };
-}
-type LoadedRuns = {
+type LoadedInsights = {
   key: string;
-  runs: EvalRun[];
-  truncated: boolean;
+  data: InsightsResponse | null;
   error: string | null;
 };
 type SelectedCell = { testKey: string; branch: string };
@@ -159,7 +118,8 @@ export type HistoryInsightsSnapshot = {
   evalType: EvalType;
   range: InsightRange;
   reloadKey: number;
-  loaded: LoadedRuns;
+  loaded: LoadedInsights;
+  windowEnd?: string;
   repository: string;
   category: string | null;
   stage: string | null;
@@ -169,7 +129,6 @@ export type HistoryInsightsSnapshot = {
   focusBranch: string | null;
   focusTest: string | null;
   selectedCell: SelectedCell | null;
-  casesByRun: Record<string, EvalCase[]>;
   problemsOnly: boolean | null;
   testSearch: string;
   columnWidths: Record<string, number>;
@@ -208,8 +167,8 @@ export function HistoryInsights({
   );
   const [range, setRange] = useState<InsightRange>(snapshot?.range ?? "30d"),
     [reloadKey, setReloadKey] = useState(snapshot?.reloadKey ?? 0);
-  const [loaded, setLoaded] = useState<LoadedRuns>(
-    snapshot?.loaded ?? { key: "", runs: [], truncated: false, error: null },
+  const [loaded, setLoaded] = useState<LoadedInsights>(
+    snapshot?.loaded ?? { key: "", data: null, error: null },
   );
   const [repository, setRepository] = useState(snapshot?.repository ?? "all");
   const [category, setCategory] = useState<string | null>(
@@ -240,11 +199,6 @@ export function HistoryInsights({
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(
     snapshot?.selectedCell ?? null,
   );
-  const [casesByRun, setCasesByRun] = useState<Record<string, EvalCase[]>>(
-    snapshot?.casesByRun ?? {},
-  );
-  const [caseErrors, setCaseErrors] = useState(0),
-    [loadingCases, setLoadingCases] = useState(0);
   const [problemsOnly, setProblemsOnly] = useState<boolean | null>(
       snapshot?.problemsOnly ?? null,
     ),
@@ -255,11 +209,11 @@ export function HistoryInsights({
     [hiddenBranches, setHiddenBranches] = useState<string[]>(
       snapshot?.hiddenBranches ?? [],
     );
-  const requestedCases = useRef(
-      new Set<string>(Object.keys(snapshot?.casesByRun ?? {})),
-    ),
-    unmountSignal = useRef<AbortSignal | null>(null),
-    scrollY = useRef(snapshot?.scrollY ?? 0),
+  const [windowEnd, setWindowEnd] = useState<string | undefined>(
+    snapshot?.windowEnd,
+  );
+  const anchorRef = useRef(windowEnd);
+  const scrollY = useRef(snapshot?.scrollY ?? 0),
     scrollFrozen = useRef(false),
     latest = useRef<HistoryInsightsSnapshot | null>(null);
   useEffect(() => {
@@ -277,7 +231,7 @@ export function HistoryInsights({
       focusBranch,
       focusTest,
       selectedCell,
-      casesByRun,
+      windowEnd,
       problemsOnly,
       testSearch,
       columnWidths,
@@ -311,227 +265,105 @@ export function HistoryInsights({
     scrollFrozen.current = true;
     onOpenRun(runId, evalType);
   };
-  const requestKey = `${evalType}:${range}:${reloadKey}`,
-    alreadyLoaded = loaded.key === requestKey;
+  const requestKey = JSON.stringify([
+    evalType,
+    range,
+    reloadKey,
+    repository,
+    category,
+    stage,
+    targetEnvironment,
+    scope,
+    baselineOverride,
+  ]);
+  const alreadyLoaded = loaded.key === requestKey;
   useEffect(() => {
     if (!api || alreadyLoaded) return;
     const controller = new AbortController();
-    void loadWindowRuns(api, evalType, range, controller.signal)
-      .then(({ items, truncated }) => {
-        if (!controller.signal.aborted)
-          setLoaded({ key: requestKey, runs: items, truncated, error: null });
+    void api
+      .getEvaluationInsights(
+        {
+          evalType,
+          range,
+          repository,
+          category,
+          stage,
+          targetEnvironment,
+          scope,
+          baseline: baselineOverride,
+          windowEnd: anchorRef.current,
+        },
+        controller.signal,
+      )
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        anchorRef.current = data.window.startedBefore;
+        setWindowEnd(data.window.startedBefore);
+        setLoaded({ key: requestKey, data, error: null });
       })
       .catch((reason: unknown) => {
-        if (controller.signal.aborted) return;
-        setLoaded({
-          key: requestKey,
-          runs: [],
-          truncated: false,
-          error:
-            reason instanceof Error ? reason.message : "Unable to load runs",
-        });
+        if (!controller.signal.aborted)
+          setLoaded({
+            key: requestKey,
+            data: null,
+            error:
+              reason instanceof Error
+                ? reason.message
+                : "Unable to load insights",
+          });
       });
     return () => controller.abort();
-  }, [api, evalType, range, requestKey, alreadyLoaded]);
+  }, [
+    api,
+    alreadyLoaded,
+    requestKey,
+    evalType,
+    range,
+    repository,
+    category,
+    stage,
+    targetEnvironment,
+    scope,
+    baselineOverride,
+  ]);
   const loading = loaded.key !== requestKey;
-  const { runs: windowRuns, truncated, error } = loaded;
-  const typedRuns = useMemo(
-    () =>
-      windowRuns.filter(
-        (run) => run.evalType === evalType && isInsightRun(run),
-      ),
-    [windowRuns, evalType],
-  );
-  const repositories = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          typedRuns
-            .map((run) => run.githubRepository)
-            .filter((value): value is string => Boolean(value)),
-        ),
-      ).sort(),
-    [typedRuns],
-  );
-  const repoRuns = useMemo(
-    () =>
-      typedRuns.filter(
-        (run) => repository === "all" || run.githubRepository === repository,
-      ),
-    [typedRuns, repository],
-  );
-  const categories = useMemo(
-    () => Array.from(new Set(repoRuns.map(runCategory))).sort(),
-    [repoRuns],
-  );
-  const focusCategory = scope
-    ? repoRuns.find((run) => runScopeKey(run) === scope)
-    : undefined;
-  const activeCategory =
-    evalType !== "unit"
-      ? "all"
-      : category === "all" || (category && categories.includes(category))
-        ? category
-        : focusCategory
-          ? runCategory(focusCategory)
-          : (categories[0] ?? "all");
-  const categoryRuns = useMemo(
-    () =>
-      repoRuns.filter(
-        (run) =>
-          activeCategory === "all" || runCategory(run) === activeCategory,
-      ),
-    [repoRuns, activeCategory],
-  );
-  const scopeOptions = useMemo(
-    () => Array.from(new Set(categoryRuns.map(runScopeKey))).sort(),
-    [categoryRuns],
-  );
-  const stageOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          categoryRuns
-            .filter(
-              (run) =>
-                evalType === "e2e" ||
-                !scope ||
-                !scopeOptions.includes(scope) ||
-                runScopeKey(run) === scope,
-            )
-            .map((run) => run.stage),
-        ),
-      ).sort(),
-    [categoryRuns, evalType, scope, scopeOptions],
-  );
-  const busiestStage = useMemo(() => {
-    const counts = new Map<string, number>();
-    categoryRuns.forEach((run) =>
-      counts.set(run.stage, (counts.get(run.stage) ?? 0) + 1),
-    );
-    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-  }, [categoryRuns]);
-  const activeStage =
-    stage &&
-    (stage === "all" ? evalType === "unit" : stageOptions.includes(stage))
-      ? stage
-      : evalType === "e2e"
-        ? busiestStage
-        : "all";
-  const stageRuns = useMemo(
-    () =>
-      categoryRuns.filter(
-        (run) => activeStage === "all" || run.stage === activeStage,
-      ),
-    [categoryRuns, activeStage],
-  );
-  const targetOptions = useMemo(
-    () =>
-      evalType === "unit"
-        ? Array.from(
-            new Set(
-              stageRuns
-                .filter(
-                  (run) =>
-                    !scope ||
-                    !scopeOptions.includes(scope) ||
-                    runScopeKey(run) === scope,
-                )
-                .map(runTargetEnvironment),
-            ),
-          ).sort()
-        : [],
-    [stageRuns, evalType, scope, scopeOptions],
-  );
-  const activeTarget =
-    targetEnvironment !== "all" && targetOptions.includes(targetEnvironment)
-      ? targetEnvironment
-      : "all";
-  const scopedRuns = useMemo(
-    () =>
-      stageRuns.filter(
-        (run) =>
-          activeTarget === "all" || runTargetEnvironment(run) === activeTarget,
-      ),
-    [stageRuns, activeTarget],
-  );
-  const mixedStages =
-      evalType === "unit" && activeStage === "all"
-        ? new Set(scopedRuns.map((run) => run.stage)).size
-        : 1,
-    mixedTargets =
-      evalType === "unit" && activeTarget === "all"
-        ? new Set(scopedRuns.map(runTargetEnvironment)).size
-        : 1;
-  const branchNames = useMemo(
-    () => Array.from(new Set(scopedRuns.map(runBranch))).sort(),
-    [scopedRuns],
-  );
-  const baseline =
-    baselineOverride && branchNames.includes(baselineOverride)
-      ? baselineOverride
-      : pickBaselineBranch(scopedRuns);
-  const landscape = useMemo(
-    () => buildLandscape(scopedRuns, baseline, evalType),
-    [scopedRuns, baseline, evalType],
-  );
-  const activeScope =
-    scope && landscape.scopes.some((row) => row.scope === scope) ? scope : null;
-  const scopeRuns = useMemo(
-    () =>
-      activeScope
-        ? scopedRuns.filter((run) => runScopeKey(run) === activeScope)
-        : [],
-    [scopedRuns, activeScope],
-  );
-  const caseRuns = useMemo(
-    () => runsForCaseLoad(scopeRuns, CASE_RUNS_PER_BRANCH, CASE_RUN_BUDGET),
-    [scopeRuns],
-  );
-  useEffect(() => {
-    const controller = new AbortController();
-    unmountSignal.current = controller.signal;
-    const requested = requestedCases.current;
-    return () => {
-      controller.abort();
-      requested.clear();
-    };
-  }, []);
-  useEffect(() => {
-    const signal = unmountSignal.current;
-    if (!api || !signal || caseRuns.length === 0) return;
-    const queue = caseRuns.filter(
-      (run) => !requestedCases.current.has(run.runId),
-    );
-    if (!queue.length) return;
-    queue.forEach((run) => requestedCases.current.add(run.runId));
-    setLoadingCases((count) => count + queue.length);
-    const worker = async () => {
-      while (queue.length && !signal.aborted) {
-        const run = queue.shift()!;
-        try {
-          const items = await api.listCases(run, signal);
-          if (!signal.aborted)
-            setCasesByRun((current) => ({ ...current, [run.runId]: items }));
-        } catch {
-          if (!signal.aborted) setCaseErrors((count) => count + 1);
-        } finally {
-          setLoadingCases((count) => Math.max(0, count - 1));
-        }
-      }
-      const abandoned = queue.splice(0).length;
-      if (abandoned) setLoadingCases((count) => Math.max(0, count - abandoned));
-    };
-    void Promise.all(
-      Array.from({ length: Math.min(CASE_CONCURRENCY, queue.length) }, worker),
-    );
-  }, [api, caseRuns]);
-  const matrix = useMemo(
-    () =>
-      activeScope ? buildTestMatrix(caseRuns, casesByRun, baseline) : null,
-    [activeScope, caseRuns, casesByRun, baseline],
-  );
-  const loadedCaseRuns = caseRuns.filter((run) => casesByRun[run.runId]).length;
+  const data = loaded.data;
+  const error = loaded.error;
+  const {
+    repositories = [],
+    categories = [],
+    scopeOptions = [],
+    stageOptions = [],
+    targetOptions = [],
+    branchNames = [],
+    activeCategory = "all",
+    activeStage = "all",
+    activeTarget = "all",
+    activeScope = null,
+    baseline = null,
+    mixedStages = 1,
+    mixedTargets = 1,
+    regressionPoints = 5,
+  } = data ?? {};
+  const landscape: Landscape = data?.landscape ?? {
+    scopes: [],
+    branches: [],
+    cells: new Map(),
+    insights: [],
+  };
+  const matrix = data?.matrix ?? null;
+  const counts = data?.counts ?? {
+    runCount: 0,
+    scopeCount: 0,
+    branchCount: 0,
+    regressedCells: 0,
+    systemicScopes: 0,
+    caseRunCount: 0,
+    testsTracked: 0,
+    bottleneckTests: 0,
+    branchRegressions: 0,
+    flakyTests: 0,
+  };
   const resetFocus = () => {
     setFocusBranch(null);
     setFocusTest(null);
@@ -579,10 +411,7 @@ export function HistoryInsights({
       }),
     onHidden: setHiddenBranches,
   };
-  const insights = matrix ? matrix.insights : landscape.insights,
-    regressedCells = [...landscape.cells.values()].filter(
-      (cell) => cell.regressed,
-    ).length;
+  const insights = matrix ? matrix.insights : landscape.insights;
   return (
     <div className={styles.page}>
       <div className="page-heading">
@@ -745,12 +574,7 @@ export function HistoryInsights({
               ? "API not configured"
               : loading
                 ? "Loading runs…"
-                : `${scopedRuns.length} runs · ${branchNames.length} branches · ${landscape.scopes.length} ${noun}s`}
-            {truncated && !loading && (
-              <small>
-                Showing the newest {scopedRuns.length} runs in this window
-              </small>
-            )}
+                : `${counts.runCount} runs · ${branchNames.length} branches · ${counts.scopeCount} ${noun}s`}
           </div>
           <div className="range-switch">
             {(["7d", "30d", "90d"] as const).map((value) => (
@@ -766,7 +590,11 @@ export function HistoryInsights({
           <button
             type="button"
             className={styles.refresh}
-            onClick={() => setReloadKey((key) => key + 1)}
+            onClick={() => {
+              anchorRef.current = undefined;
+              setWindowEnd(undefined);
+              setReloadKey((key) => key + 1);
+            }}
             disabled={loading}
           >
             Refresh
@@ -827,13 +655,18 @@ export function HistoryInsights({
           <strong>Connect the evaluation API to load insights</strong>
         </div>
       )}
-      {error && (
+      {loading && api && (
+        <div className="panel" role="status">
+          Loading insights…
+        </div>
+      )}
+      {error && !loading && (
         <div className={`panel ${styles.empty}`}>
           <strong>Unable to load runs</strong>
           <span>{error}</span>
         </div>
       )}
-      {!error && !loading && !scopedRuns.length && (
+      {!error && !loading && !counts.runCount && (
         <div className={`panel ${styles.empty}`}>
           <strong>
             No completed {evalType === "unit" ? "unit" : "E2E"} runs in the last{" "}
@@ -842,34 +675,31 @@ export function HistoryInsights({
           <span>Widen the window or switch evaluation type.</span>
         </div>
       )}
-      {!error && scopedRuns.length > 0 && (
+      {!error && !loading && counts.runCount > 0 && (
         <>
           <section className={styles.kpis}>
             {matrix ? (
               <>
                 <Kpi
                   label="Tests tracked"
-                  value={matrix.tests.length}
-                  detail={`${loadedCaseRuns}/${caseRuns.length} runs analysed`}
+                  value={counts.testsTracked}
+                  detail={`${counts.caseRunCount} runs analysed`}
                 />
                 <Kpi
                   label="Bottleneck tests"
-                  value={matrix.tests.filter((row) => row.bottleneck).length}
+                  value={counts.bottleneckTests}
                   detail="fail on most branches"
                   tone="bad"
                 />
                 <Kpi
                   label="Branch regressions"
-                  value={matrix.branches.reduce(
-                    (total, col) => total + col.regressions,
-                    0,
-                  )}
+                  value={counts.branchRegressions}
                   detail={`tests passing on ${baseline} but failing elsewhere`}
                   tone="bad"
                 />
                 <Kpi
                   label="Flaky tests"
-                  value={matrix.tests.filter((row) => row.flaky).length}
+                  value={counts.flakyTests}
                   detail="flip on the same branch"
                   tone="warn"
                 />
@@ -878,23 +708,23 @@ export function HistoryInsights({
               <>
                 <Kpi
                   label="Active branches"
-                  value={landscape.branches.length}
+                  value={counts.branchCount}
                   detail={`baseline: ${baseline ?? "—"}`}
                 />
                 <Kpi
                   label={`${noun[0].toUpperCase()}${noun.slice(1)}s tracked`}
                   value={landscape.scopes.length}
-                  detail={`${scopedRuns.length} runs in ${range}`}
+                  detail={`${counts.runCount} runs in ${range}`}
                 />
                 <Kpi
                   label="Regressions vs baseline"
-                  value={regressedCells}
-                  detail={`${noun} × branch cells ≥${REGRESSION_POINTS} pts below`}
+                  value={counts.regressedCells}
+                  detail={`${noun} × branch cells ≥${regressionPoints} pts below`}
                   tone="bad"
                 />
                 <Kpi
                   label="Failing everywhere"
-                  value={landscape.scopes.filter((row) => row.systemic).length}
+                  value={counts.systemicScopes}
                   detail={`${noun}s failing on every branch`}
                   tone="warn"
                 />
@@ -930,9 +760,8 @@ export function HistoryInsights({
               </div>
             ) : (
               <p className={styles.quiet}>
-                {matrix && loadingCases > 0
-                  ? "Analysing test results…"
-                  : "Nothing unusual. Every branch matches the baseline in this window."}
+                Nothing unusual. Every branch matches the baseline in this
+                window.
               </p>
             )}
           </section>
@@ -941,10 +770,10 @@ export function HistoryInsights({
               matrix={matrix}
               baseline={baseline}
               evalType={evalType}
-              loadingCases={loadingCases}
-              caseErrors={caseErrors}
-              loadedCaseRuns={loadedCaseRuns}
-              totalCaseRuns={caseRuns.length}
+              loadingCases={0}
+              caseErrors={0}
+              loadedCaseRuns={counts.caseRunCount}
+              totalCaseRuns={counts.caseRunCount}
               focusBranch={focusBranch}
               focusTest={focusTest}
               selectedCell={selectedCell}
@@ -963,6 +792,7 @@ export function HistoryInsights({
             <div className={styles.landscapeLayout}>
               <LandscapePanel
                 landscape={landscape}
+                regressionPoints={regressionPoints}
                 baseline={baseline}
                 noun={noun}
                 focusBranch={focusBranch}
@@ -1007,13 +837,15 @@ function Kpi({
 }
 function LandscapePanel({
   landscape,
+  regressionPoints,
   baseline,
   noun,
   focusBranch,
   onOpenScope,
   layout,
 }: {
-  landscape: ReturnType<typeof buildLandscape>;
+  landscape: Landscape;
+  regressionPoints: number;
   baseline: string | null;
   noun: string;
   focusBranch: string | null;
@@ -1031,7 +863,7 @@ function LandscapePanel({
         <div>
           <h2>{noun[0].toUpperCase() + noun.slice(1)} × branch heatmap</h2>
           <p>
-            Latest pass rate per branch. Outlined cells are ≥{REGRESSION_POINTS}{" "}
+            Latest pass rate per branch. Outlined cells are ≥{regressionPoints}{" "}
             points below {baseline ?? "the baseline"}. Click a row or cell to
             see the tests behind it.
           </p>
@@ -1454,7 +1286,7 @@ function BranchPicker({
     </div>
   );
 }
-function RunStrip({ runs }: { runs: EvalRun[] }) {
+function RunStrip({ runs }: { runs: InsightsRun[] }) {
   return (
     <span className={styles.runStrip} aria-hidden>
       {runs.slice(-6).map((run) => (
@@ -1504,7 +1336,7 @@ function BlastRadiusPanel({
   onFocusBranch,
   hidden,
 }: {
-  landscape: ReturnType<typeof buildLandscape>;
+  landscape: Landscape;
   baseline: string | null;
   noun: string;
   focusBranch: string | null;
@@ -1607,7 +1439,7 @@ function TestMatrixPanel({
   onOpenRun,
   layout,
 }: {
-  matrix: NonNullable<ReturnType<typeof buildTestMatrix>>;
+  matrix: TestMatrix;
   baseline: string | null;
   evalType: EvalType;
   loadingCases: number;
@@ -1662,8 +1494,8 @@ function TestMatrixPanel({
             <h2>Test × branch matrix</h2>
             <p>
               Latest result of each test on each branch, compared with{" "}
-              {baseline ?? "the baseline"}. Based on the newest{" "}
-              {CASE_RUNS_PER_BRANCH} runs per branch.
+              {baseline ?? "the baseline"}. Based on every run in the selected
+              server window.
               {loadingCases > 0 &&
                 ` · Loading ${loadedCaseRuns}/${totalCaseRuns} runs…`}
               {caseErrors > 0 && ` · ${caseErrors} run(s) failed to load.`}
