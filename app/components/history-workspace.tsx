@@ -2,15 +2,21 @@
 
 import { useState, type ReactNode } from "react";
 
-/** Pass the separately supplied Insights component to enable its tab. */
+/** Shares History navigation while preserving the Trend Explorer mount. */
 export function HistoryWorkspace({
   children,
   insights,
+  mode,
+  onModeChange,
 }: {
   children: ReactNode;
   insights?: ReactNode;
+  mode?: "trend" | "insights";
+  onModeChange?: (mode: "trend" | "insights") => void;
 }) {
-  const [view, setView] = useState<"trend" | "insights">("trend");
+  const [localView, setLocalView] = useState<"trend" | "insights">("trend");
+  const view = mode ?? localView;
+  const setView = onModeChange ?? setLocalView;
   return (
     <>
       <div
