@@ -23,7 +23,7 @@ import { configuredEvalApi, type UnitSkillOption, type EvalApi } from "./lib/eva
 import { fixedTimeWindow, type FixedTimeWindow } from "./lib/time-window";
 import { useHistoryWindow } from "./lib/use-history-window";
 import { useRunCollection } from "./lib/use-run-collection";
-import { selectUnitRuns, unitStage, unitTargetKey, unitTargetLabel, unitScopeLabel } from "./lib/comparison-scope";
+import { selectUnitRuns, unitComparisonSide, unitTargetLabel } from "./lib/comparison-scope";
 import type {
   EvalCase,
   EvalRun,
@@ -6638,8 +6638,7 @@ function UnitComparisonCatalog({
         <div>
           <strong>{skills.length} recorded skill/repository scopes</strong>
           <small>
-            Choose one stage, then select the baseline and candidate targets
-            independently.
+            Select the baseline and candidate stages and targets independently.
           </small>
         </div>
       </section>
@@ -6705,135 +6704,79 @@ function UnitRunComparison({
   onError: (message: string | null) => void;
 }) {
   const { skill, github_repository: repository } = selection;
-  const [category, setCategory] = useState("");
-  const [stage, setStage] = useState("");
+  const [baselineStage, setBaselineStage] = useState("");
+  const [candidateStage, setCandidateStage] = useState("");
   const [baselineTarget, setBaselineTarget] = useState("");
   const [candidateTarget, setCandidateTarget] = useState("");
   const skillRuns = selectUnitRuns(runs, skill, repository);
-  const categories = [
-    ...new Set(
-      skillRuns.map((run) => run.unitConfig?.category || "Uncategorized"),
-    ),
-  ].sort();
-  const categoryRuns = selectUnitRuns(
-    runs,
-    skill,
-    repository,
-    undefined,
-    undefined,
-    category,
+  const baseline = unitComparisonSide(skillRuns, baselineStage, baselineTarget);
+  const candidate = unitComparisonSide(
+    skillRuns,
+    candidateStage,
+    candidateTarget,
   );
-  const stages = [...new Set(categoryRuns.map(unitStage))].sort();
-  const selectedStage = stages.includes(stage) ? stage : (stages[0] ?? "");
-  const stageRuns = selectUnitRuns(
-    runs,
-    skill,
-    repository,
-    selectedStage,
-    undefined,
-    category,
-  );
-  const targets = [...new Set(stageRuns.map(unitTargetKey))].sort((a, b) =>
-    unitTargetLabel(a).localeCompare(unitTargetLabel(b)),
-  );
-  const selectedBaselineTarget = targets.includes(baselineTarget)
-    ? baselineTarget
-    : (targets[0] ?? "");
-  const selectedCandidateTarget = targets.includes(candidateTarget)
-    ? candidateTarget
-    : selectedBaselineTarget;
-  const baselineRuns = selectUnitRuns(
-    runs,
-    skill,
-    repository,
-    selectedStage,
-    selectedBaselineTarget,
-    category,
-  );
-  const candidateRuns = selectUnitRuns(
-    runs,
-    skill,
-    repository,
-    selectedStage,
-    selectedCandidateTarget,
-    category,
-  );
+  const sides = [
+    {
+      name: "Baseline",
+      scope: baseline,
+      setStage: setBaselineStage,
+      setTarget: setBaselineTarget,
+    },
+    {
+      name: "Candidate",
+      scope: candidate,
+      setStage: setCandidateStage,
+      setTarget: setCandidateTarget,
+    },
+  ];
   return (
     <>
       <section className="panel compare-scope compare-unit-filters">
-        <label>
-          <span>Category (optional)</span>
-          <select
-            aria-label="Compare category"
-            value={category}
-            onChange={(event) => {
-              setCategory(event.target.value);
-              setStage("");
-              setBaselineTarget("");
-              setCandidateTarget("");
-            }}
-          >
-            <option value="">All categories</option>
-            {categories.map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Shared stage</span>
-          <select
-            aria-label="Compare stage"
-            value={selectedStage}
-            onChange={(event) => {
-              setStage(event.target.value);
-              setBaselineTarget("");
-              setCandidateTarget("");
-            }}
-          >
-            {stages.map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Baseline target · execution environment</span>
-          <select
-            aria-label="Baseline target"
-            value={selectedBaselineTarget}
-            onChange={(event) => setBaselineTarget(event.target.value)}
-          >
-            {targets.map((value) => (
-              <option key={value} value={value}>
-                {unitTargetLabel(value)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Candidate target · execution environment</span>
-          <select
-            aria-label="Candidate target"
-            value={selectedCandidateTarget}
-            onChange={(event) => setCandidateTarget(event.target.value)}
-          >
-            {targets.map((value) => (
-              <option key={value} value={value}>
-                {unitTargetLabel(value)}
-              </option>
-            ))}
-          </select>
-        </label>
+        {sides.map(({ name, scope, setStage, setTarget }) => (
+          <fieldset key={name} className="compare-side-scope">
+            <legend>{name}</legend>
+            <label>
+              <span>Stage</span>
+              <select
+                aria-label={`${name} stage`}
+                value={scope.stage}
+                onChange={(event) => {
+                  setStage(event.target.value);
+                  setTarget("");
+                }}
+              >
+                {scope.stages.map((value) => (
+                  <option key={value}>{value}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Target · execution environment</span>
+              <select
+                aria-label={`${name} target`}
+                value={scope.target}
+                onChange={(event) => setTarget(event.target.value)}
+              >
+                {scope.targets.map((value) => (
+                  <option key={value} value={value}>
+                    {unitTargetLabel(value)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </fieldset>
+        ))}
       </section>
-      {baselineRuns.length && candidateRuns.length ? (
+      {baseline.runs.length && candidate.runs.length ? (
         <RunPairPicker
           key={JSON.stringify([
-            category,
-            selectedStage,
-            selectedBaselineTarget,
-            selectedCandidateTarget,
+            baseline.stage,
+            baseline.target,
+            candidate.stage,
+            candidate.target,
           ])}
-          comparable={baselineRuns}
-          candidateComparable={candidateRuns}
+          comparable={baseline.runs}
+          candidateComparable={candidate.runs}
           unitRuns
           api={api}
           onError={onError}
@@ -6880,9 +6823,7 @@ function RunPairPicker({
     candidateComparable.find((run) => run.runId === candidateId) ??
     defaultCandidate;
   const optionLabel = (run: EvalRun) =>
-    unitRuns
-      ? `${unitScopeLabel(run)} · v${run.unitConfig?.skillVersion} · ${run.runId} · ${formatTime(run.startedAt)} · SHA ${shortGitSha(run.gitSha)} · ${run.summary.passRatePct}%`
-      : `${run.runId} · ${formatTime(run.startedAt)} · SHA ${shortGitSha(run.gitSha)} · ${run.summary.passRatePct}%`;
+    `${formatTime(run.startedAt)} · ${unitRuns ? `v${run.unitConfig?.skillVersion ?? "unknown"} · ` : ""}${run.summary.passRatePct}% · ${run.runId}`;
   useEffect(() => {
     const controller = new AbortController();
     const selected =
@@ -6946,56 +6887,44 @@ function RunPairPicker({
     : candidate.suites;
   return (
     <>
-      {unitRuns && (
-        <section className="panel comparison-context">
-          <div>
-            <strong>Baseline</strong>
-            <span>{unitScopeLabel(baseline)}</span>
-          </div>
-          <div>
-            <strong>Candidate</strong>
-            <span>{unitScopeLabel(candidate)}</span>
-          </div>
-        </section>
-      )}
       <section className="panel compare-picker">
-        <label>
-          <span>Baseline run</span>
-          <select
-            value={baselineId}
-            onChange={(event) => {
-              setLoadingCases(true);
-              setCaseError(null);
-              onError(null);
-              setBaselineId(event.target.value);
-            }}
-          >
-            {comparable.map((run) => (
-              <option key={run.runId} value={run.runId}>
-                {optionLabel(run)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span className="compare-arrow">→</span>
-        <label>
-          <span>Candidate run</span>
-          <select
-            value={candidateId}
-            onChange={(event) => {
-              setLoadingCases(true);
-              setCaseError(null);
-              onError(null);
-              setCandidateId(event.target.value);
-            }}
-          >
-            {candidateComparable.map((run) => (
-              <option key={run.runId} value={run.runId}>
-                {optionLabel(run)}
-              </option>
-            ))}
-          </select>
-        </label>
+        {[
+          {
+            name: "Baseline",
+            run: baseline,
+            runs: comparable,
+            setId: setBaselineId,
+          },
+          {
+            name: "Candidate",
+            run: candidate,
+            runs: candidateComparable,
+            setId: setCandidateId,
+          },
+        ].map(({ name, run, runs, setId }) => (
+          <article className="compare-run-card" key={name}>
+            <label>
+              <span>{name} run</span>
+              <select
+                aria-label={`${name} run`}
+                value={run.runId}
+                onChange={(event) => {
+                  setLoadingCases(true);
+                  setCaseError(null);
+                  onError(null);
+                  setId(event.target.value);
+                }}
+              >
+                {runs.map((item) => (
+                  <option key={item.runId} value={item.runId}>
+                    {optionLabel(item)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <ComparisonRunDetails run={run} unitRuns={unitRuns} />
+          </article>
+        ))}
       </section>
       {caseError ? (
         <section className="panel empty" role="alert">
@@ -7017,6 +6946,43 @@ function RunPairPicker({
         />
       )}
     </>
+  );
+}
+
+function ComparisonRunDetails({
+  run,
+  unitRuns,
+}: {
+  run: EvalRun;
+  unitRuns: boolean;
+}) {
+  const details = [
+    ["Stage", run.unitConfig?.stage || run.stage || "Not recorded"],
+    ["Target", unitRuns ? run.unitConfig?.targetEnvironment : run.target],
+    ["Environment", run.environment || run.unitConfig?.bsaEnvironment],
+    ...(unitRuns
+      ? [
+          ["Category", run.unitConfig?.category],
+          ["Skill version", run.unitConfig?.skillVersion],
+        ]
+      : []),
+    ["Branch", run.gitRef],
+    ["Run ID", run.runId],
+    ["Commit", shortGitSha(run.gitSha)],
+    ["Started", formatTime(run.startedAt)],
+    ["Pass rate", `${run.summary.passRatePct}%`],
+  ];
+  return (
+    <dl className="compare-run-details">
+      {details.map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd title={label === "Commit" ? run.gitSha : undefined}>
+            {value || "Not recorded"}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 

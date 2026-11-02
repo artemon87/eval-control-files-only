@@ -181,3 +181,15 @@ test("overview aggregates its independent complete window including the first pa
   assert.equal(result.daily[0].unit, 100);
   assert.equal(result.daily.at(-1).unit, 100);
 });
+
+test("unit comparison sides select different stages and reset only invalid targets", () => {
+  const runs = [run("dev-east"), run("preprod-west", { stage: "preprod", unitConfig: { skillId: "payroll", stage: "preprod", targetEnvironment: "west" } })];
+  const completed = scopes.selectUnitRuns(runs, "payroll", "org/a");
+  const baseline = scopes.unitComparisonSide(completed, "staging", scopes.unitTargetKey(runs[0]));
+  const candidate = scopes.unitComparisonSide(completed, "preprod", baseline.target);
+  assert.deepEqual(Array.from(baseline.runs, r => r.runId), ["dev-east"]);
+  assert.deepEqual(Array.from(candidate.runs, r => r.runId), ["preprod-west"]);
+  assert.notEqual(candidate.target, baseline.target);
+  assert.equal(scopes.unitComparisonSide(completed, "staging", baseline.target).target, baseline.target);
+  assert.equal(scopes.unitComparisonSide([], "missing", "missing").runs.length, 0);
+});
