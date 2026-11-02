@@ -16,8 +16,10 @@ import {
   SidebarNavigation,
   type EvaluationView,
 } from "./components/sidebar-navigation";
-import { configuredEvalApi, type EvalApi } from "./lib/eval-api";
-import { fixedTimeWindow } from "./lib/time-window";
+import { configuredEvalApi, type UnitSkillOption, type EvalApi } from "./lib/eval-api";
+import { fixedTimeWindow, type FixedTimeWindow } from "./lib/time-window";
+import { useRunCollection } from "./lib/use-run-collection";
+import { selectUnitRuns, unitStage, unitTargetKey, unitTargetLabel, unitScopeLabel } from "./lib/comparison-scope";
 import type {
   EvalCase,
   EvalRun,
@@ -1763,7 +1765,14 @@ export default function Home() {
     targetEnvironment?: string;
   } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [overviewDays, setOverviewDays] = useState<7 | 30 | 90>(7);
+  const [overviewAnchor, setOverviewAnchor] = useState(() => Date.now());
+  const overviewTimeWindow = useMemo(
+    () => fixedTimeWindow(`${overviewDays}d`, new Date(overviewAnchor)),
+    [overviewDays, overviewAnchor],
+  );
+  const overviewCollection = useRunCollection(api, overviewTimeWindow, view === "overview");
   const [overviewType, setOverviewType] = useState<"all" | EvalType>("all");
   const [overviewInboxTab, setOverviewInboxTab] = useState<
     "blocked" | "attention"
@@ -1902,13 +1911,21 @@ export default function Home() {
   }, [api, runListFilters, selectedStages.length]);
 
   const refreshRuns = useCallback(() => {
+    if (view === "history") {
+      setHistoryRevision(Date.now());
+      return;
+    }
+    if (view === "overview") {
+      setOverviewAnchor(Date.now());
+      return;
+    }
     setLoading(true);
     if (startedWithin !== "all") {
       setTimeWindowAnchor(Date.now());
       return;
     }
     void loadRuns();
-  }, [loadRuns, startedWithin]);
+  }, [loadRuns, startedWithin, view]);
 
   useEffect(() => {
     if (!api) return;
@@ -2290,17 +2307,14 @@ export default function Home() {
   );
 
   const overview = useMemo(() => {
-    const now = runs.reduce(
-      (latest, run) => Math.max(latest, new Date(run.startedAt).getTime()),
-      0,
-    );
-    const start = now - overviewDays * 86_400_000;
-    const inView = runs
+    const now = Date.parse(overviewTimeWindow.startedBefore);
+    const start = Date.parse(overviewTimeWindow.startedFrom);
+    const inView = overviewCollection.runs
       .filter((run) => {
         const timestamp = new Date(run.startedAt).getTime();
         return (
           timestamp >= start &&
-          timestamp <= now &&
+          timestamp < now &&
           (overviewType === "all" || run.evalType === overviewType)
         );
       })
@@ -2321,8 +2335,11 @@ export default function Home() {
       ),
       0.95,
     );
-    const daily = Array.from({ length: overviewDays }, (_, index) => {
-      const date = new Date(now - (overviewDays - 1 - index) * 86_400_000);
+    const firstDay = Date.parse(`${dateKey(start)}T00:00:00.000Z`);
+    const lastDay = Date.parse(`${dateKey(now - 1)}T00:00:00.000Z`);
+    const dayCount = Math.round((lastDay - firstDay) / 86_400_000) + 1;
+    const daily = Array.from({ length: dayCount }, (_, index) => {
+      const date = new Date(firstDay + index * 86_400_000);
       return {
         date: dateKey(date),
         e2e: undefined,
@@ -2392,7 +2409,7 @@ export default function Home() {
       ),
       durationSpark: dailyDuration,
     };
-  }, [overviewDays, overviewType, runs]);
+  }, [overviewType, overviewTimeWindow, overviewCollection.runs]);
 
   const overviewInboxRuns =
     overviewInboxTab === "blocked"
@@ -2400,6 +2417,7 @@ export default function Home() {
       : overview.attentionRuns;
 
   const openRun = (run: EvalRun) => {
+    setRuns((current) => current.some((item) => item.runId === run.runId) ? current : [run, ...current]);
     setCases([]);
     setSelectedCase(null);
     setSelectedTrend(null);
@@ -2581,7 +2599,7 @@ export default function Home() {
                       <button
                         key={days}
                         className={overviewDays === days ? "selected" : ""}
-                        onClick={() => setOverviewDays(days)}
+                        onClick={() => { setOverviewDays(days); setOverviewAnchor(Date.now()); }}
                       >
                         {days} days
                       </button>
@@ -2589,6 +2607,9 @@ export default function Home() {
                   </div>
                 </div>
               </div>
+              {overviewCollection.loading && <section className="panel empty" role="status">Loading every run in the selected window…</section>}
+              {overviewCollection.error && <div className="toast toast--error" role="alert">{overviewCollection.error}</div>}
+              <div hidden={overviewCollection.loading || Boolean(overviewCollection.error)}>
               <section className="metrics-grid">
                 <MetricCard
                   label="Gate pass rate"
@@ -2791,6 +2812,7 @@ export default function Home() {
                   onOpen={openRun}
                 />
               </section>
+              </div>
             </>
           )}
 
@@ -3435,15 +3457,16 @@ export default function Home() {
             </div>
           )}
           {view === "history" && (
-            <HistoryView
+            <HistoryCollection
+              api={api}
+              revision={historyRevision}
               initialFocus={historyFocus}
-              runs={runs}
               openingRunId={openingRunId}
               onOpenRun={(runId, evalType) => void openRunById(runId, evalType)}
             />
           )}
           {view === "compare" && (
-            <CompareView runs={runs} api={api} onError={setDetailError} />
+            <CompareView api={api} onError={setDetailError} />
           )}
         </div>
       </main>
@@ -5137,14 +5160,87 @@ function TargetComparisonChart({
   );
 }
 
+function HistoryCollection({
+  api,
+  revision,
+  ...props
+}: {
+  api: EvalApi | null;
+  revision: number;
+  initialFocus: HistoryFocus;
+  openingRunId: string | null;
+  onOpenRun: (runId: string, evalType: EvalType) => void;
+}) {
+  const [range, setRange] = useState<"7d" | "30d" | "90d">("7d");
+  const [anchor, setAnchor] = useState(() => Date.now());
+  const timeWindow = useMemo(
+    () => fixedTimeWindow(range, new Date(Math.max(anchor, revision))),
+    [range, anchor, revision],
+  );
+  const collection = useRunCollection(api, timeWindow);
+  return (
+    <>
+      <section className="panel analytics-window">
+        <div>
+          <strong>History time window</strong>
+          <small>
+            All runs within the selected period, ending at refresh time.
+          </small>
+        </div>
+        <div className="range-switch" aria-label="History time window">
+          {(["7d", "30d", "90d"] as const).map((value) => (
+            <button
+              key={value}
+              className={range === value ? "active" : ""}
+              onClick={() => {
+                setRange(value);
+                setAnchor(Date.now());
+              }}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
+        <button
+          className="secondary-button"
+          onClick={() => setAnchor(Date.now())}
+        >
+          ↻ Refresh history
+        </button>
+      </section>
+      {collection.loading && (
+        <section className="panel empty" role="status">
+          Loading every run in the selected window…
+        </section>
+      )}
+      {collection.error && (
+        <div className="toast toast--error" role="alert">
+          {collection.error}
+        </div>
+      )}
+      {collection.loaded && (
+        <div hidden={collection.loading || Boolean(collection.error)}>
+          <HistoryView
+            {...props}
+            runs={collection.runs}
+            timeWindow={timeWindow}
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
 function HistoryView({
   initialFocus,
   runs,
+  timeWindow,
   openingRunId,
   onOpenRun,
 }: {
   initialFocus: HistoryFocus;
   runs: EvalRun[];
+  timeWindow: FixedTimeWindow;
   openingRunId: string | null;
   onOpenRun: (runId: string, evalType: EvalType) => void;
 }) {
@@ -5236,7 +5332,8 @@ function HistoryView({
   const [historyType, setHistoryType] = useState<EvalType>(
     initialFocus?.type ?? "e2e",
   );
-  const [stage, setStage] = useState(initialStage);
+  const [stageChoice, setStage] = useState(initialStage);
+  const stage = stageChoice || stages[0] || "";
   const stageTargets = Array.from(
     new Set(
       e2eSource
@@ -5250,7 +5347,8 @@ function HistoryView({
       : "all",
   );
   const [skillId, setSkillId] = useState(initialSkill);
-  const [category, setCategory] = useState(initialCategory);
+  const [categoryChoice, setCategory] = useState(categories.length ? initialCategory : "");
+  const category = categoryChoice || categories[0] || "Uncategorized";
   const [unitStage, setUnitStage] = useState(initialUnitStage);
   const [environment, setEnvironment] = useState(
     initialFocus?.environment ?? "all",
@@ -5258,20 +5356,14 @@ function HistoryView({
   const [targetEnvironments, setTargetEnvironments] = useState<string[]>(
     initialFocus?.targetEnvironment ? [initialFocus.targetEnvironment] : [],
   );
-  const [range, setRange] = useState<"7d" | "30d" | "90d">("7d");
   const [showPercentLabels, setShowPercentLabels] = useState(false);
 
-  const rangeDays: 7 | 30 | 90 = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-  const referenceTime = runs.reduce(
-    (latest, run) => Math.max(latest, new Date(run.startedAt).getTime()),
-    0,
-  );
-  const rangeStart = referenceTime - rangeDays * 86_400_000;
+  const referenceTime = Date.parse(timeWindow.startedBefore);
+  const rangeDays = Math.round((referenceTime - Date.parse(timeWindow.startedFrom)) / 86_400_000) as 7 | 30 | 90;
   const inRange = (startedAt: string) => {
-    const timestamp = new Date(startedAt).getTime();
-    return (
-      referenceTime > 0 && timestamp >= rangeStart && timestamp <= referenceTime
-    );
+    const timestamp = Date.parse(startedAt);
+    return timestamp >= Date.parse(timeWindow.startedFrom) &&
+      timestamp < Date.parse(timeWindow.startedBefore);
   };
 
   const e2eStageInRange = e2eSource.filter(
@@ -5329,10 +5421,7 @@ function HistoryView({
         .map((point) => point.stage),
     ),
   ).sort();
-  const resolvedUnitStage =
-    unitStage === "all" || selectableUnitStages.includes(unitStage)
-      ? unitStage
-      : "all";
+  const resolvedUnitStage = unitStage;
   const availableTargetEnvironments = Array.from(
     new Set(
       unitSource
@@ -5389,6 +5478,17 @@ function HistoryView({
     },
     { passed: 0, failed: 0, blocked: 0, xpassed: 0 },
   );
+  const [pagination, setPagination] = useState({ key: "", page: 1 });
+  const [pageSize, setPageSize] = useState(25);
+  const paginationKey = JSON.stringify([
+    historyType, stage, target, category, skillId, resolvedUnitStage,
+    environment, targetEnvironments, timeWindow, pageSize,
+  ]);
+  const pageCount = Math.max(1, Math.ceil(trend.length / pageSize));
+  const currentPage = pagination.key === paginationKey ? Math.min(pagination.page, pageCount) : 1;
+  const pageStart = (currentPage - 1) * pageSize;
+  const visibleHistory = [...trend].reverse().slice(pageStart, pageStart + pageSize);
+  const setHistoryPage = (page: number) => setPagination({ key: paginationKey, page });
   const latest = trend.at(-1);
   const previous = trend.at(-2);
   const passDelta =
@@ -5541,6 +5641,7 @@ function HistoryView({
                   setTarget("all");
                 }}
               >
+                {stage && !stages.includes(stage) && <option value={stage}>{stage} · no runs in window</option>}
                 {stages.map((value) => (
                   <option key={value}>{value}</option>
                 ))}
@@ -5576,6 +5677,7 @@ function HistoryView({
                   setTargetEnvironments([]);
                 }}
               >
+                {!categories.includes(category) && <option value={category}>{category} · no runs in window</option>}
                 {categories.map((value) => (
                   <option key={value} value={value}>
                     {value}
@@ -5614,6 +5716,7 @@ function HistoryView({
                 }}
               >
                 <option value="all">All stages</option>
+                {unitStage !== "all" && !selectableUnitStages.includes(unitStage) && <option value={unitStage}>{unitStage} · no runs in window</option>}
                 {selectableUnitStages.map((value) => (
                   <option key={value} value={value}>{value}</option>
                 ))}
@@ -5659,26 +5762,6 @@ function HistoryView({
             </label>
           </>
         )}
-        <div className="range-switch">
-          <button
-            className={range === "7d" ? "active" : ""}
-            onClick={() => setRange("7d")}
-          >
-            7d
-          </button>
-          <button
-            className={range === "30d" ? "active" : ""}
-            onClick={() => setRange("30d")}
-          >
-            30d
-          </button>
-          <button
-            className={range === "90d" ? "active" : ""}
-            onClick={() => setRange("90d")}
-          >
-            90d
-          </button>
-        </div>
       </section>
       {historyType === "unit" && (
         <nav className="unit-history-path" aria-label="Unit history scope">
@@ -6146,7 +6229,7 @@ function HistoryView({
               </tr>
             </thead>
             <tbody>
-              {[...trend].reverse().map((point) => (
+              {visibleHistory.map((point) => (
                 <tr
                   key={point.id}
                   className={isBatchRollup ? undefined : "clickable-row"}
@@ -6233,17 +6316,29 @@ function HistoryView({
             </tbody>
           </table>
         </div>
+        <div className="trend-pagination">
+          <span>Showing {trend.length ? pageStart + 1 : 0}–{Math.min(pageStart + pageSize, trend.length)} of {trend.length}</span>
+          <label>Rows per page <select aria-label="History rows per page" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
+            {[10, 25, 50].map((size) => <option key={size} value={size}>{size}</option>)}
+          </select></label>
+          <nav aria-label="Evaluation history pages">
+            <button disabled={currentPage === 1} onClick={() => setHistoryPage(1)}>First</button>
+            <button disabled={currentPage === 1} onClick={() => setHistoryPage(currentPage - 1)}>Previous</button>
+            <span>Page {currentPage} of {pageCount}</span>
+            <button disabled={currentPage === pageCount} onClick={() => setHistoryPage(currentPage + 1)}>Next</button>
+            <button disabled={currentPage === pageCount} onClick={() => setHistoryPage(pageCount)}>Last</button>
+          </nav>
+        </div>
+        {!trend.length && <div className="empty" role="status">No runs in this scope during the selected window.</div>}
       </section>
     </>
   );
 }
 
 function CompareView({
-  runs,
   api,
   onError,
 }: {
-  runs: EvalRun[];
   api: EvalApi | null;
   onError: (message: string | null) => void;
 }) {
@@ -6276,7 +6371,6 @@ function CompareView({
       </div>
       <TypeComparison
         key={compareType}
-        runs={runs}
         type={compareType}
         api={api}
         onError={onError}
@@ -6286,20 +6380,18 @@ function CompareView({
 }
 
 function TypeComparison({
-  runs,
   type,
   api,
   onError,
 }: {
-  runs: EvalRun[];
   type: EvalType;
   api: EvalApi | null;
   onError: (message: string | null) => void;
 }) {
   return type === "unit" ? (
-    <UnitRunComparison runs={runs} api={api} onError={onError} />
+    <UnitComparisonCatalog api={api} onError={onError} />
   ) : (
-    <E2ERunComparison runs={runs} api={api} onError={onError} />
+    <E2EComparisonCollection api={api} onError={onError} />
   );
 }
 
@@ -6368,64 +6460,313 @@ function E2ERunComparison({
   );
 }
 
-function UnitRunComparison({
-  runs,
+function E2EComparisonCollection({
   api,
   onError,
 }: {
-  runs: EvalRun[];
   api: EvalApi | null;
   onError: (message: string | null) => void;
 }) {
-  const unitRuns = runs.filter(
-    (run) => run.executionStatus === "completed" && run.evalType === "unit",
+  const collection = useRunCollection(api, {}, true, "e2e");
+  if (collection.loading)
+    return (
+      <section className="panel empty" role="status">
+        Loading E2E comparison runs…
+      </section>
+    );
+  if (collection.error)
+    return (
+      <div className="toast toast--error" role="alert">
+        {collection.error}
+      </div>
+    );
+  return (
+    <E2ERunComparison runs={collection.runs} api={api} onError={onError} />
   );
-  const skills = Array.from(
-    new Set(
-      unitRuns
-        .map((run) => run.unitConfig?.skillId)
-        .filter((value): value is string => Boolean(value)),
-    ),
-  );
-  const [skillId, setSkillId] = useState(skills[0] ?? "");
-  const comparable = unitRuns
-    .filter((run) => run.unitConfig?.skillId === skillId)
-    .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+}
+
+function UnitComparisonCatalog({
+  api,
+  onError,
+}: {
+  api: EvalApi | null;
+  onError: (message: string | null) => void;
+}) {
+  const [skills, setSkills] = useState<UnitSkillOption[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selection, setSelection] = useState("");
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    if (!api) return;
+    const controller = new AbortController();
+    void api
+      .listUnitSkills(controller.signal)
+      .then((items) => {
+        if (!controller.signal.aborted) {
+          setSkills(items);
+          setError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted)
+          setError(
+            error instanceof Error ? error.message : "Unable to load skills",
+          );
+      });
+    return () => controller.abort();
+  }, [api, revision]);
+  const skillKey = (option: UnitSkillOption) =>
+    JSON.stringify([option.skill, option.github_repository]);
+  const selected =
+    skills?.find((option) => skillKey(option) === selection) ?? skills?.[0];
+  if (error)
+    return (
+      <section className="panel empty" role="alert">
+        <strong>{error}</strong>
+        <button onClick={() => setRevision((value) => value + 1)}>
+          Retry skill catalog
+        </button>
+      </section>
+    );
+  if (!skills)
+    return (
+      <section className="panel empty" role="status">
+        Loading all recorded unit skills…
+      </section>
+    );
+  if (!selected)
+    return (
+      <section className="panel empty">
+        No unit skills have been recorded.
+      </section>
+    );
   return (
     <>
       <section className="panel compare-scope">
         <label>
           <span>Unit skill</span>
           <select
-            value={skillId}
-            onChange={(event) => setSkillId(event.target.value)}
+            aria-label="Compare unit skill"
+            value={skillKey(selected)}
+            onChange={(event) => setSelection(event.target.value)}
           >
-            {skills.map((skill) => (
-              <option key={skill}>{skill}</option>
+            {skills.map((option) => (
+              <option key={skillKey(option)} value={skillKey(option)}>
+                {option.skill} ·{" "}
+                {option.github_repository ?? "Repository not recorded"}
+              </option>
             ))}
           </select>
         </label>
         <div>
-          <strong>Run comparison</strong>
+          <strong>{skills.length} recorded skill/repository scopes</strong>
           <small>
-            Defaults to the latest run versus the previous run, even when both
-            use the same skill version.
+            Choose one stage, then select the baseline and candidate targets
+            independently.
           </small>
         </div>
       </section>
-      {comparable.length ? (
+      <UnitComparisonCollection
+        key={skillKey(selected)}
+        selection={selected}
+        api={api}
+        onError={onError}
+      />
+    </>
+  );
+}
+
+function UnitComparisonCollection({
+  selection,
+  api,
+  onError,
+}: {
+  selection: UnitSkillOption;
+  api: EvalApi | null;
+  onError: (message: string | null) => void;
+}) {
+  const collection = useRunCollection(
+    api,
+    {
+      skill: selection.skill,
+      githubRepository: selection.github_repository ?? undefined,
+    },
+    true,
+    "unit",
+  );
+  if (collection.loading)
+    return (
+      <section className="panel empty" role="status">
+        Loading every run for this skill…
+      </section>
+    );
+  if (collection.error)
+    return (
+      <div className="toast toast--error" role="alert">
+        {collection.error}
+      </div>
+    );
+  return (
+    <UnitRunComparison
+      runs={collection.runs}
+      selection={selection}
+      api={api}
+      onError={onError}
+    />
+  );
+}
+
+function UnitRunComparison({
+  runs,
+  selection,
+  api,
+  onError,
+}: {
+  runs: EvalRun[];
+  selection: UnitSkillOption;
+  api: EvalApi | null;
+  onError: (message: string | null) => void;
+}) {
+  const { skill, github_repository: repository } = selection;
+  const [category, setCategory] = useState("");
+  const [stage, setStage] = useState("");
+  const [baselineTarget, setBaselineTarget] = useState("");
+  const [candidateTarget, setCandidateTarget] = useState("");
+  const skillRuns = selectUnitRuns(runs, skill, repository);
+  const categories = [
+    ...new Set(
+      skillRuns.map((run) => run.unitConfig?.category || "Uncategorized"),
+    ),
+  ].sort();
+  const categoryRuns = selectUnitRuns(
+    runs,
+    skill,
+    repository,
+    undefined,
+    undefined,
+    category,
+  );
+  const stages = [...new Set(categoryRuns.map(unitStage))].sort();
+  const selectedStage = stages.includes(stage) ? stage : (stages[0] ?? "");
+  const stageRuns = selectUnitRuns(
+    runs,
+    skill,
+    repository,
+    selectedStage,
+    undefined,
+    category,
+  );
+  const targets = [...new Set(stageRuns.map(unitTargetKey))].sort((a, b) =>
+    unitTargetLabel(a).localeCompare(unitTargetLabel(b)),
+  );
+  const selectedBaselineTarget = targets.includes(baselineTarget)
+    ? baselineTarget
+    : (targets[0] ?? "");
+  const selectedCandidateTarget = targets.includes(candidateTarget)
+    ? candidateTarget
+    : selectedBaselineTarget;
+  const baselineRuns = selectUnitRuns(
+    runs,
+    skill,
+    repository,
+    selectedStage,
+    selectedBaselineTarget,
+    category,
+  );
+  const candidateRuns = selectUnitRuns(
+    runs,
+    skill,
+    repository,
+    selectedStage,
+    selectedCandidateTarget,
+    category,
+  );
+  return (
+    <>
+      <section className="panel compare-scope compare-unit-filters">
+        <label>
+          <span>Category (optional)</span>
+          <select
+            aria-label="Compare category"
+            value={category}
+            onChange={(event) => {
+              setCategory(event.target.value);
+              setStage("");
+              setBaselineTarget("");
+              setCandidateTarget("");
+            }}
+          >
+            <option value="">All categories</option>
+            {categories.map((value) => (
+              <option key={value}>{value}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Shared stage</span>
+          <select
+            aria-label="Compare stage"
+            value={selectedStage}
+            onChange={(event) => {
+              setStage(event.target.value);
+              setBaselineTarget("");
+              setCandidateTarget("");
+            }}
+          >
+            {stages.map((value) => (
+              <option key={value}>{value}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Baseline target · execution environment</span>
+          <select
+            aria-label="Baseline target"
+            value={selectedBaselineTarget}
+            onChange={(event) => setBaselineTarget(event.target.value)}
+          >
+            {targets.map((value) => (
+              <option key={value} value={value}>
+                {unitTargetLabel(value)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Candidate target · execution environment</span>
+          <select
+            aria-label="Candidate target"
+            value={selectedCandidateTarget}
+            onChange={(event) => setCandidateTarget(event.target.value)}
+          >
+            {targets.map((value) => (
+              <option key={value} value={value}>
+                {unitTargetLabel(value)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+      {baselineRuns.length && candidateRuns.length ? (
         <RunPairPicker
-          key={skillId}
-          comparable={comparable}
+          key={JSON.stringify([
+            category,
+            selectedStage,
+            selectedBaselineTarget,
+            selectedCandidateTarget,
+          ])}
+          comparable={baselineRuns}
+          candidateComparable={candidateRuns}
           unitRuns
           api={api}
           onError={onError}
         />
       ) : (
         <section className="panel empty">
-          <strong>No completed runs</strong>
+          <strong>No completed runs in this scope</strong>
           <span>
-            {skillId || "This skill"} has no completed unit runs to compare.
+            {skill} is recorded, but has no completed runs for the selected
+            scope.
           </span>
         </section>
       )}
@@ -6435,26 +6776,35 @@ function UnitRunComparison({
 
 function RunPairPicker({
   comparable,
+  candidateComparable = comparable,
   unitRuns,
   api,
   onError,
 }: {
   comparable: EvalRun[];
+  candidateComparable?: EvalRun[];
   unitRuns: boolean;
   api: EvalApi | null;
   onError: (message: string | null) => void;
 }) {
-  const defaultCandidate = comparable[0];
-  const defaultBaseline = comparable[1] ?? comparable[0];
+  const defaultCandidate = candidateComparable[0];
+  const defaultBaseline =
+    comparable[0].runId === defaultCandidate.runId
+      ? (comparable[1] ?? comparable[0])
+      : comparable[0];
   const [baselineId, setBaselineId] = useState(defaultBaseline.runId);
   const [candidateId, setCandidateId] = useState(defaultCandidate.runId);
   const [caseSets, setCaseSets] = useState<Record<string, EvalCase[]>>({});
   const [loadingCases, setLoadingCases] = useState(true);
-  const baseline = comparable.find((run) => run.runId === baselineId)!;
-  const candidate = comparable.find((run) => run.runId === candidateId)!;
+  const [caseError, setCaseError] = useState<string | null>(null);
+  const baseline =
+    comparable.find((run) => run.runId === baselineId) ?? defaultBaseline;
+  const candidate =
+    candidateComparable.find((run) => run.runId === candidateId) ??
+    defaultCandidate;
   const optionLabel = (run: EvalRun) =>
     unitRuns
-      ? `v${run.unitConfig?.skillVersion} · ${run.runId} · ${formatTime(run.startedAt)} · SHA ${shortGitSha(run.gitSha)} · ${run.summary.passRatePct}%`
+      ? `${unitScopeLabel(run)} · v${run.unitConfig?.skillVersion} · ${run.runId} · ${formatTime(run.startedAt)} · SHA ${shortGitSha(run.gitSha)} · ${run.summary.passRatePct}%`
       : `${run.runId} · ${formatTime(run.startedAt)} · SHA ${shortGitSha(run.gitSha)} · ${run.summary.passRatePct}%`;
   useEffect(() => {
     const controller = new AbortController();
@@ -6483,12 +6833,18 @@ function RunPairPicker({
         }
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
+          setCaseError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load comparison cases",
+          );
           onError(
             error instanceof Error
               ? error.message
               : "Unable to load comparison cases",
           );
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoadingCases(false);
@@ -6513,6 +6869,18 @@ function RunPairPicker({
     : candidate.suites;
   return (
     <>
+      {unitRuns && (
+        <section className="panel comparison-context">
+          <div>
+            <strong>Baseline</strong>
+            <span>{unitScopeLabel(baseline)}</span>
+          </div>
+          <div>
+            <strong>Candidate</strong>
+            <span>{unitScopeLabel(candidate)}</span>
+          </div>
+        </section>
+      )}
       <section className="panel compare-picker">
         <label>
           <span>Baseline run</span>
@@ -6520,6 +6888,7 @@ function RunPairPicker({
             value={baselineId}
             onChange={(event) => {
               setLoadingCases(true);
+              setCaseError(null);
               onError(null);
               setBaselineId(event.target.value);
             }}
@@ -6538,11 +6907,12 @@ function RunPairPicker({
             value={candidateId}
             onChange={(event) => {
               setLoadingCases(true);
+              setCaseError(null);
               onError(null);
               setCandidateId(event.target.value);
             }}
           >
-            {comparable.map((run) => (
+            {candidateComparable.map((run) => (
               <option key={run.runId} value={run.runId}>
                 {optionLabel(run)}
               </option>
@@ -6550,7 +6920,11 @@ function RunPairPicker({
           </select>
         </label>
       </section>
-      {loadingCases ? (
+      {caseError ? (
+        <section className="panel empty" role="alert">
+          {caseError}
+        </section>
+      ) : loadingCases ? (
         <section className="panel compare-loading">
           <span />
           <span />
@@ -7115,3 +7489,4 @@ function NewRunModal({
 }
 
 void NewRunModal;
+
