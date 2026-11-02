@@ -5648,3 +5648,6 @@ select:not([multiple]):disabled {
 @media (max-width: 720px) {
   .compare-unit-filters, .comparison-context { grid-template-columns: 1fr; }
 }
+
+
+.run-heading-actions { display: flex; flex-wrap: wrap; gap: 8px; }
