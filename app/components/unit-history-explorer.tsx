@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { EvalApi } from "../lib/eval-api";
-import { fixedTimeWindow } from "../lib/time-window";
+import { useHistoryWindow } from "../lib/use-history-window";
 import type {
   UnitHistoryFocus,
   UnitHistoryInsights,
@@ -30,7 +30,6 @@ export function UnitHistoryTrendExplorer({
   ...navigation
 }: Props) {
   const [range, setRange] = useState<"7d" | "30d" | "90d">("30d");
-  const [anchor, setAnchor] = useState(() => Date.now());
   const [refresh, setRefresh] = useState(0);
   const [skillChoice, setSkillChoice] = useState("");
   const [stageChoice, setStageChoice] = useState("");
@@ -50,10 +49,8 @@ export function UnitHistoryTrendExplorer({
     data: UnitHistoryInsights | null;
     error: string | null;
   }>({ key: "", data: null, error: null });
-  const timeWindow = useMemo(
-    () => fixedTimeWindow(range, new Date(Math.max(anchor, revision))),
-    [range, anchor, revision],
-  );
+  const resolvedWindow = useHistoryWindow(api, range, revision, refresh);
+  const timeWindow = resolvedWindow.window;
 
   useEffect(() => {
     if (!api) return;
@@ -125,7 +122,7 @@ export function UnitHistoryTrendExplorer({
   useEffect(() => {
     if (!api) return;
     const { query } = JSON.parse(requestKey) as { query: UnitHistoryQuery };
-    if (!query.scopeKey) return;
+    if (!query.scopeKey || !query.startedFrom || !query.startedBefore) return;
     const controller = new AbortController();
     void api
       .getUnitHistoryInsights(query, controller.signal)
@@ -149,14 +146,18 @@ export function UnitHistoryTrendExplorer({
 
   const refreshHistory = () => {
     setCohortChoice({ key: "", scopeKey: "", revision });
-    setAnchor(Date.now());
     setRefresh((value) => value + 1);
   };
   const resetCohort = () =>
     setCohortChoice({ key: "", scopeKey: "", revision });
-  const loading = Boolean(scope) && response.key !== requestKey;
+  const loading =
+    Boolean(scope) &&
+    !resolvedWindow.error &&
+    (resolvedWindow.loading || response.key !== requestKey);
   const data = response.key === requestKey ? response.data : null;
-  const error = response.key === requestKey ? response.error : null;
+  const error =
+    resolvedWindow.error ??
+    (response.key === requestKey ? response.error : null);
   return (
     <div className={styles.root}>
       <div className="page-heading history-heading">
@@ -246,7 +247,6 @@ export function UnitHistoryTrendExplorer({
               aria-pressed={range === value}
               onClick={() => {
                 setRange(value);
-                setAnchor(Date.now());
                 resetCohort();
               }}
             >

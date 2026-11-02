@@ -21,6 +21,7 @@ import {
 } from "./components/sidebar-navigation";
 import { configuredEvalApi, type UnitSkillOption, type EvalApi } from "./lib/eval-api";
 import { fixedTimeWindow, type FixedTimeWindow } from "./lib/time-window";
+import { useHistoryWindow } from "./lib/use-history-window";
 import { useRunCollection } from "./lib/use-run-collection";
 import { selectUnitRuns, unitStage, unitTargetKey, unitTargetLabel, unitScopeLabel } from "./lib/comparison-scope";
 import type {
@@ -5240,15 +5241,15 @@ function E2EHistoryCollection({
   onOpenRun: (runId: string, evalType: EvalType) => void;
 }) {
   const [range, setRange] = useState<"7d" | "30d" | "90d">("7d");
-  const [anchor, setAnchor] = useState(() => Date.now());
-  const timeWindow = useMemo(
-    () => fixedTimeWindow(range, new Date(Math.max(anchor, revision))),
-    [range, anchor, revision],
-  );
-  const collection = useRunCollection(api, timeWindow, true, "e2e");
+  const [windowRevision, setWindowRevision] = useState(0);
+  const resolvedWindow = useHistoryWindow(api, range, revision, windowRevision);
+  const timeWindow = resolvedWindow.window;
+  const collection = useRunCollection(api, timeWindow ?? {}, Boolean(timeWindow), "e2e");
+  const loading = resolvedWindow.loading || collection.loading;
+  const error = resolvedWindow.error ?? collection.error;
   return (
     <>
-      {(collection.loading || collection.error || !collection.loaded) && (
+      {(loading || error || !collection.loaded) && (
         <div className="page-heading history-heading">
           <div><span className="eyebrow">Longitudinal quality</span><h1>Evaluation history</h1></div>
           <div className="type-switch"><button className="active">E2E history</button><button onClick={onShowUnit}>Unit skill history</button></div>
@@ -5268,7 +5269,6 @@ function E2EHistoryCollection({
               className={range === value ? "active" : ""}
               onClick={() => {
                 setRange(value);
-                setAnchor(Date.now());
               }}
             >
               {value}
@@ -5277,23 +5277,23 @@ function E2EHistoryCollection({
         </div>
         <button
           className="secondary-button"
-          onClick={() => setAnchor(Date.now())}
+          onClick={() => setWindowRevision((value) => value + 1)}
         >
           ↻ Refresh history
         </button>
       </section>
-      {collection.loading && (
+      {loading && (
         <section className="panel empty" role="status">
           Loading every run in the selected window…
         </section>
       )}
-      {collection.error && (
+      {error && (
         <div className="toast toast--error" role="alert">
-          {collection.error}
+          {error}
         </div>
       )}
-      {collection.loaded && (
-        <div hidden={collection.loading || Boolean(collection.error)}>
+      {collection.loaded && timeWindow && (
+        <div hidden={loading || Boolean(error)}>
           <HistoryView
             {...props}
             runs={collection.runs}

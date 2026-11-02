@@ -1,12 +1,168 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import test from "node:test";
 import { runInNewContext } from "node:vm";
+import test from "node:test";
 import ts from "typescript";
 
-async function moduleFrom(path, imports = {}) {
-  const source = await readFile(new URL(path, import.meta.url), "utf8");
+const source = await readFile(
+  new URL("../app/lib/eval-api.ts", import.meta.url),
+  "utf8",
+);
+function apiModule(fetch) {
+  const exports = {};
   const { outputText } = ts.transpileModule(source, {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.CommonJS,
+    },
+  });
+  runInNewContext(outputText, {
+    exports,
+    fetch,
+    URLSearchParams,
+    AbortController,
+    setTimeout,
+    clearTimeout,
+  });
+  return new exports.EvalApi("/api");
+}
+const query = {
+  evalType: "unit",
+  range: "30d",
+  repository: "org/payroll",
+  category: "HR",
+  stage: "prod",
+  targetEnvironment: "east",
+  scope: "skill / a",
+  baseline: "feature/test",
+  windowEnd: "2026-10-31T00:00:00Z",
+};
+const wire = () => ({
+  window: {
+    startedFrom: "2026-10-01T00:00:00Z",
+    startedBefore: "2026-10-31T00:00:00Z",
+  },
+  landscape: {
+    cells: { "skill\u0000main": { scope: "skill", branch: "main" } },
+    insights: [],
+  },
+  matrix: { cells: { "test\u0000main": { state: "regression" } }, tests: [] },
+});
+
+test("Insights sends scope and server range/anchor without calculating client dates", async () => {
+  let request;
+  const api = apiModule(async (url, options) => {
+    request = { url, options };
+    return { ok: true, json: async () => wire() };
+  });
+  await api.getEvaluationInsights(query);
+  const url = new URL(request.url, "https://test");
+  assert.equal(url.pathname, "/api/history/insights");
+  for (const [key, value] of Object.entries({
+    eval_type: "unit",
+    range: "30d",
+    repository: "org/payroll",
+    category: "HR",
+    stage: "prod",
+    target_environment: "east",
+    scope: "skill / a",
+    baseline: "feature/test",
+    window_end: query.windowEnd,
+  }))
+    assert.equal(url.searchParams.get(key), value);
+  assert.equal(url.searchParams.has("started_from"), false);
+  assert.equal(url.searchParams.has("started_before"), false);
+});
+
+test("server classification cells hydrate without reclassifying or dropping null matrices", async () => {
+  const api = apiModule(async () => ({ ok: true, json: async () => wire() }));
+  const result = await api.getEvaluationInsights(query);
+  assert.equal(result.matrix.cells.get("test\u0000main").state, "regression");
+  assert.equal(result.landscape.cells.get("skill\u0000main").branch, "main");
+  const empty = apiModule(async () => ({
+    ok: true,
+    json: async () => ({ ...wire(), matrix: null }),
+  }));
+  assert.equal(
+    (await empty.getEvaluationInsights({ ...query, evalType: "e2e" })).matrix,
+    null,
+  );
+});
+
+test("API failure stays an error instead of invoking browser analytics", async () => {
+  const api = apiModule(async () => ({
+    ok: false,
+    status: 413,
+    text: async () => "Narrow the window",
+  }));
+  await assert.rejects(
+    api.getEvaluationInsights(query),
+    /413.*Narrow the window/,
+  );
+});
+
+test("caller cancellation reaches the Insights request", async () => {
+  let signal;
+  const api = apiModule((_url, options) => {
+    signal = options.signal;
+    return new Promise((_resolve, reject) =>
+      signal.addEventListener("abort", () => reject(new Error("aborted"))),
+    );
+  });
+  const controller = new AbortController();
+  const pending = api.getEvaluationInsights(query, controller.signal);
+  controller.abort();
+  await assert.rejects(pending, /aborted/);
+  assert.equal(signal.aborted, true);
+});
+
+test("Insights UI consumes server results and keeps analysis out of the browser", async () => {
+  const ui = await readFile(
+    new URL("../app/components/history-insights.tsx", import.meta.url),
+    "utf8",
+  );
+  const types = await readFile(
+    new URL("../app/lib/history-insights.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    ui,
+    /fixedTimeWindow|listRunBatch|listCases|buildLandscape|buildTestMatrix|runsForCaseLoad/,
+  );
+  assert.doesNotMatch(
+    types,
+    /function (buildLandscape|buildTestMatrix|countFlips|pickBaselineBranch)/,
+  );
+});
+
+test("Trend Explorer requests server window resolution using only its preset and anchor", async () => {
+  const urls = [];
+  const window = {
+    startedFrom: "2026-10-24T00:00:00Z",
+    startedBefore: "2026-10-31T00:00:00Z",
+  };
+  const api = apiModule(async (url) => {
+    urls.push(new URL(url, "https://test"));
+    return { ok: true, json: async () => window };
+  });
+  assert.deepEqual(await api.getHistoryWindow("7d"), window);
+  await api.getHistoryWindow("7d", window.startedBefore);
+  assert.equal(urls[0].pathname, "/api/history/window");
+  assert.equal(urls[0].searchParams.has("window_end"), false);
+  assert.equal(urls[1].searchParams.get("window_end"), window.startedBefore);
+  assert.equal(urls[1].searchParams.has("started_from"), false);
+});
+
+test("Repository stays rendered for zero, one and multiple repositories; loading retains results", async () => {
+  const { createRequire } = await import("node:module");
+  const require = createRequire(import.meta.url);
+  const React = require("react");
+  const { renderToStaticMarkup } = require("react-dom/server");
+  const uiSource = await readFile(
+    new URL("../app/components/history-insights.tsx", import.meta.url),
+    "utf8",
+  );
+  const { outputText } = ts.transpileModule(uiSource, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
       module: ts.ModuleKind.CommonJS,
@@ -16,184 +172,75 @@ async function moduleFrom(path, imports = {}) {
   const exports = {};
   runInNewContext(outputText, {
     exports,
-    require: (name) => imports[name] ?? {},
-    AbortController,
+    require: (name) =>
+      name.endsWith(".css")
+        ? { default: {} }
+        : name === "../lib/history-insights"
+          ? {
+              cellKey: (a, b) => `${a}\u0000${b}`,
+              runContext: (r) => r.context,
+            }
+          : require(name),
   });
-  return exports;
-}
-const analysis = await moduleFrom("../app/lib/history-insights.ts");
-const time = await moduleFrom("../app/lib/time-window.ts");
-const { loadWindowRuns } = await moduleFrom(
-  "../app/components/history-insights.tsx",
-  {
-    "../lib/time-window": time,
-  },
-);
-const run = (id, branch = "main", rate = 100, extra = {}) => ({
-  runId: id,
-  evalType: "unit",
-  gitRef: `refs/heads/${branch}`,
-  stage: "dev",
-  target: "payroll",
-  startedAt: `2026-10-${String(id).padStart(2, "0")}T10:00:00Z`,
-  verdict: rate === 100 ? "passed" : "failed",
-  executionStatus: "completed",
-  summary: { total: 2, passRatePct: rate },
-  unitConfig: { skillId: "payroll", category: "HR", targetEnvironment: "east" },
-  ...extra,
-});
-const item = (verdict) => ({
-  suite: "payroll",
-  testName: "tax",
-  caseId: "tax",
-  verdict,
-  score: 1,
-});
-const ids = (runs) => Array.from(runs, (r) => r.runId);
-
-test("branch normalization and automatic baseline use only recorded refs", () => {
-  assert.equal(analysis.normalizeBranch(" refs/heads/main "), "main");
-  assert.equal(analysis.normalizeBranch("refs/pull/18/merge"), "PR #18");
-  assert.equal(analysis.normalizeBranch(), analysis.UNRECORDED_BRANCH);
-  assert.equal(
-    analysis.pickBaselineBranch([run(1, "feature"), run(2, "main")]),
-    "main",
-  );
-  assert.equal(analysis.pickBaselineBranch([]), null);
-});
-
-test("landscape compares latest matching environment on baseline", () => {
-  const runs = [
-    run(1, "main", 100),
-    run(2, "main", 20, { stage: "prod" }),
-    run(3, "feature", 90),
-  ];
-  const landscape = analysis.buildLandscape(runs, "main", "unit");
-  const cell = landscape.cells.get(analysis.cellKey("payroll", "feature"));
-  assert.equal(cell.deltaVsBaseline, -10);
-  assert.equal(cell.regressed, true);
-  assert.equal(landscape.branches[0].branch, "main");
-  assert.ok(landscape.insights.some((i) => i.kind === "environment-gap"));
-});
-
-test("matrix distinguishes regressions, fixes and repeated same-context flips", () => {
-  const runs = [
-    run(1),
-    run(2, "bad", 0),
-    run(3, "flaky", 100),
-    run(4, "flaky", 0),
-    run(5, "flaky", 100),
-  ];
-  const cases = {
-    1: [item("passed")],
-    2: [item("failed")],
-    3: [item("passed")],
-    4: [item("failed")],
-    5: [item("passed")],
+  const data = {
+    repositories: [],
+    categories: [],
+    scopeOptions: [],
+    stageOptions: [],
+    targetOptions: [],
+    branchNames: [],
+    activeCategory: "all",
+    activeStage: "all",
+    activeTarget: "all",
+    activeScope: null,
+    baseline: null,
+    mixedStages: 1,
+    mixedTargets: 1,
+    counts: {
+      runCount: 1,
+      scopeCount: 0,
+      branchCount: 0,
+      regressedCells: 0,
+      systemicScopes: 0,
+    },
+    landscape: { scopes: [], branches: [], cells: new Map(), insights: [] },
+    matrix: null,
   };
-  const matrix = analysis.buildTestMatrix(runs, cases, "main");
-  const key = analysis.caseTestKey(item("passed"));
-  assert.equal(
-    matrix.cells.get(analysis.cellKey(key, "bad")).state,
-    "regression",
-  );
-  assert.equal(matrix.cells.get(analysis.cellKey(key, "flaky")).state, "flaky");
-  const fixed = analysis.buildTestMatrix(
-    [run(1, "main", 0), run(2, "fix")],
-    { 1: [item("failed")], 2: [item("passed")] },
-    "main",
-  );
-  assert.equal(fixed.cells.get(analysis.cellKey(key, "fix")).state, "fixed");
-});
-
-test("consistent environment split does not become flaky or a shared bottleneck", () => {
-  const runs = [
-    run(1, "main", 0),
-    run(2, "main", 100, { stage: "prod" }),
-    run(3, "main", 0),
-    run(4, "main", 100, { stage: "prod" }),
-  ];
-  const matrix = analysis.buildTestMatrix(
-    runs,
-    {
-      1: [item("failed")],
-      2: [item("passed")],
-      3: [item("failed")],
-      4: [item("passed")],
-    },
-    "main",
-  );
-  assert.equal(matrix.tests[0].flaky, false);
-  assert.equal(matrix.tests[0].bottleneck, false);
-  assert.equal(matrix.tests[0].environmentSplit.failing[0], "dev · east");
-  assert.ok(matrix.insights.some((i) => i.kind === "environment-gap"));
-});
-
-test("case budget uses newest runs and round robin across branches", () => {
-  const runs = [
-    run(1, "main"),
-    run(2, "main"),
-    run(3, "main"),
-    run(4, "feature"),
-    run(5, "feature"),
-  ];
-  assert.deepEqual(ids(analysis.runsForCaseLoad(runs, 2, 3)), [5, 3, 4]);
-  assert.equal(analysis.runsForCaseLoad(runs, 2, 0).length, 0);
-});
-
-test("run loader fixes UTC bounds across pages and excludes the other type", async () => {
-  const calls = [];
-  const api = {
-    listRunBatch: async (...args) => {
-      calls.push(args);
-      return {
-        items: [run(calls.length)],
-        nextCursors: calls.length === 1 ? { unit: "next" } : {},
-      };
-    },
-  };
-  const controller = new AbortController();
-  const result = await loadWindowRuns(api, "unit", "7d", controller.signal);
-  assert.equal(result.items.length, 2);
-  assert.equal(result.truncated, false);
-  assert.equal(calls[0][0].e2e, null);
-  assert.equal(calls[1][0].unit, "next");
-  assert.equal(calls[0][1], 200);
-  assert.equal(calls[0][2], controller.signal);
-  assert.equal(calls[0][3].startedFrom, calls[1][3].startedFrom);
-  assert.equal(calls[0][3].startedBefore, calls[1][3].startedBefore);
-});
-
-test("loader surfaces API errors and identifies the five-page sample cap", async () => {
-  let calls = 0;
-  const result = await loadWindowRuns(
-    {
-      listRunBatch: async () => {
-        calls += 1;
-        return {
-          items: Array.from({ length: 200 }, () => run(1)),
-          nextCursors: { e2e: "more" },
-        };
+  for (const repositories of [[], ["org/a"], ["org/a", "org/b"]]) {
+    const snapshot = {
+      evalType: "unit",
+      range: "90d",
+      loaded: {
+        key: JSON.stringify([
+          "unit",
+          "30d",
+          0,
+          "org/selected",
+          null,
+          null,
+          "all",
+          null,
+          null,
+        ]),
+        data: { ...data, repositories },
+        error: null,
       },
-    },
-    "e2e",
-    "30d",
-    new AbortController().signal,
-  );
-  assert.equal(calls, 5);
-  assert.equal(result.items.length, 1000);
-  assert.equal(result.truncated, true);
-  await assert.rejects(
-    loadWindowRuns(
-      {
-        listRunBatch: async () => {
-          throw new Error("offline");
-        },
-      },
-      "unit",
-      "7d",
-      new AbortController().signal,
-    ),
-    /offline/,
-  );
+      repository: "org/selected",
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(exports.HistoryInsights, {
+        api: {},
+        initialFocus: null,
+        snapshot,
+        onSnapshot: () => {},
+        openingRunId: null,
+        onOpenRun: () => {},
+      }),
+    );
+    assert.match(html, /aria-label="Insights repository"/);
+    assert.match(html, /<option value="org\/selected" selected=""/);
+    assert.match(html, /aria-label="Insights results" aria-busy="true"/);
+    assert.match(html, /inert=""/);
+    assert.match(html, /Updating… showing previous results/);
+  }
 });
