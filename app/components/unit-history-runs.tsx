@@ -2,7 +2,7 @@
 import { useState, type KeyboardEvent } from "react";
 import type { HistoryRun } from "../lib/unit-history-types";
 import { historyTime } from "../lib/unit-history-utils";
-import styles from "./unit-trend-explorer.module.css";
+import styles from "./unit-history-layout.module.css";
 
 function activateRow(
   event: KeyboardEvent<HTMLTableRowElement>,
@@ -151,3 +151,4 @@ export function SupportingRunHistory({
     </details>
   );
 }
+

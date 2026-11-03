@@ -15,7 +15,7 @@ import {
 import { UnitSkillPerformanceTrend } from "./unit-history-trend";
 import { SupportingRunHistory } from "./unit-history-runs";
 import { RecordedUnitCase } from "./unit-history-case-record";
-import styles from "./unit-trend-explorer.module.css";
+import styles from "./unit-history-layout.module.css";
 
 type Props = {
   chartRunIds?: string[] | null;
@@ -617,3 +617,4 @@ export function UnitTrendExplorerContent({
     </>
   );
 }
+

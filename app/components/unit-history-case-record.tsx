@@ -1,6 +1,6 @@
 "use client";
 import type { UnitApiCase } from "../lib/eval-api";
-import styles from "./unit-trend-explorer.module.css";
+import styles from "./unit-history-layout.module.css";
 
 export function RecordedUnitCase({ record }: { record: UnitApiCase }) {
   const metrics = [
@@ -102,3 +102,4 @@ export function RecordedUnitCase({ record }: { record: UnitApiCase }) {
     </div>
   );
 }
+
