@@ -11,7 +11,7 @@ import type {
 } from "../lib/unit-history-types";
 import { historyTime, skillScopeKey } from "../lib/unit-history-utils";
 import { UnitTrendExplorerContent } from "./unit-trend-explorer-content";
-import styles from "./unit-trend-explorer.module.css";
+import styles from "./unit-history-layout.module.css";
 
 interface Props {
   api: EvalApi | null;
@@ -369,3 +369,4 @@ export function UnitHistoryTrendExplorer({
     </div>
   );
 }
+
