@@ -177,10 +177,11 @@ function harness(context = false, visibleRunIds = null, cross = false) {
           ]
         : [{ key: "branch", label: "feature/a · dev · east" }],
   };
-  const render = () => {
+  const render = (selectedRunId) => {
     cursor = 0;
     return exports.UnitSkillPerformanceTrend({
       data,
+      selectedRunId,
       visibleRunIds,
       focusedBranch: null,
       openingRunId: null,
@@ -189,7 +190,7 @@ function harness(context = false, visibleRunIds = null, cross = false) {
       onInspectRun: (id) => opened.push(id),
     });
   };
-  return { render, opened };
+  return { render, opened, data };
 }
 test("chart draws a settings boundary and day zoom retains every execution with pagination", () => {
   const h = harness();
@@ -256,7 +257,7 @@ test("single-point context series connect only through optional server chronolog
   assert.ok(html.includes("Stage / target changed"));
   assert.ok(html.includes("chronology only, no performance comparison"));
   const toggle = walk(tree).find(
-    (n) => n.type === "input" && n.props.type === "checkbox",
+    (n) => n.props?.["aria-label"] === "Connect stage / target changes",
   );
   toggle.props.onChange({ target: { checked: false } });
   tree = h.render();
@@ -329,5 +330,62 @@ test("cross-branch reference modes render backend deltas and exact branch choice
     walk(tree).filter((n) => n.props?.["data-trend-direction"] === "same")
       .length,
     1,
+  );
+});
+
+test("selected execution responds to reference choice and series can be selected together", () => {
+  const h = harness(false, null, true);
+  let tree = h.render("cross-2");
+  assert.ok(renderToStaticMarkup(tree).includes("Reference: cross-1"));
+  const legend = walk(tree).find(
+    (n) => n.props?.["aria-label"] === "Trend branch highlights",
+  );
+  const buttons = walk(legend).filter((n) => n.type === "button");
+  buttons[0].props.onClick();
+  tree = h.render("cross-2");
+  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 2);
+  walk(tree)
+    .find((n) => n.props?.["aria-label"] === "Trend branch highlights")
+    .props.children[1].props.onClick();
+  tree = h.render("cross-2");
+  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 3);
+  walk(tree)
+    .find((n) => n.props?.["aria-label"] === "Trend comparison mode")
+    .props.onChange({ target: { value: "branch" } });
+  tree = h.render("cross-2");
+  walk(tree)
+    .find((n) => n.props?.["aria-label"] === "Trend reference branch")
+    .props.onChange({ target: { value: "branch-a" } });
+  tree = h.render("cross-2");
+  assert.ok(renderToStaticMarkup(tree).includes("Reference: cross-0"));
+});
+test("missing mode exposes observed score differences and can be excluded", () => {
+  const h = harness(false, null, true);
+  for (const run of h.data.runs) {
+    run.observedReferences = (run.trendReferences ?? []).map((ref) => ({
+      ...ref,
+      warnings: ["Evaluation mode not recorded"],
+    }));
+    run.trendReferences = [];
+    run.comparisonBlockers = ["Evaluation mode not recorded"];
+  }
+  let tree = h.render("cross-2");
+  let html = renderToStaticMarkup(tree);
+  assert.ok(html.includes("Observed results only"));
+  assert.ok(html.includes("Evaluation mode not recorded"));
+  assert.equal(
+    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
+    2,
+  );
+  walk(tree)
+    .find((n) => n.props?.["aria-label"] === "Include observed comparisons")
+    .props.onChange({ target: { checked: false } });
+  tree = h.render("cross-2");
+  assert.equal(
+    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
+    0,
+  );
+  assert.ok(
+    renderToStaticMarkup(tree).includes("Evaluation mode not recorded"),
   );
 });
