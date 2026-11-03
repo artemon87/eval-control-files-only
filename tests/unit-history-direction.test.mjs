@@ -36,7 +36,7 @@ const walk = (node) =>
     : Array.isArray(node)
       ? node.flatMap(walk)
       : [node, ...walk(node.props?.children)];
-function harness() {
+function harness(context = false) {
   const values = [];
   let cursor = 0;
   const exports = {};
@@ -87,16 +87,40 @@ function harness() {
     trendPassRateDelta: !i || i === 10 ? null : 0,
     trendDurationDeltaMs: 0,
   })).reverse();
+  if (context) {
+    const template = runs[0];
+    runs.splice(
+      0,
+      runs.length,
+      ...Array.from({ length: 5 }, (_, i) => ({
+        ...template,
+        runId: `context-${i}`,
+        branchKey: `context-series-${i}`,
+        branchLabel: `${i === 4 ? "other-branch" : "feature/a"} · stage-${i} · target-${i}`,
+        startedAt: `2026-10-${String(5 + i * 6).padStart(2, "0")}T10:00:00Z`,
+        trendPreviousRunId: null,
+        trendTransition: "first",
+        trendPassRateDelta: null,
+        trendContextPreviousRunId: i > 0 && i < 4 ? `context-${i - 1}` : null,
+        trendContextChanges:
+          i > 0 && i < 4 ? ["Stage changed", "Target changed"] : [],
+        trendNote:
+          "No earlier run in this branch, stage and target within the selected window.",
+      })).reverse(),
+    );
+  }
   const data = {
     runs,
     scope: { skill: "feedback" },
     startedFrom: "2026-10-04T00:00:00Z",
-    startedBefore: "2026-11-03T00:00:00Z",
+    startedBefore: context ? "2026-11-06T00:00:00Z" : "2026-11-03T00:00:00Z",
     cohorts: [
       { key: "old", configurationComplete: true },
       { key: "new", configurationComplete: true },
     ],
-    branches: [{ key: "branch", label: "feature/a · dev · east" }],
+    branches: context
+      ? runs.map((run) => ({ key: run.branchKey, label: run.branchLabel }))
+      : [{ key: "branch", label: "feature/a · dev · east" }],
   };
   const render = () => {
     cursor = 0;
@@ -154,4 +178,59 @@ test("chart draws a settings boundary and day zoom retains every execution with 
     5,
   );
   assert.ok(renderToStaticMarkup(tree).includes("Day detail"));
+});
+
+test("single-point context series connect only through optional server chronology links", () => {
+  const h = harness(true);
+  let tree = h.render();
+  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 5);
+  assert.equal(
+    walk(tree).filter((n) => n.props?.["data-context-link"]).length,
+    3,
+  );
+  assert.equal(
+    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
+    0,
+  );
+  assert.equal(
+    walk(tree).filter((n) => n.props?.["data-trend-isolated"]).length,
+    1,
+  );
+  const html = renderToStaticMarkup(tree);
+  assert.ok(html.includes("Stage / target changed"));
+  assert.ok(html.includes("chronology only, no performance comparison"));
+  const toggle = walk(tree).find(
+    (n) => n.type === "input" && n.props.type === "checkbox",
+  );
+  toggle.props.onChange({ target: { checked: false } });
+  tree = h.render();
+  assert.equal(
+    walk(tree).filter((n) => n.props?.["data-context-link"]).length,
+    0,
+  );
+  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 5);
+  assert.ok(walk(tree).some((n) => n.props?.["data-trend-isolated"]));
+});
+
+test("chronology never bridges a missing visible endpoint", () => {
+  const point = (id, previous) => ({
+    run: {
+      runId: id,
+      trendContextPreviousRunId: previous,
+      trendContextChanges: ["Stage changed"],
+    },
+    value: 80,
+  });
+  assert.equal(
+    helper.historyContextConnections([
+      { points: [point("a", null), point("c", "b")] },
+    ]).length,
+    0,
+  );
+  assert.equal(
+    helper.historyContextConnections([
+      { points: [point("b", null), point("c", "b")] },
+    ]).length,
+    1,
+  );
 });

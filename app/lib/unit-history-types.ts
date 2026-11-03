@@ -11,6 +11,9 @@ export interface UnitHistoryScope {
 
 export interface HistoryRun {
   agentName?: string | null;
+  trendContextPreviousRunId?: string | null;
+  trendContextChanges?: string[];
+  trendNote?: string | null;
   trendPreviousRunId?: string | null;
   trendTransition?: "first" | "comparable" | "settings_changed" | "incomplete";
   trendPassRateDelta?: number | null;

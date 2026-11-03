@@ -149,3 +149,19 @@ export function historyTrendConnections(
     return [{ previous, point, delta, direction }];
   });
 }
+
+/** Render only explicit server-provided chronology links whose endpoints are visible. */
+export function historyContextConnections(series: HistoryTrendSeries[]) {
+  const points = new Map(
+    series.flatMap((branch) =>
+      branch.points.map((point) => [point.run.runId, point] as const),
+    ),
+  );
+  return [...points.values()].flatMap((point) => {
+    const previous = points.get(point.run.trendContextPreviousRunId ?? "");
+    if (!previous || !point.run.trendContextChanges?.length) return [];
+    return [
+      { previous, point, label: point.run.trendContextChanges.join(" · ") },
+    ];
+  });
+}
