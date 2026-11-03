@@ -10,6 +10,17 @@ export interface UnitHistoryScope {
 }
 
 export interface HistoryRun {
+  comparisonObserved?: boolean;
+  comparisonWarnings?: string[];
+  comparisonBlockers?: string[];
+  observedReferences?: Array<{
+    runId: string;
+    branch: string;
+    startedAt: string;
+    passRateDelta: number | null;
+    durationDeltaMs: number | null;
+    warnings: string[];
+  }>;
   sourceBranch?: string | null;
   trendReferences?: Array<{
     runId: string;

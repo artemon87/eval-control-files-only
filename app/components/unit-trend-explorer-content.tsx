@@ -198,6 +198,7 @@ export function UnitTrendExplorerContent({
         openingRunId={openingRunId}
         onOpenRun={onOpenRun}
         onInspectRun={selectRun}
+        onReferenceRun={setReferenceChoice}
         onHighlightBranch={setHighlight}
       />
       <div className={styles.selectedHeader}>
@@ -617,4 +618,3 @@ export function UnitTrendExplorerContent({
     </>
   );
 }
-

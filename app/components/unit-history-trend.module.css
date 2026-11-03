@@ -250,3 +250,26 @@
     font-size: 16px;
   }
 }
+
+.observedToggle,
+.seriesControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.observedToggle input {
+  width: auto;
+  flex-shrink: 0;
+}
+.seriesControls button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
