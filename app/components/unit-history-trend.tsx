@@ -6,6 +6,7 @@ import type { UnitHistoryInsights } from "../lib/unit-history-types";
 import { historyTime, rateLabel } from "../lib/unit-history-utils";
 import {
   isOperationalHistoryRun,
+  historyTrendValue,
   historyTrendCeiling,
   historyTrendSeries,
   type HistoryTrendMetric,
@@ -17,6 +18,7 @@ const DASHES = [undefined, "7 3", "2 3", "8 3 2 3"];
 
 export function UnitSkillPerformanceTrend({
   data,
+  selectedCohortKey = null,
   focusedBranch,
   openingRunId,
   onHighlightBranch,
@@ -26,6 +28,7 @@ export function UnitSkillPerformanceTrend({
 }: {
   onInspectRun?: (runId: string) => void;
   selectedRunId?: string;
+  selectedCohortKey?: string | null;
   data: UnitHistoryInsights;
   focusedBranch: string | null;
   openingRunId: string | null;
@@ -45,16 +48,20 @@ export function UnitSkillPerformanceTrend({
     return () => observer.disconnect();
   }, []);
   const configuration = data.cohorts.find(
-    (cohort) => cohort.key === data.selectedCohortKey,
+    (cohort) => cohort.key === selectedCohortKey,
   );
   const series = historyTrendSeries(
-    configuration?.configurationComplete
-      ? data.runs
-      : data.runs.map((run) => ({ ...run, caseSetKey: null })),
+    data.runs.map((run) => ({
+      ...run,
+      caseSetKey: data.cohorts.find((cohort) => cohort.key === run.cohortKey)
+        ?.configurationComplete
+        ? run.caseSetKey
+        : null,
+    })),
     data.branches,
     data,
     metric,
-    data.selectedCohortKey,
+    selectedCohortKey,
   );
   const operational = data.runs.filter(isOperationalHistoryRun);
   const ceiling = historyTrendCeiling(series, metric);
@@ -112,8 +119,8 @@ export function UnitSkillPerformanceTrend({
         <div>
           <h2>Skill performance over time</h2>
           <p>
-            {data.scope.skill} · {data.scope.stage} ·{" "}
-            {data.scope.targetEnvironment ?? "Target not recorded"}
+            {data.scope.skill} · each series identifies its stage, target and
+            branch
           </p>
         </div>
         <label className={styles.metric}>
@@ -250,7 +257,7 @@ export function UnitSkillPerformanceTrend({
                     />
                   ))}
                 {branch.points.map(({ run, value }) => {
-                  const label = `${branch.label} · ${run.runId} · ${metric === "passRate" ? rateLabel(value) : formatValue(value)} · ${run.passed ?? "?"}/${run.total ?? "?"} passed · ${historyTime(run.startedAt)} · SHA ${run.gitSha?.slice(0, 8) ?? "not recorded"}`;
+                  const label = `${branch.label} · BSA ${run.bsaVersion ?? "not recorded"} · ${run.runId} · ${metric === "passRate" ? rateLabel(value) : formatValue(value)} · ${run.passed ?? "?"}/${run.total ?? "?"} passed · ${historyTime(run.startedAt)} · SHA ${run.gitSha?.slice(0, 8) ?? "not recorded"}`;
                   return (
                     <a
                       key={run.runId}
@@ -372,17 +379,23 @@ export function UnitSkillPerformanceTrend({
         </svg>
       </div>
       <div className={styles.note}>
-        {pointCount} measured executions
-        {data.selectedCohortKey
+        Showing {pointCount} of{" "}
+        {
+          data.runs.filter((run) => historyTrendValue(run, metric) !== null)
+            .length
+        }{" "}
+        measured executions
+        {selectedCohortKey
           ? " in the selected analysis configuration"
           : " with recorded run summaries"}
         . Dates are on the horizontal axis. Lines join comparable updates within
         the same branch only; no main-branch baseline or PR approval is assumed.
-        Lines break when recorded case sets change or the metric is missing.
-        Select a point to inspect its execution. {operational.length} executions
-        with recorded issues are shown separately and do not contribute quality
-        scores.
-        {!configuration?.configurationComplete &&
+        Lines break when settings/BSA versions or recorded case sets change, or
+        the metric is missing. Select a point to inspect its execution.{" "}
+        {operational.length} executions with recorded issues are shown
+        separately and do not contribute quality scores.
+        {selectedCohortKey &&
+          !configuration?.configurationComplete &&
           " Recorded configuration is incomplete; points are not connected."}
         {pointCount === 1 ? " More runs are needed to establish a trend." : ""}
       </div>

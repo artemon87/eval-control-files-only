@@ -82,3 +82,11 @@ test("blocked or unmeasured summaries never plot as zero quality or duration", (
   ])[0];
   assert.ok(unknownBranch.segments.every((s) => s.length === 1));
 });
+
+test("all configurations keeps recent BSA points and breaks lines at configuration changes", () => {
+  const runs = [run("bsa117", 10), run("bsa118", 30, { cohortKey: "bsa118" })];
+  const all = series(runs, "passRate", null)[0];
+  assert.deepEqual(Array.from(all.points, p => p.run.runId), ["bsa117", "bsa118"]);
+  assert.ok(all.segments.every(segment => segment.length === 1));
+  assert.deepEqual(Array.from(series(runs, "passRate", "bsa118")[0].points, p => p.run.runId), ["bsa118"]);
+});

@@ -599,6 +599,8 @@ export class EvalApi {
       started_from: query.startedFrom,
       started_before: query.startedBefore,
     });
+    if (query.allStages) params.set("all_stages", "true");
+    if (query.allTargets) params.set("all_targets", "true");
     if (query.cohortKey) params.set("cohort_key", query.cohortKey);
     return this.request<UnitHistoryInsights>(
       `/unit/history/insights?${params}`,

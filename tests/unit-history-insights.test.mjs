@@ -125,3 +125,14 @@ test("case investigation exhausts run pages and preserves raw evidence and cance
   assert.ok(calls[0].path.startsWith("/unit/runs/run%2Fa%3Fb/cases"));
   assert.ok(calls.every((call) => call.s === signal));
 });
+
+test("all-stage and all-target requests explicitly broaden only the selected skill scope", async () => {
+  const api = new EvalApi("/api");
+  let path;
+  api.request = async value => { path = value; return {}; };
+  await api.getUnitHistoryInsights({ scopeKey: "exact", startedFrom: "a", startedBefore: "b", allStages: true, allTargets: true });
+  const url = new URL(path, "https://example.test");
+  assert.equal(url.searchParams.get("scope_key"), "exact");
+  assert.equal(url.searchParams.get("all_stages"), "true");
+  assert.equal(url.searchParams.get("all_targets"), "true");
+});

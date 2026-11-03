@@ -32,8 +32,8 @@ export function UnitHistoryTrendExplorer({
   const [range, setRange] = useState<"7d" | "30d" | "90d">("30d");
   const [refresh, setRefresh] = useState(0);
   const [skillChoice, setSkillChoice] = useState("");
-  const [stageChoice, setStageChoice] = useState("");
-  const [targetChoice, setTargetChoice] = useState("");
+  const [stageChoice, setStageChoice] = useState("all");
+  const [targetChoice, setTargetChoice] = useState("all");
   const [cohortChoice, setCohortChoice] = useState({
     key: "",
     scopeKey: "",
@@ -91,30 +91,23 @@ export function UnitHistoryTrendExplorer({
     (scope) => skill && skillScopeKey(scope) === skillScopeKey(skill),
   );
   const stages = [...new Set(skillScopes.map((scope) => scope.stage))].sort();
-  const stage = stages.includes(stageChoice)
-    ? stageChoice
-    : stages.includes(initialFocus?.stage ?? "")
-      ? initialFocus!.stage!
-      : stages[0];
-  const targets = skillScopes.filter((scope) => scope.stage === stage);
+  const stage =
+    stageChoice === "all"
+      ? "all"
+      : stages.includes(stageChoice)
+        ? stageChoice
+        : "all";
+  const targets = skillScopes.filter(
+    (scope) => stage === "all" || scope.stage === stage,
+  );
   const scope =
-    targets.find((item) => item.scopeKey === targetChoice) ??
-    targets.find(
-      (item) =>
-        item.targetEnvironment === initialFocus?.targetEnvironment &&
-        (!initialFocus?.environment ||
-          item.environment === initialFocus.environment),
-    ) ??
-    targets[0];
+    targets.find((item) => item.scopeKey === targetChoice) ?? targets[0];
   const requestKey = JSON.stringify({
     query: {
       scopeKey: scope?.scopeKey,
+      allStages: stage === "all",
+      allTargets: targetChoice === "all",
       ...timeWindow,
-      cohortKey:
-        cohortChoice.scopeKey === scope?.scopeKey &&
-        cohortChoice.revision === revision
-          ? cohortChoice.key || undefined
-          : undefined,
     },
     refresh,
   });
@@ -145,7 +138,6 @@ export function UnitHistoryTrendExplorer({
   }, [api, requestKey]);
 
   const refreshHistory = () => {
-    setCohortChoice({ key: "", scopeKey: "", revision });
     setRefresh((value) => value + 1);
   };
   const resetCohort = () =>
@@ -188,8 +180,8 @@ export function UnitHistoryTrendExplorer({
             disabled={!skills.length}
             onChange={(event) => {
               setSkillChoice(event.target.value);
-              setStageChoice("");
-              setTargetChoice("");
+              setStageChoice("all");
+              setTargetChoice("all");
               resetCohort();
             }}
           >
@@ -209,10 +201,11 @@ export function UnitHistoryTrendExplorer({
             disabled={!stages.length}
             onChange={(event) => {
               setStageChoice(event.target.value);
-              setTargetChoice("");
+              setTargetChoice("all");
               resetCohort();
             }}
           >
+            <option value="all">All stages</option>
             {stages.map((value) => (
               <option key={value} value={value}>
                 {value}
@@ -224,17 +217,19 @@ export function UnitHistoryTrendExplorer({
           <span>Target</span>
           <select
             aria-label="History target"
-            value={scope?.scopeKey ?? ""}
+            value={targetChoice === "all" ? "all" : (scope?.scopeKey ?? "")}
             disabled={!targets.length}
             onChange={(event) => {
               setTargetChoice(event.target.value);
               resetCohort();
             }}
           >
+            <option value="all">All targets</option>
             {targets.map((item) => (
               <option key={item.scopeKey} value={item.scopeKey}>
                 {item.targetEnvironment ?? "Target not recorded"} ·{" "}
                 {item.environment}
+                {stage === "all" ? ` · ${item.stage}` : ""}
               </option>
             ))}
           </select>
@@ -247,7 +242,6 @@ export function UnitHistoryTrendExplorer({
               aria-pressed={range === value}
               onClick={() => {
                 setRange(value);
-                resetCohort();
               }}
             >
               {value}
@@ -297,7 +291,7 @@ export function UnitHistoryTrendExplorer({
                 Analysis configuration{" "}
                 <select
                   aria-label="History analysis configuration"
-                  value={data.selectedCohortKey ?? ""}
+                  value={cohortChoice.key}
                   onChange={(event) =>
                     setCohortChoice({
                       key: event.target.value,
@@ -306,6 +300,15 @@ export function UnitHistoryTrendExplorer({
                     })
                   }
                 >
+                  <option value="">All configurations / BSA versions</option>
+                  {cohortChoice.key &&
+                    !data.cohorts.some(
+                      (item) => item.key === cohortChoice.key,
+                    ) && (
+                      <option value={cohortChoice.key}>
+                        Selected configuration · no runs in this window
+                      </option>
+                    )}
                   {data.cohorts.map((item) => (
                     <option key={item.key} value={item.key}>
                       {item.label} · {item.runCount} runs
@@ -320,15 +323,26 @@ export function UnitHistoryTrendExplorer({
               <summary>Recorded evaluation settings</summary>
               <ul>
                 {data.cohorts
-                  .find((item) => item.key === data.selectedCohortKey)
-                  ?.details.map((detail) => (
-                    <li key={detail}>{detail}</li>
+                  .filter(
+                    (item) =>
+                      !cohortChoice.key || item.key === cohortChoice.key,
+                  )
+                  .map((item) => (
+                    <li key={item.key}>
+                      <strong>{item.label}</strong>
+                      <ul>
+                        {item.details.map((detail) => (
+                          <li key={detail}>{detail}</li>
+                        ))}
+                      </ul>
+                    </li>
                   ))}
               </ul>
             </details>
           )}
           <UnitTrendExplorerContent
             key={requestKey}
+            chartCohortKey={cohortChoice.key || null}
             api={api}
             data={data}
             {...navigation}
