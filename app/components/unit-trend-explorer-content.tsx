@@ -18,6 +18,7 @@ import { RecordedUnitCase } from "./unit-history-case-record";
 import styles from "./unit-trend-explorer.module.css";
 
 type Props = {
+  chartRunIds?: string[] | null;
   chartCohortKey?: string | null;
   api: EvalApi | null;
   data: UnitHistoryInsights;
@@ -50,6 +51,7 @@ function Result({ value }: { value: string }) {
 export function UnitTrendExplorerContent({
   api,
   chartCohortKey = null,
+  chartRunIds = null,
   data,
   openingRunId,
   onOpenRun,
@@ -79,7 +81,9 @@ export function UnitTrendExplorerContent({
   const run =
     data.runs.find((run) => run.runId === selectedId) ??
     data.runs.find(
-      (run) => !chartCohortKey || run.cohortKey === chartCohortKey,
+      (run) =>
+        (chartRunIds === null || chartRunIds.includes(run.runId)) &&
+        (!chartCohortKey || run.cohortKey === chartCohortKey),
     ) ??
     data.runs[0];
   const reference = run
@@ -188,6 +192,7 @@ export function UnitTrendExplorerContent({
       <UnitSkillPerformanceTrend
         data={data}
         selectedCohortKey={chartCohortKey}
+        visibleRunIds={chartRunIds}
         focusedBranch={highlight}
         selectedRunId={run.runId}
         openingRunId={openingRunId}

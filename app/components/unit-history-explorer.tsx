@@ -147,6 +147,20 @@ export function UnitHistoryTrendExplorer({
     !resolvedWindow.error &&
     (resolvedWindow.loading || response.key !== requestKey);
   const data = response.key === requestKey ? response.data : null;
+  const settingsGroups =
+    data?.settingsGroups ??
+    data?.cohorts.map((item) => ({
+      key: item.key,
+      label: item.label,
+      cohortKeys: [item.key],
+      runIds: data.runs
+        .filter((run) => run.cohortKey === item.key)
+        .map((run) => run.runId),
+    })) ??
+    [];
+  const selectedSettings = settingsGroups.find(
+    (group) => group.key === cohortChoice.key,
+  );
   const error =
     resolvedWindow.error ??
     (response.key === requestKey ? response.error : null);
@@ -286,7 +300,7 @@ export function UnitHistoryTrendExplorer({
               {data.branches.length} branches · {data.runs.length} executions ·{" "}
               {historyTime(data.startedFrom)}–{historyTime(data.startedBefore)}
             </span>
-            {!!data.cohorts.length && (
+            {!!settingsGroups.length && (
               <label>
                 Settings{" "}
                 <select
@@ -302,16 +316,16 @@ export function UnitHistoryTrendExplorer({
                 >
                   <option value="">All settings · BSA, skill & agent</option>
                   {cohortChoice.key &&
-                    !data.cohorts.some(
+                    !settingsGroups.some(
                       (item) => item.key === cohortChoice.key,
                     ) && (
                       <option value={cohortChoice.key}>
-                        Selected configuration · no runs in this window
+                        Selected settings · no runs in this window
                       </option>
                     )}
-                  {data.cohorts.map((item) => (
+                  {settingsGroups.map((item) => (
                     <option key={item.key} value={item.key}>
-                      {item.label} · {item.runCount} runs
+                      {item.label}
                     </option>
                   ))}
                 </select>
@@ -325,7 +339,8 @@ export function UnitHistoryTrendExplorer({
                 {data.cohorts
                   .filter(
                     (item) =>
-                      !cohortChoice.key || item.key === cohortChoice.key,
+                      !cohortChoice.key ||
+                      Boolean(selectedSettings?.cohortKeys.includes(item.key)),
                   )
                   .map((item) => (
                     <li key={item.key}>
@@ -342,7 +357,9 @@ export function UnitHistoryTrendExplorer({
           )}
           <UnitTrendExplorerContent
             key={requestKey}
-            chartCohortKey={cohortChoice.key || null}
+            chartRunIds={
+              cohortChoice.key ? (selectedSettings?.runIds ?? []) : null
+            }
             api={api}
             data={data}
             {...navigation}

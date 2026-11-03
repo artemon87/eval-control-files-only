@@ -36,7 +36,7 @@ const walk = (node) =>
     : Array.isArray(node)
       ? node.flatMap(walk)
       : [node, ...walk(node.props?.children)];
-function harness() {
+function harness(visibleRunIds = null) {
   const values = [];
   let cursor = 0;
   const exports = {};
@@ -102,6 +102,7 @@ function harness() {
     cursor = 0;
     return exports.UnitSkillPerformanceTrend({
       data,
+      visibleRunIds,
       focusedBranch: null,
       openingRunId: null,
       onHighlightBranch: () => {},
@@ -154,4 +155,14 @@ test("chart draws a settings boundary and day zoom retains every execution with 
     5,
   );
   assert.ok(renderToStaticMarkup(tree).includes("Day detail"));
+});
+
+test("settings filter includes executions from multiple underlying comparison cohorts", () => {
+  const h = harness(["run-0", "run-10"]);
+  const tree = h.render();
+  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 2);
+  assert.equal(
+    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
+    0,
+  );
 });

@@ -20,6 +20,7 @@ const DASHES = [undefined, "7 3", "2 3", "8 3 2 3"];
 export function UnitSkillPerformanceTrend({
   data,
   selectedCohortKey = null,
+  visibleRunIds = null,
   focusedBranch,
   openingRunId,
   onHighlightBranch,
@@ -29,6 +30,7 @@ export function UnitSkillPerformanceTrend({
 }: {
   onInspectRun?: (runId: string) => void;
   selectedRunId?: string;
+  visibleRunIds?: string[] | null;
   selectedCohortKey?: string | null;
   data: UnitHistoryInsights;
   focusedBranch: string | null;
@@ -54,8 +56,12 @@ export function UnitSkillPerformanceTrend({
   const configuration = data.cohorts.find(
     (cohort) => cohort.key === selectedCohortKey,
   );
+  const visibleIds = visibleRunIds === null ? null : new Set(visibleRunIds);
+  const visibleRuns = data.runs.filter(
+    (run) => visibleIds === null || visibleIds.has(run.runId),
+  );
   const allSeries = historyTrendSeries(
-    data.runs.map((run) => ({
+    visibleRuns.map((run) => ({
       ...run,
       caseSetKey: data.cohorts.find((cohort) => cohort.key === run.cohortKey)
         ?.configurationComplete
@@ -81,7 +87,7 @@ export function UnitSkillPerformanceTrend({
         }))
         .filter((branch) => branch.points.length)
     : allSeries;
-  const operational = data.runs.filter(
+  const operational = visibleRuns.filter(
     (run) =>
       isOperationalHistoryRun(run) &&
       (!zoomDay || dayKey(run.startedAt) === zoomDay),
@@ -116,7 +122,7 @@ export function UnitSkillPerformanceTrend({
     series.find((branch) => branch.branchKey === focusedBranch) ??
     (series.length === 1 ? series[0] : undefined);
   const latest = summaryBranch?.points.at(-1);
-  const dayRuns = data.runs.filter(
+  const dayRuns = visibleRuns.filter(
     (run) =>
       zoomDay &&
       dayKey(run.startedAt) === zoomDay &&
@@ -732,7 +738,7 @@ export function UnitSkillPerformanceTrend({
       <div className={styles.note}>
         Showing {pointCount} of{" "}
         {
-          data.runs.filter((run) => historyTrendValue(run, metric) !== null)
+          visibleRuns.filter((run) => historyTrendValue(run, metric) !== null)
             .length
         }{" "}
         measured executions

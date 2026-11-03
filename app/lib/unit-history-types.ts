@@ -129,6 +129,12 @@ export interface HistoryCohort {
 }
 
 export interface UnitHistoryInsights {
+  settingsGroups?: Array<{
+    key: string;
+    label: string;
+    runIds: string[];
+    cohortKeys: string[];
+  }>;
   scope: UnitHistoryScope;
   startedFrom: string;
   startedBefore: string;
