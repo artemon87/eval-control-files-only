@@ -8,17 +8,53 @@ export function comparableTrendRuns(
 ): boolean {
   return Boolean(
     reference &&
-    current.runId !== reference.runId &&
-    current.qualityMeasured === true &&
-    reference.qualityMeasured === true &&
-    current.total === reference.total &&
-    current.caseSetKey &&
-    current.caseSetKey === reference.caseSetKey &&
-    current.cohortKey &&
-    current.cohortKey === reference.cohortKey &&
-    cohorts.find((cohort) => cohort.key === current.cohortKey)
-      ?.configurationComplete,
+      current.runId !== reference.runId &&
+      current.qualityMeasured === true &&
+      reference.qualityMeasured === true &&
+      current.total === reference.total &&
+      current.caseSetKey &&
+      current.caseSetKey === reference.caseSetKey &&
+      current.cohortKey &&
+      current.cohortKey === reference.cohortKey &&
+      cohorts.find((cohort) => cohort.key === current.cohortKey)
+        ?.configurationComplete,
   );
+}
+
+export function trendComparisonBlockers(
+  current: HistoryRun,
+  reference: HistoryRun | undefined,
+  cohorts: HistoryCohort[],
+): string[] {
+  if (!reference)
+    return [
+      "No reference execution selected or no earlier compatible run in this branch and time window.",
+    ];
+  const reasons: string[] = [];
+  if (current.runId === reference.runId)
+    reasons.push("Choose a different reference execution.");
+  if (current.qualityMeasured !== true || reference.qualityMeasured !== true)
+    reasons.push("One execution has no complete quality measurement.");
+  if (
+    current.total !== reference.total ||
+    !current.caseSetKey ||
+    current.caseSetKey !== reference.caseSetKey
+  )
+    reasons.push("Recorded test sets differ or their identity is missing.");
+  if (!current.cohortKey || current.cohortKey !== reference.cohortKey)
+    reasons.push(
+      "Recorded evaluation settings differ or are missing (including BSA version, runtime, metrics or thresholds).",
+    );
+  if (
+    !cohorts.find((cohort) => cohort.key === current.cohortKey)
+      ?.configurationComplete ||
+    !cohorts.find((cohort) => cohort.key === reference.cohortKey)
+      ?.configurationComplete
+  )
+    reasons.push(
+      "Configuration metadata is incomplete; comparison equivalence cannot be established.",
+    );
+  return reasons;
 }
 
 export function previousTrendRun(

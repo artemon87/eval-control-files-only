@@ -6,6 +6,7 @@ import type { UnitHistoryInsights } from "../lib/unit-history-types";
 import { historyTime, rateLabel } from "../lib/unit-history-utils";
 import {
   comparableTrendRuns,
+  trendComparisonBlockers,
   previousTrendRun,
   completeTrendCaseComparison,
   recordedCaseState,
@@ -95,7 +96,7 @@ export function UnitTrendExplorerContent({
     run && comparableTrendRuns(run, reference, data.cohorts),
   );
   const requestRunId = run?.qualityMeasured === true ? run.runId : null;
-  const requestReferenceId = metadataComparable ? reference?.runId : null;
+  const requestReferenceId = reference?.runId ?? null;
   const key = JSON.stringify([requestRunId, requestReferenceId]);
   useEffect(() => {
     if (!api || !requestRunId) return;
@@ -134,8 +135,12 @@ export function UnitTrendExplorerContent({
       !response.referenceError &&
       completeTrendCaseComparison(current, earlier, run, reference),
   );
+  const blockers = run
+    ? trendComparisonBlockers(run, reference, data.cohorts)
+    : [];
+  const showReference = Boolean(reference);
   const rows = trendCaseRows(current, earlier, compared);
-  const effectiveFilter = filter === "changed" && !compared ? "failed" : filter;
+  const effectiveFilter = filter === "changed" && !compared ? "all" : filter;
   const filtered = rows.filter(
     (row) =>
       row.label.toLowerCase().includes(query.toLowerCase()) &&
@@ -249,7 +254,11 @@ export function UnitTrendExplorerContent({
       <section className="panel" aria-label="Execution test results">
         <div className="panel-heading">
           <div>
-            <h2>Test changes at this execution</h2>
+            <h2>
+              {compared
+                ? "Test changes between executions"
+                : "Results for this run"}
+            </h2>
             <p>
               {compared
                 ? `${rows.filter((row) => row.change === "Recovered").length} recovered · ${rows.filter((row) => row.change === "New failure").length} newly failed · ${rows.length - changed.length} unchanged`
@@ -259,7 +268,7 @@ export function UnitTrendExplorerContent({
         </div>
         <div className={styles.testControls}>
           <label className={styles.referenceControl}>
-            Compare test changes with
+            Reference execution · compare with
             <select
               aria-label="Reference execution"
               value={referenceChoice}
@@ -270,7 +279,9 @@ export function UnitTrendExplorerContent({
               }}
             >
               <option value="previous">
-                Previous comparable run in this branch · auto
+                {referenceChoice === "previous" && !reference
+                  ? "No compatible earlier run · choose a reference below"
+                  : "Previous compatible run in this branch · automatic"}
               </option>
               <option value="none">None · selected results only</option>
               {data.runs
@@ -282,11 +293,48 @@ export function UnitTrendExplorerContent({
                     {item.branchLabel} ·{" "}
                     {item.gitSha?.slice(0, 8) ?? "SHA not recorded"} ·{" "}
                     {historyTime(item.startedAt)} ·{" "}
-                    {rateLabel(item.passRatePct)}
+                    {rateLabel(item.passRatePct)} · {item.runId} · BSA{" "}
+                    {item.bsaVersion ?? "not recorded"}
+                    {comparableTrendRuns(run, item, data.cohorts)
+                      ? " · comparable"
+                      : " · recorded results only"}
                   </option>
                 ))}
             </select>
           </label>
+        </div>
+        <div
+          className={styles.note}
+          role="status"
+          aria-label="Comparison status"
+        >
+          <p>
+            <strong>Selected execution:</strong> {run.runId} ·{" "}
+            {historyTime(run.startedAt)} · BSA{" "}
+            {run.bsaVersion ?? "not recorded"}
+          </p>
+          <p>
+            <strong>Reference execution:</strong>{" "}
+            {reference
+              ? `${reference.runId} · ${historyTime(reference.startedAt)} · BSA ${reference.bsaVersion ?? "not recorded"}`
+              : "None"}
+          </p>
+          {!compared && blockers.length > 0 && (
+            <>
+              <strong>Change analysis unavailable</strong>
+              <ul>
+                {blockers.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+              {reference && (
+                <p>
+                  Showing recorded results side by side. These settings are not
+                  treated as equivalent.
+                </p>
+              )}
+            </>
+          )}
         </div>
         <div className={styles.note}>
           {!measured
@@ -337,8 +385,8 @@ export function UnitTrendExplorerContent({
             {response.referenceError && (
               <div className={styles.note} role="alert">
                 Reference evidence could not be loaded:{" "}
-                {response.referenceError}. Showing selected results without
-                changes.{" "}
+                {response.referenceError}. Recorded reference results are
+                unavailable; no changes are inferred.{" "}
                 <button
                   className="secondary-button"
                   onClick={() => setRetry((value) => value + 1)}
@@ -386,13 +434,15 @@ export function UnitTrendExplorerContent({
               </label>
             </div>
             <div className="table-wrap">
-              <table className={styles.resultsTable}>
+              <table
+                className={`${styles.resultsTable} ${showReference ? styles.resultsTableWithReference : ""}`}
+              >
                 <thead>
                   <tr>
                     <th>Test</th>
-                    <th>Reference</th>
-                    <th>Selected run</th>
-                    <th>Observed change</th>
+                    {showReference && <th>Reference result</th>}
+                    <th>Selected run result</th>
+                    {compared && <th>Observed change</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -403,9 +453,11 @@ export function UnitTrendExplorerContent({
                           row.current.length === 1
                             ? recordedCaseState(row.current[0])
                             : "Multiple records",
-                        before = compared
-                          ? recordedCaseState(row.reference[0])
-                          : "Not compared";
+                        before = response.referenceError
+                          ? "Unavailable"
+                          : row.reference.length > 1
+                            ? "Multiple records"
+                            : recordedCaseState(row.reference[0]);
                       return (
                         <tr
                           key={row.key}
@@ -435,19 +487,25 @@ export function UnitTrendExplorerContent({
                               {row.label}
                             </button>
                             <small>{row.testType}</small>
-                            <span className={styles.mobileReference}>
-                              Reference: {before}
-                            </span>
+                            {showReference && (
+                              <span className={styles.mobileReference}>
+                                Reference: {before}
+                              </span>
+                            )}
                           </td>
-                          <td>
-                            <Result value={before} />
-                          </td>
+                          {showReference && (
+                            <td>
+                              <Result value={before} />
+                            </td>
+                          )}
                           <td>
                             <Result value={now} />
                           </td>
-                          <td>
-                            <Result value={row.change} />
-                          </td>
+                          {compared && (
+                            <td>
+                              <Result value={row.change} />
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
