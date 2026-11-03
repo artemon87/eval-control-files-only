@@ -9,7 +9,23 @@ export interface UnitHistoryScope {
   environment: string;
 }
 
+export interface HistoryProgressionReference {
+  runId: string;
+  branch: string;
+  startedAt: string;
+  passRateDelta: number | null;
+  durationDeltaMs: number | null;
+  warnings: string[];
+}
 export interface HistoryRun {
+  progression?: {
+    key: string;
+    label: string;
+    previousExecution: HistoryProgressionReference | null;
+    previousSameBranch: HistoryProgressionReference | null;
+    previousBranch: HistoryProgressionReference | null;
+    branchStart: HistoryProgressionReference | null;
+  } | null;
   comparisonObserved?: boolean;
   comparisonWarnings?: string[];
   comparisonBlockers?: string[];
