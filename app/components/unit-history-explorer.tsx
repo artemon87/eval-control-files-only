@@ -288,7 +288,7 @@ export function UnitHistoryTrendExplorer({
             </span>
             {!!data.cohorts.length && (
               <label>
-                Analysis configuration{" "}
+                Settings{" "}
                 <select
                   aria-label="History analysis configuration"
                   value={cohortChoice.key}
@@ -300,7 +300,7 @@ export function UnitHistoryTrendExplorer({
                     })
                   }
                 >
-                  <option value="">All configurations / BSA versions</option>
+                  <option value="">All settings · BSA, skill & agent</option>
                   {cohortChoice.key &&
                     !data.cohorts.some(
                       (item) => item.key === cohortChoice.key,
