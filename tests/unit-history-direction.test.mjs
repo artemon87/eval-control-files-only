@@ -6,8 +6,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import ts from "typescript";
 const require = createRequire(import.meta.url);
-const compile = (source) =>
-  ts.transpileModule(source, {
+const compile = (s) =>
+  ts.transpileModule(s, {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2022,
@@ -30,17 +30,17 @@ const code = compile(
     "utf8",
   ),
 );
-const walk = (node) =>
-  !node || typeof node !== "object"
+const walk = (n) =>
+  !n || typeof n !== "object"
     ? []
-    : Array.isArray(node)
-      ? node.flatMap(walk)
-      : [node, ...walk(node.props?.children)];
-function harness(context = false, visibleRunIds = null, cross = false) {
-  const values = [];
+    : Array.isArray(n)
+      ? n.flatMap(walk)
+      : [n, ...walk(n.props?.children)];
+function harness(count = 4) {
   let cursor = 0;
-  const exports = {};
-  const opened = [];
+  const state = [],
+    exports = {},
+    opened = [];
   runInNewContext(code, {
     exports,
     require: (name) =>
@@ -48,344 +48,165 @@ function harness(context = false, visibleRunIds = null, cross = false) {
         ? {
             useState: (initial) => {
               const i = cursor++;
-              if (!(i in values)) values[i] = initial;
+              if (!(i in state)) state[i] = initial;
               return [
-                values[i],
-                (v) => (values[i] = typeof v === "function" ? v(values[i]) : v),
+                state[i],
+                (v) => (state[i] = typeof v === "function" ? v(state[i]) : v),
               ];
             },
-            useRef: () => ({ current: null }),
             useEffect: () => {},
+            useRef: () => ({ current: null }),
           }
         : name === "react/jsx-runtime"
           ? require(name)
           : name.endsWith("unit-history-trend")
             ? helper
             : name.endsWith("unit-history-utils")
-              ? { historyTime: (x) => x, rateLabel: (x) => `${x}%` }
-              : { default: new Proxy({}, { get: (_, key) => key }) },
+              ? { historyTime: (s) => s }
+              : { default: new Proxy({}, { get: (_, k) => k }) },
   });
-  const runs = Array.from({ length: 25 }, (_, i) => ({
-    runId: `run-${i}`,
-    branchKey: "branch",
-    branchLabel: "feature/a · dev · east",
+  const ref = (id, d) => ({
+    runId: id,
+    branch: id.startsWith("a") ? "branch-a" : "branch-b",
+    startedAt: "2026-11-02T09:00:00Z",
+    passRateDelta: d,
+    durationDeltaMs: -100,
+    warnings: ["mode not fully recorded"],
+  });
+  const values = [50, 90, 50, 70];
+  const runs = Array.from({ length: count }, (_, i) => ({
+    runId: i < 2 ? `a${i}` : `b${i}`,
+    branchKey: i < 2 ? "branch-a" : "branch-b",
+    sourceBranch: i < 2 ? "branch-a" : "branch-b",
+    branchLabel: i < 2 ? "branch-a" : "branch-b",
+    stage: "dev",
+    targetEnvironment: "east",
+    environment: "runner",
     startedAt: `2026-11-02T10:${String(i).padStart(2, "0")}:00Z`,
     executionStatus: "completed",
     qualityMeasured: true,
-    cohortKey: i < 10 ? "old" : "new",
-    caseSetKey: "same",
-    passRatePct: i < 10 ? 80 : 90,
+    passRatePct: values[i] ?? 70,
     durationMs: 1000,
-    total: 10,
-    passed: i < 10 ? 8 : 9,
-    trendPreviousRunId: i ? `run-${i - 1}` : null,
-    trendTransition: !i
-      ? "first"
-      : i === 10
-        ? "settings_changed"
-        : "comparable",
-    trendPassRateDelta: !i || i === 10 ? null : 0,
-    trendDurationDeltaMs: 0,
+    cohortKey: "setting",
+    caseSetKey: "tests",
+    progression: {
+      key: "dev/east/setting",
+      label: "dev/east",
+      previousExecution: i
+        ? ref(
+            i === 1 ? "a0" : i === 2 ? "a1" : `b${i - 1}`,
+            (values[i] ?? 70) - (values[i - 1] ?? 70),
+          )
+        : null,
+      previousSameBranch:
+        i === 1
+          ? ref("a0", 40)
+          : i >= 3
+            ? ref(`b${i - 1}`, i === 3 ? 20 : 0)
+            : null,
+      previousBranch: i >= 2 ? ref("a1", (values[i] ?? 70) - 90) : null,
+      branchStart:
+        i >= 2
+          ? ref("b2", (values[i] ?? 70) - 50)
+          : ref("a0", (values[i] ?? 70) - 50),
+    },
   })).reverse();
-  if (context) {
-    const template = runs[0];
-    runs.splice(
-      0,
-      runs.length,
-      ...Array.from({ length: 5 }, (_, i) => ({
-        ...template,
-        runId: `context-${i}`,
-        branchKey: `context-series-${i}`,
-        branchLabel: `${i === 4 ? "other-branch" : "feature/a"} · stage-${i} · target-${i}`,
-        startedAt: `2026-10-${String(5 + i * 6).padStart(2, "0")}T10:00:00Z`,
-        trendPreviousRunId: null,
-        trendTransition: "first",
-        trendPassRateDelta: null,
-        trendContextPreviousRunId: i > 0 && i < 4 ? `context-${i - 1}` : null,
-        trendContextChanges:
-          i > 0 && i < 4 ? ["Stage changed", "Target changed"] : [],
-        trendNote:
-          "No earlier run in this branch, stage and target within the selected window.",
-      })).reverse(),
-    );
-  }
-  if (cross) {
-    const template = runs[0];
-    runs.splice(
-      0,
-      runs.length,
-      ...Array.from({ length: 3 }, (_, i) => ({
-        ...template,
-        runId: `cross-${i}`,
-        sourceBranch: i === 1 ? "branch-b" : "branch-a",
-        branchKey: i === 1 ? "branch-b" : "branch-a",
-        branchLabel: i === 1 ? "branch-b" : "branch-a",
-        cohortKey: "old",
-        trendTransition: "first",
-        trendPreviousRunId: null,
-        startedAt: `2026-11-02T1${i}:00:00Z`,
-        trendReferences:
-          i === 0
-            ? []
-            : i === 1
-              ? [
-                  {
-                    runId: "cross-0",
-                    branch: "branch-a",
-                    startedAt: "2026-11-02T10:00:00Z",
-                    passRateDelta: 10,
-                    durationDeltaMs: -100,
-                  },
-                ]
-              : [
-                  {
-                    runId: "cross-1",
-                    branch: "branch-b",
-                    startedAt: "2026-11-02T11:00:00Z",
-                    passRateDelta: -10,
-                    durationDeltaMs: 100,
-                  },
-                  {
-                    runId: "cross-0",
-                    branch: "branch-a",
-                    startedAt: "2026-11-02T10:00:00Z",
-                    passRateDelta: 0,
-                    durationDeltaMs: 0,
-                  },
-                ],
-      })).reverse(),
-    );
-  }
   const data = {
     runs,
-    scope: { skill: "feedback" },
-    startedFrom: "2026-10-04T00:00:00Z",
-    startedBefore: context ? "2026-11-06T00:00:00Z" : "2026-11-03T00:00:00Z",
-    cohorts: [
-      { key: "old", configurationComplete: true },
-      { key: "new", configurationComplete: true },
+    branches: [
+      { key: "branch-a", label: "branch-a · dev · east" },
+      { key: "branch-b", label: "branch-b · dev · east" },
     ],
-    branches:
-      context || cross
-        ? [
-            ...new Map(
-              runs.map((run) => [
-                run.branchKey,
-                { key: run.branchKey, label: run.branchLabel },
-              ]),
-            ).values(),
-          ]
-        : [{ key: "branch", label: "feature/a · dev · east" }],
+    cohorts: [{ key: "setting", configurationComplete: false }],
+    startedFrom: "2026-11-01T00:00:00Z",
+    startedBefore: "2026-11-04T00:00:00Z",
   };
-  const render = (selectedRunId) => {
-    cursor = 0;
-    return exports.UnitSkillPerformanceTrend({
-      data,
-      selectedRunId,
-      visibleRunIds,
-      focusedBranch: null,
-      openingRunId: null,
-      onHighlightBranch: () => {},
-      onOpenRun: (id) => opened.push(id),
-      onInspectRun: (id) => opened.push(id),
-    });
+  return {
+    opened,
+    render: (selected = "b3") => {
+      cursor = 0;
+      return exports.UnitSkillPerformanceTrend({
+        data,
+        selectedRunId: selected,
+        focusedBranch: null,
+        onHighlightBranch: () => {},
+        openingRunId: null,
+        onOpenRun: (id) => opened.push(id),
+        onInspectRun: (id) => opened.push(id),
+      });
+    },
   };
-  return { render, opened, data };
 }
-test("chart draws a settings boundary and day zoom retains every execution with pagination", () => {
+test("continuous timeline crosses branches despite missing optional mode; shows both references", () => {
   const h = harness();
-  let tree = h.render();
+  const tree = h.render();
+  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 4);
   assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-run"]).length,
-    25,
-  );
-  assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-direction"] === "changed")
-      .length,
-    1,
-  );
-  const select = walk(tree).find(
-    (n) => n.props?.["aria-label"] === "Zoom into trend day",
-  );
-  select.props.onChange({ target: { value: "2026-11-02" } });
-  tree = h.render();
-  assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-run"]).length,
-    25,
-  );
-  const list = walk(tree).find(
-    (n) => n.props?.["aria-label"] === "Day executions",
-  );
-  const rows = walk(list).filter(
-    (n) => n.type === "button" && "aria-pressed" in n.props,
-  );
-  assert.equal(rows.length, 20);
-  rows[0].props.onClick();
-  assert.deepEqual(h.opened, ["run-24"]);
-  walk(list)
-    .find((n) => n.type === "button" && n.props.children === "Next runs")
-    .props.onClick();
-  tree = h.render();
-  const last = walk(tree).find(
-    (n) => n.props?.["aria-label"] === "Day executions",
-  );
-  assert.equal(
-    walk(last).filter((n) => n.type === "button" && "aria-pressed" in n.props)
-      .length,
-    5,
-  );
-  assert.ok(renderToStaticMarkup(tree).includes("Day detail"));
-});
-
-test("single-point context series connect only through optional server chronology links", () => {
-  const h = harness(true);
-  let tree = h.render();
-  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 5);
-  assert.equal(
-    walk(tree).filter((n) => n.props?.["data-context-link"]).length,
+    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
     3,
   );
-  assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
-    0,
-  );
-  assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-isolated"]).length,
-    1,
-  );
   const html = renderToStaticMarkup(tree);
-  assert.ok(html.includes("Stage / target changed"));
-  assert.ok(html.includes("chronology only, no performance comparison"));
-  const toggle = walk(tree).find(
-    (n) => n.props?.["aria-label"] === "Connect stage / target changes",
-  );
-  toggle.props.onChange({ target: { checked: false } });
-  tree = h.render();
-  assert.equal(
-    walk(tree).filter((n) => n.props?.["data-context-link"]).length,
-    0,
-  );
-  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 5);
-  assert.ok(walk(tree).some((n) => n.props?.["data-trend-isolated"]));
+  assert.ok(html.includes("↑ +20 pp"));
+  assert.ok(html.includes("↓ -20 pp"));
+  assert.ok(html.includes("mode not fully recorded"));
+  assert.ok(html.includes("VS PREVIOUS BRANCH"));
 });
-
-test("chronology never bridges a missing visible endpoint", () => {
-  const point = (id, previous) => ({
-    run: {
-      runId: id,
-      trendContextPreviousRunId: previous,
-      trendContextChanges: ["Stage changed"],
-    },
-    value: 80,
-  });
-  assert.equal(
-    helper.historyContextConnections([
-      { points: [point("a", null), point("c", "b")] },
-    ]).length,
-    0,
-  );
-  assert.equal(
-    helper.historyContextConnections([
-      { points: [point("b", null), point("c", "b")] },
-    ]).length,
-    1,
-  );
-});
-
-test("settings filter includes executions from multiple underlying comparison cohorts", () => {
-  const h = harness(false, ["run-0", "run-10"]);
-  const tree = h.render();
-  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 2);
-  assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
-    0,
-  );
-});
-
-test("cross-branch reference modes render backend deltas and exact branch choice", () => {
-  const h = harness(false, null, true);
+test("branch cards select actual final runs; multi-select preserves visible series", () => {
+  const h = harness();
   let tree = h.render();
-  assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
-    2,
+  const cards = walk(tree).find(
+    (n) => n.props?.["aria-label"] === "Branch progression cards",
   );
-  assert.ok(renderToStaticMarkup(tree).includes("branch-b"));
-  walk(tree)
-    .find((n) => n.props?.["aria-label"] === "Trend comparison mode")
-    .props.onChange({ target: { value: "same" } });
-  tree = h.render();
-  assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
-    0,
-  );
-  walk(tree)
-    .find((n) => n.props?.["aria-label"] === "Trend comparison mode")
-    .props.onChange({ target: { value: "branch" } });
-  tree = h.render();
-  walk(tree)
-    .find((n) => n.props?.["aria-label"] === "Trend reference branch")
-    .props.onChange({ target: { value: "branch-a" } });
-  tree = h.render();
-  assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-direction"] === "same")
-      .length,
-    1,
-  );
-});
-
-test("selected execution responds to reference choice and series can be selected together", () => {
-  const h = harness(false, null, true);
-  let tree = h.render("cross-2");
-  assert.ok(renderToStaticMarkup(tree).includes("Reference: cross-1"));
+  const card = walk(cards).filter((n) => n.type === "button")[0];
+  card.props.onClick();
+  assert.deepEqual(h.opened, ["a1"]);
   const legend = walk(tree).find(
     (n) => n.props?.["aria-label"] === "Trend branch highlights",
   );
-  const buttons = walk(legend).filter((n) => n.type === "button");
-  buttons[0].props.onClick();
-  tree = h.render("cross-2");
+  walk(legend)
+    .filter((n) => n.type === "button")[0]
+    .props.onClick();
+  tree = h.render();
   assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 2);
-  walk(tree)
-    .find((n) => n.props?.["aria-label"] === "Trend branch highlights")
-    .props.children[1].props.onClick();
-  tree = h.render("cross-2");
-  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 3);
-  walk(tree)
-    .find((n) => n.props?.["aria-label"] === "Trend comparison mode")
-    .props.onChange({ target: { value: "branch" } });
-  tree = h.render("cross-2");
-  walk(tree)
-    .find((n) => n.props?.["aria-label"] === "Trend reference branch")
-    .props.onChange({ target: { value: "branch-a" } });
-  tree = h.render("cross-2");
-  assert.ok(renderToStaticMarkup(tree).includes("Reference: cross-0"));
+  const next = walk(tree).find(
+    (n) => n.props?.["aria-label"] === "Trend branch highlights",
+  );
+  walk(next)
+    .filter((n) => n.type === "button")[1]
+    .props.onClick();
+  assert.equal(
+    walk(h.render()).filter((n) => n.props?.["data-trend-run"]).length,
+    4,
+  );
 });
-test("missing mode exposes observed score differences and can be excluded", () => {
-  const h = harness(false, null, true);
-  for (const run of h.data.runs) {
-    run.observedReferences = (run.trendReferences ?? []).map((ref) => ({
-      ...ref,
-      warnings: ["Evaluation mode not recorded"],
-    }));
-    run.trendReferences = [];
-    run.comparisonBlockers = ["Evaluation mode not recorded"];
-  }
-  let tree = h.render("cross-2");
-  let html = renderToStaticMarkup(tree);
-  assert.ok(html.includes("Observed results only"));
-  assert.ok(html.includes("Evaluation mode not recorded"));
-  assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
-    2,
-  );
+test("day detail preserves every execution and paginates dense days", () => {
+  const h = harness(25);
+  let tree = h.render();
   walk(tree)
-    .find((n) => n.props?.["aria-label"] === "Include observed comparisons")
-    .props.onChange({ target: { checked: false } });
-  tree = h.render("cross-2");
+    .find((n) => n.props?.["aria-label"] === "Zoom into trend day")
+    .props.onChange({ target: { value: "2026-11-02" } });
+  tree = h.render();
   assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
-    0,
+    walk(tree).filter((n) => n.props?.["data-trend-run"]).length,
+    25,
   );
-  assert.ok(
-    renderToStaticMarkup(tree).includes("Evaluation mode not recorded"),
+  let list = walk(tree).find(
+    (n) => n.props?.["aria-label"] === "Day executions",
+  );
+  assert.equal(
+    walk(list).filter((n) => n.type === "button" && "aria-pressed" in n.props)
+      .length,
+    20,
+  );
+  walk(list)
+    .find((n) => n.type === "button" && n.props.children === "Next runs")
+    .props.onClick();
+  list = walk(h.render()).find(
+    (n) => n.props?.["aria-label"] === "Day executions",
+  );
+  assert.equal(
+    walk(list).filter((n) => n.type === "button" && "aria-pressed" in n.props)
+      .length,
+    5,
   );
 });

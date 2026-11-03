@@ -273,3 +273,108 @@
   color: var(--ink);
   cursor: pointer;
 }
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 18px;
+}
+.filters details {
+  flex: 1 1 180px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+}
+.filters summary {
+  cursor: pointer;
+}
+.filters label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  overflow-wrap: anywhere;
+}
+.filters input {
+  width: auto;
+}
+.comparison {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  padding: 18px;
+  border-block: 1px solid var(--line);
+}
+.comparison > div {
+  min-width: 0;
+}
+.comparison small,
+.cards small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.comparison strong {
+  display: block;
+  font-size: 23px;
+  margin: 8px 0;
+}
+.comparison button,
+.filters button {
+  padding: 8px 10px;
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+}
+.comparison details {
+  font-size: 12px;
+  margin-top: 8px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px;
+}
+.cards button {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--panel);
+  cursor: pointer;
+}
+.cards button[aria-pressed="true"] {
+  outline: 2px solid var(--blue);
+}
+.cards strong {
+  font-size: 25px;
+}
+.cards span {
+  font-size: 12px;
+}
+@media (max-width: 700px) {
+  .comparison,
+  .cards {
+    grid-template-columns: 1fr;
+  }
+  .comparison > div + div {
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+}
