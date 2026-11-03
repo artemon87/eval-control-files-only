@@ -238,8 +238,8 @@
   .resultsTable th:first-child {
     width: 44%;
   }
-  .resultsTable th:nth-child(2),
-  .resultsTable td:nth-child(2) {
+  .resultsTableWithReference th:nth-child(2),
+  .resultsTableWithReference td:nth-child(2) {
     display: none;
   }
   .resultsTable td {
