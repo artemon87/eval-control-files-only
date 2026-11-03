@@ -118,9 +118,19 @@ export function historyTrendCeiling(
 export function historyTrendConnections(
   series: HistoryTrendSeries,
   metric: HistoryTrendMetric,
+  visibleSeries?: HistoryTrendSeries[],
 ) {
+  const visiblePoints = visibleSeries
+    ? new Map(
+        visibleSeries.flatMap((branch) =>
+          branch.points.map((point) => [point.run.runId, point] as const),
+        ),
+      )
+    : null;
   return series.points.flatMap((point, index) => {
-    const previous = series.points[index - 1];
+    const previous = visiblePoints
+      ? visiblePoints.get(point.run.trendPreviousRunId ?? "")
+      : series.points[index - 1];
     if (
       !previous ||
       point.run.trendPreviousRunId !== previous.run.runId ||
@@ -147,5 +157,21 @@ export function historyTrendConnections(
             ? "improved"
             : "regressed";
     return [{ previous, point, delta, direction }];
+  });
+}
+
+/** Render only explicit server-provided chronology links whose endpoints are visible. */
+export function historyContextConnections(series: HistoryTrendSeries[]) {
+  const points = new Map(
+    series.flatMap((branch) =>
+      branch.points.map((point) => [point.run.runId, point] as const),
+    ),
+  );
+  return [...points.values()].flatMap((point) => {
+    const previous = points.get(point.run.trendContextPreviousRunId ?? "");
+    if (!previous || !point.run.trendContextChanges?.length) return [];
+    return [
+      { previous, point, label: point.run.trendContextChanges.join(" · ") },
+    ];
   });
 }

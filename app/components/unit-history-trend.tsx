@@ -8,6 +8,7 @@ import {
   isOperationalHistoryRun,
   historyTrendValue,
   historyTrendConnections,
+  historyContextConnections,
   historyTrendCeiling,
   historyTrendSeries,
   type HistoryTrendMetric,
@@ -38,6 +39,9 @@ export function UnitSkillPerformanceTrend({
   onHighlightBranch: (key: string | null) => void;
   onOpenRun: (runId: string, evalType: "unit") => void;
 }) {
+  const [comparisonMode, setComparisonMode] = useState("any");
+  const [referenceBranch, setReferenceBranch] = useState("");
+  const [showContextLinks, setShowContextLinks] = useState(true);
   const [showAllBranches, setShowAllBranches] = useState(false);
   const [zoomDay, setZoomDay] = useState<string | null>(null);
   const [dayPage, setDayPage] = useState(0);
@@ -60,14 +64,46 @@ export function UnitSkillPerformanceTrend({
   const visibleRuns = data.runs.filter(
     (run) => visibleIds === null || visibleIds.has(run.runId),
   );
-  const allSeries = historyTrendSeries(
-    visibleRuns.map((run) => ({
+  const plottedRuns = visibleRuns.map((original) => {
+    const reference = original.trendReferences?.find(
+      (ref) => comparisonMode === "any" || ref.branch === referenceBranch,
+    );
+    const run =
+      comparisonMode === "same"
+        ? original
+        : reference
+          ? {
+              ...original,
+              trendPreviousRunId: reference.runId,
+              trendTransition: "comparable" as const,
+              trendPassRateDelta: reference.passRateDelta,
+              trendDurationDeltaMs: reference.durationDeltaMs,
+            }
+          : {
+              ...original,
+              trendPreviousRunId:
+                original.trendTransition === "settings_changed"
+                  ? original.trendPreviousRunId
+                  : null,
+              trendNote:
+                comparisonMode === "branch"
+                  ? "No earlier comparable run on the selected reference branch in this window."
+                  : "No earlier comparable run on any branch in this window.",
+              trendTransition:
+                original.trendTransition === "settings_changed"
+                  ? ("settings_changed" as const)
+                  : ("first" as const),
+            };
+    return {
       ...run,
       caseSetKey: data.cohorts.find((cohort) => cohort.key === run.cohortKey)
         ?.configurationComplete
         ? run.caseSetKey
         : null,
-    })),
+    };
+  });
+  const allSeries = historyTrendSeries(
+    plottedRuns,
     data.branches,
     data,
     metric,
@@ -114,15 +150,20 @@ export function UnitSkillPerformanceTrend({
           ? null
           : run.trendDurationDeltaMs / 1000;
     if (run.trendTransition !== "comparable" || delta == null)
-      return "No comparable previous measurement";
+      return run.trendContextChanges?.length
+        ? `◆ ${run.trendContextChanges.join(" · ")} · chronology only`
+        : (run.trendNote ?? "No earlier comparable run in this window");
     const good = metric === "passRate" ? delta > 0 : delta < 0;
-    return `${delta === 0 ? "→ Same" : good ? "↗ Improved" : "↘ Regressed"} · ${delta > 0 ? "+" : ""}${Number(delta.toFixed(1))} ${metric === "passRate" ? "pp" : "s"} vs ${run.trendPreviousRunId}`;
+    const reference = data.runs.find(
+      (item) => item.runId === run.trendPreviousRunId,
+    );
+    return `${delta === 0 ? "→ Same" : good ? "↗ Improved" : "↘ Regressed"} · ${delta > 0 ? "+" : ""}${Number(delta.toFixed(1))} ${metric === "passRate" ? "pp" : "s"} vs ${reference?.sourceBranch ?? reference?.branchLabel ?? "reference run"} · ${reference ? historyTime(reference.startedAt) : ""} · ${run.trendPreviousRunId}`;
   };
   const summaryBranch =
     series.find((branch) => branch.branchKey === focusedBranch) ??
     (series.length === 1 ? series[0] : undefined);
   const latest = summaryBranch?.points.at(-1);
-  const dayRuns = visibleRuns.filter(
+  const dayRuns = plottedRuns.filter(
     (run) =>
       zoomDay &&
       dayKey(run.startedAt) === zoomDay &&
@@ -130,6 +171,16 @@ export function UnitSkillPerformanceTrend({
   );
   const labelSlots: Array<{ x: number; y: number }> = [];
   const dayBadgeSlots: number[] = [];
+  const contextEdges = showContextLinks
+    ? historyContextConnections(series)
+    : [];
+  const explainedPoints = new Set(
+    contextEdges.flatMap((edge) => [
+      edge.previous.run.runId,
+      edge.point.run.runId,
+    ]),
+  );
+  const isolationSlots: Array<{ x: number; y: number }> = [];
   const ceiling = historyTrendCeiling(series, metric);
   const floor =
     metric === "passRate" && series.some((branch) => branch.points.length)
@@ -232,6 +283,51 @@ export function UnitSkillPerformanceTrend({
             <option value="duration">Execution duration</option>
           </select>
         </label>
+      </div>
+      <div className={styles.dayControls}>
+        <label>
+          Compare against{" "}
+          <select
+            aria-label="Trend comparison mode"
+            value={comparisonMode}
+            onChange={(event) => setComparisonMode(event.target.value)}
+          >
+            <option value="any">Previous comparable run · any branch</option>
+            <option value="same">Previous run · same branch</option>
+            <option value="branch">
+              Selected branch · latest earlier comparable run
+            </option>
+          </select>
+        </label>
+        {comparisonMode === "branch" && (
+          <label>
+            Reference branch{" "}
+            <select
+              aria-label="Trend reference branch"
+              value={referenceBranch}
+              onChange={(event) => setReferenceBranch(event.target.value)}
+            >
+              <option value="">Choose branch</option>
+              {[
+                ...new Set(
+                  data.runs
+                    .map((run) => run.sourceBranch)
+                    .filter((branch): branch is string => Boolean(branch)),
+                ),
+              ]
+                .sort()
+                .map((branch) => (
+                  <option key={branch} value={branch}>
+                    {branch}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+        <small>
+          Same skill/repository, stage, target, settings and test set.
+          References are earlier executions within this time window.
+        </small>
       </div>
       <div className={styles.summary} aria-live="polite">
         {latest ? (
@@ -378,7 +474,84 @@ export function UnitSkillPerformanceTrend({
               </g>
             );
           })}
+          {contextEdges.map((edge) => {
+            const ax = x(edge.previous.run.startedAt),
+              ay = y(edge.previous.value);
+            const bx = x(edge.point.run.startedAt),
+              by = y(edge.point.value);
+            const mx = Math.max(left + 75, Math.min(right - 75, (ax + bx) / 2));
+            const my = Math.max(top + 15, (ay + by) / 2 - 14);
+            const showLabel =
+              Math.hypot(bx - ax, by - ay) >= 100 &&
+              !labelSlots.some(
+                (p) => Math.abs(p.x - mx) < 160 && Math.abs(p.y - my) < 28,
+              );
+            if (showLabel) labelSlots.push({ x: mx, y: my });
+            return (
+              <g
+                key={`context-${edge.point.run.runId}`}
+                data-context-link={edge.point.run.runId}
+                pointerEvents="none"
+                opacity={
+                  focusPresent &&
+                  ![
+                    edge.previous.run.branchKey,
+                    edge.point.run.branchKey,
+                  ].includes(focusedBranch ?? "")
+                    ? 0.25
+                    : 1
+                }
+              >
+                <title>{`${edge.label} · chronology only, no performance comparison · ${edge.previous.run.runId} to ${edge.point.run.runId}`}</title>
+                <line
+                  x1={ax}
+                  y1={ay}
+                  x2={bx}
+                  y2={by}
+                  stroke="#9b7010"
+                  strokeWidth="1.5"
+                  strokeDasharray="3 5"
+                />
+                <polygon
+                  points={`${bx},${by - 6} ${bx + 6},${by} ${bx},${by + 6} ${bx - 6},${by}`}
+                  fill="var(--panel)"
+                  stroke="#9b7010"
+                  strokeWidth="1.5"
+                />
+                {showLabel && (
+                  <g>
+                    <rect
+                      x={mx - 74}
+                      y={my - 13}
+                      width="148"
+                      height="21"
+                      rx="4"
+                      fill="var(--panel)"
+                    />
+                    <text
+                      x={mx}
+                      y={my + 1}
+                      textAnchor="middle"
+                      fill="#9b7010"
+                      fontSize="10"
+                    >
+                      {edge.point.run.trendContextChanges?.length === 1
+                        ? edge.label
+                        : "Stage / target changed"}
+                    </text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
           {series.map((branch, index) => {
+            const edges = historyTrendConnections(branch, metric, series);
+            const connectedRuns = new Set(
+              edges.flatMap((edge) => [
+                edge.previous.run.runId,
+                edge.point.run.runId,
+              ]),
+            );
             const color = COLORS[index % COLORS.length];
             const dash =
               DASHES[Math.floor(index / COLORS.length) % DASHES.length];
@@ -389,7 +562,7 @@ export function UnitSkillPerformanceTrend({
                 opacity={faded ? 0.3 : 1}
                 data-trend-branch={branch.branchKey}
               >
-                {historyTrendConnections(branch, metric).map((edge) => {
+                {edges.map((edge) => {
                   const ax = x(edge.previous.run.startedAt),
                     ay = y(edge.previous.value),
                     bx = x(edge.point.run.startedAt),
@@ -429,8 +602,10 @@ export function UnitSkillPerformanceTrend({
                     <g
                       key={`direction-${edge.point.run.runId}`}
                       data-trend-direction={edge.direction}
+                      data-trend-reference={edge.previous.run.runId}
                       pointerEvents="none"
                     >
+                      <title>{`${directionLabel(edge.point.run)} · selected execution ${edge.point.run.runId}`}</title>
                       <line
                         x1={ax}
                         y1={ay}
@@ -439,7 +614,12 @@ export function UnitSkillPerformanceTrend({
                         stroke={tone}
                         strokeWidth="2"
                         strokeDasharray={
-                          edge.direction === "changed" ? "5 5" : dash
+                          edge.direction === "changed"
+                            ? "2 5"
+                            : edge.previous.run.sourceBranch !==
+                                edge.point.run.sourceBranch
+                              ? "8 4"
+                              : dash
                         }
                       />
                       {edge.direction === "changed" ? (
@@ -483,6 +663,21 @@ export function UnitSkillPerformanceTrend({
                 })}
                 {branch.points.map(({ run, value }) => {
                   const label = `${directionLabel(run)} · ${branch.label} · BSA ${run.bsaVersion ?? "not recorded"} · Skill ${run.skillVersion ?? "not recorded"} · Agent ${run.agentName ?? "not recorded"} · ${run.runId} · ${metric === "passRate" ? rateLabel(value) : formatValue(value)} · ${run.passed ?? "?"}/${run.total ?? "?"} passed · ${historyTime(run.startedAt)} · SHA ${run.gitSha?.slice(0, 8) ?? "not recorded"}`;
+                  const isolated =
+                    !explainedPoints.has(run.runId) &&
+                    !connectedRuns.has(run.runId);
+                  const ix = Math.max(
+                    left + 65,
+                    Math.min(right - 65, x(run.startedAt)),
+                  );
+                  const iy = Math.min(bottom - 8, y(value) + 22);
+                  const showIsolation =
+                    isolated &&
+                    !isolationSlots.some(
+                      (p) =>
+                        Math.abs(p.x - ix) < 145 && Math.abs(p.y - iy) < 28,
+                    );
+                  if (showIsolation) isolationSlots.push({ x: ix, y: iy });
                   return (
                     <a
                       key={run.runId}
@@ -521,6 +716,20 @@ export function UnitSkillPerformanceTrend({
                       data-trend-run={run.runId}
                     >
                       <title>{label}</title>
+                      {showIsolation && (
+                        <text
+                          data-trend-isolated={run.runId}
+                          x={ix}
+                          y={iy}
+                          textAnchor="middle"
+                          fill="var(--muted)"
+                          fontSize="10"
+                        >
+                          {run.trendTransition === "incomplete"
+                            ? "Comparison unavailable"
+                            : "No earlier comparable run"}
+                        </text>
+                      )}
                       <circle
                         cx={x(run.startedAt)}
                         cy={y(value)}
@@ -685,10 +894,18 @@ export function UnitSkillPerformanceTrend({
         </svg>
       </div>
       <div className={styles.directionLegend}>
-        <span>↗ Improved</span>
-        <span>↘ Regressed</span>
-        <span>→ Same</span>
-        <span>◆ Settings changed · dotted link</span>
+        <label>
+          <input
+            type="checkbox"
+            checked={showContextLinks}
+            onChange={(event) => setShowContextLinks(event.target.checked)}
+          />{" "}
+          Connect stage / target changes
+        </label>
+        <span>↗ Higher pass rate / faster execution vs reference</span>
+        <span>↘ Lower pass rate / slower execution vs reference</span>
+        <span>→ Same measured value · dashed = cross-branch comparison</span>
+        <span>◆ Settings / context changed · dotted = chronology only</span>
       </div>
       {!!zoomDay && (
         <div className={styles.dayList} aria-label="Day executions">
@@ -745,15 +962,17 @@ export function UnitSkillPerformanceTrend({
         {selectedCohortKey
           ? " in the selected analysis configuration"
           : " with recorded run summaries"}
-        . Dates are on the horizontal axis. Lines join comparable updates within
-        the same branch only; no main-branch baseline or PR approval is assumed.
-        Lines break when settings/BSA versions or recorded case sets change, or
-        the metric is missing. Select a point to inspect its execution.{" "}
+        . Dates are on the horizontal axis. Solid lines compare runs on the same
+        branch; dashed lines compare runs across branches; the chosen reference
+        is not a PR approval or an assumed main-branch baseline. Dotted links
+        show settings or stage/target changes on the same source branch; they do
+        not indicate improvement or regression. Missing measurements break
+        connections. Select a point to inspect its execution.{" "}
         {operational.length} executions with recorded issues are shown
         separately and do not contribute quality scores.
         {selectedCohortKey &&
           !configuration?.configurationComplete &&
-          " Recorded configuration is incomplete; points are not connected."}
+          " Recorded configuration is incomplete; performance comparisons are unavailable. Dotted chronology links may still be shown."}
         {pointCount === 1 ? " More runs are needed to establish a trend." : ""}
       </div>
     </section>

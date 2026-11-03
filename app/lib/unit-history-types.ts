@@ -10,7 +10,18 @@ export interface UnitHistoryScope {
 }
 
 export interface HistoryRun {
+  sourceBranch?: string | null;
+  trendReferences?: Array<{
+    runId: string;
+    branch: string;
+    startedAt: string;
+    passRateDelta: number | null;
+    durationDeltaMs: number | null;
+  }>;
   agentName?: string | null;
+  trendContextPreviousRunId?: string | null;
+  trendContextChanges?: string[];
+  trendNote?: string | null;
   trendPreviousRunId?: string | null;
   trendTransition?: "first" | "comparable" | "settings_changed" | "incomplete";
   trendPassRateDelta?: number | null;
