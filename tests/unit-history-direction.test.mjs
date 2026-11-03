@@ -36,7 +36,7 @@ const walk = (node) =>
     : Array.isArray(node)
       ? node.flatMap(walk)
       : [node, ...walk(node.props?.children)];
-function harness(context = false) {
+function harness(context = false, visibleRunIds = null, cross = false) {
   const values = [];
   let cursor = 0;
   const exports = {};
@@ -109,6 +109,53 @@ function harness(context = false) {
       })).reverse(),
     );
   }
+  if (cross) {
+    const template = runs[0];
+    runs.splice(
+      0,
+      runs.length,
+      ...Array.from({ length: 3 }, (_, i) => ({
+        ...template,
+        runId: `cross-${i}`,
+        sourceBranch: i === 1 ? "branch-b" : "branch-a",
+        branchKey: i === 1 ? "branch-b" : "branch-a",
+        branchLabel: i === 1 ? "branch-b" : "branch-a",
+        cohortKey: "old",
+        trendTransition: "first",
+        trendPreviousRunId: null,
+        startedAt: `2026-11-02T1${i}:00:00Z`,
+        trendReferences:
+          i === 0
+            ? []
+            : i === 1
+              ? [
+                  {
+                    runId: "cross-0",
+                    branch: "branch-a",
+                    startedAt: "2026-11-02T10:00:00Z",
+                    passRateDelta: 10,
+                    durationDeltaMs: -100,
+                  },
+                ]
+              : [
+                  {
+                    runId: "cross-1",
+                    branch: "branch-b",
+                    startedAt: "2026-11-02T11:00:00Z",
+                    passRateDelta: -10,
+                    durationDeltaMs: 100,
+                  },
+                  {
+                    runId: "cross-0",
+                    branch: "branch-a",
+                    startedAt: "2026-11-02T10:00:00Z",
+                    passRateDelta: 0,
+                    durationDeltaMs: 0,
+                  },
+                ],
+      })).reverse(),
+    );
+  }
   const data = {
     runs,
     scope: { skill: "feedback" },
@@ -118,14 +165,23 @@ function harness(context = false) {
       { key: "old", configurationComplete: true },
       { key: "new", configurationComplete: true },
     ],
-    branches: context
-      ? runs.map((run) => ({ key: run.branchKey, label: run.branchLabel }))
-      : [{ key: "branch", label: "feature/a · dev · east" }],
+    branches:
+      context || cross
+        ? [
+            ...new Map(
+              runs.map((run) => [
+                run.branchKey,
+                { key: run.branchKey, label: run.branchLabel },
+              ]),
+            ).values(),
+          ]
+        : [{ key: "branch", label: "feature/a · dev · east" }],
   };
   const render = () => {
     cursor = 0;
     return exports.UnitSkillPerformanceTrend({
       data,
+      visibleRunIds,
       focusedBranch: null,
       openingRunId: null,
       onHighlightBranch: () => {},
@@ -231,6 +287,47 @@ test("chronology never bridges a missing visible endpoint", () => {
     helper.historyContextConnections([
       { points: [point("b", null), point("c", "b")] },
     ]).length,
+    1,
+  );
+});
+
+test("settings filter includes executions from multiple underlying comparison cohorts", () => {
+  const h = harness(false, ["run-0", "run-10"]);
+  const tree = h.render();
+  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 2);
+  assert.equal(
+    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
+    0,
+  );
+});
+
+test("cross-branch reference modes render backend deltas and exact branch choice", () => {
+  const h = harness(false, null, true);
+  let tree = h.render();
+  assert.equal(
+    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
+    2,
+  );
+  assert.ok(renderToStaticMarkup(tree).includes("branch-b"));
+  walk(tree)
+    .find((n) => n.props?.["aria-label"] === "Trend comparison mode")
+    .props.onChange({ target: { value: "same" } });
+  tree = h.render();
+  assert.equal(
+    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
+    0,
+  );
+  walk(tree)
+    .find((n) => n.props?.["aria-label"] === "Trend comparison mode")
+    .props.onChange({ target: { value: "branch" } });
+  tree = h.render();
+  walk(tree)
+    .find((n) => n.props?.["aria-label"] === "Trend reference branch")
+    .props.onChange({ target: { value: "branch-a" } });
+  tree = h.render();
+  assert.equal(
+    walk(tree).filter((n) => n.props?.["data-trend-direction"] === "same")
+      .length,
     1,
   );
 });

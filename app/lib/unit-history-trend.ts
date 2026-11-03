@@ -118,9 +118,19 @@ export function historyTrendCeiling(
 export function historyTrendConnections(
   series: HistoryTrendSeries,
   metric: HistoryTrendMetric,
+  visibleSeries?: HistoryTrendSeries[],
 ) {
+  const visiblePoints = visibleSeries
+    ? new Map(
+        visibleSeries.flatMap((branch) =>
+          branch.points.map((point) => [point.run.runId, point] as const),
+        ),
+      )
+    : null;
   return series.points.flatMap((point, index) => {
-    const previous = series.points[index - 1];
+    const previous = visiblePoints
+      ? visiblePoints.get(point.run.trendPreviousRunId ?? "")
+      : series.points[index - 1];
     if (
       !previous ||
       point.run.trendPreviousRunId !== previous.run.runId ||

@@ -10,6 +10,14 @@ export interface UnitHistoryScope {
 }
 
 export interface HistoryRun {
+  sourceBranch?: string | null;
+  trendReferences?: Array<{
+    runId: string;
+    branch: string;
+    startedAt: string;
+    passRateDelta: number | null;
+    durationDeltaMs: number | null;
+  }>;
   agentName?: string | null;
   trendContextPreviousRunId?: string | null;
   trendContextChanges?: string[];
@@ -132,6 +140,12 @@ export interface HistoryCohort {
 }
 
 export interface UnitHistoryInsights {
+  settingsGroups?: Array<{
+    key: string;
+    label: string;
+    runIds: string[];
+    cohortKeys: string[];
+  }>;
   scope: UnitHistoryScope;
   startedFrom: string;
   startedBefore: string;

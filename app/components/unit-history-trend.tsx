@@ -21,6 +21,7 @@ const DASHES = [undefined, "7 3", "2 3", "8 3 2 3"];
 export function UnitSkillPerformanceTrend({
   data,
   selectedCohortKey = null,
+  visibleRunIds = null,
   focusedBranch,
   openingRunId,
   onHighlightBranch,
@@ -30,6 +31,7 @@ export function UnitSkillPerformanceTrend({
 }: {
   onInspectRun?: (runId: string) => void;
   selectedRunId?: string;
+  visibleRunIds?: string[] | null;
   selectedCohortKey?: string | null;
   data: UnitHistoryInsights;
   focusedBranch: string | null;
@@ -37,6 +39,8 @@ export function UnitSkillPerformanceTrend({
   onHighlightBranch: (key: string | null) => void;
   onOpenRun: (runId: string, evalType: "unit") => void;
 }) {
+  const [comparisonMode, setComparisonMode] = useState("any");
+  const [referenceBranch, setReferenceBranch] = useState("");
   const [showContextLinks, setShowContextLinks] = useState(true);
   const [showAllBranches, setShowAllBranches] = useState(false);
   const [zoomDay, setZoomDay] = useState<string | null>(null);
@@ -56,14 +60,50 @@ export function UnitSkillPerformanceTrend({
   const configuration = data.cohorts.find(
     (cohort) => cohort.key === selectedCohortKey,
   );
-  const allSeries = historyTrendSeries(
-    data.runs.map((run) => ({
+  const visibleIds = visibleRunIds === null ? null : new Set(visibleRunIds);
+  const visibleRuns = data.runs.filter(
+    (run) => visibleIds === null || visibleIds.has(run.runId),
+  );
+  const plottedRuns = visibleRuns.map((original) => {
+    const reference = original.trendReferences?.find(
+      (ref) => comparisonMode === "any" || ref.branch === referenceBranch,
+    );
+    const run =
+      comparisonMode === "same"
+        ? original
+        : reference
+          ? {
+              ...original,
+              trendPreviousRunId: reference.runId,
+              trendTransition: "comparable" as const,
+              trendPassRateDelta: reference.passRateDelta,
+              trendDurationDeltaMs: reference.durationDeltaMs,
+            }
+          : {
+              ...original,
+              trendPreviousRunId:
+                original.trendTransition === "settings_changed"
+                  ? original.trendPreviousRunId
+                  : null,
+              trendNote:
+                comparisonMode === "branch"
+                  ? "No earlier comparable run on the selected reference branch in this window."
+                  : "No earlier comparable run on any branch in this window.",
+              trendTransition:
+                original.trendTransition === "settings_changed"
+                  ? ("settings_changed" as const)
+                  : ("first" as const),
+            };
+    return {
       ...run,
       caseSetKey: data.cohorts.find((cohort) => cohort.key === run.cohortKey)
         ?.configurationComplete
         ? run.caseSetKey
         : null,
-    })),
+    };
+  });
+  const allSeries = historyTrendSeries(
+    plottedRuns,
     data.branches,
     data,
     metric,
@@ -83,7 +123,7 @@ export function UnitSkillPerformanceTrend({
         }))
         .filter((branch) => branch.points.length)
     : allSeries;
-  const operational = data.runs.filter(
+  const operational = visibleRuns.filter(
     (run) =>
       isOperationalHistoryRun(run) &&
       (!zoomDay || dayKey(run.startedAt) === zoomDay),
@@ -114,13 +154,16 @@ export function UnitSkillPerformanceTrend({
         ? `◆ ${run.trendContextChanges.join(" · ")} · chronology only`
         : (run.trendNote ?? "No earlier comparable run in this window");
     const good = metric === "passRate" ? delta > 0 : delta < 0;
-    return `${delta === 0 ? "→ Same" : good ? "↗ Improved" : "↘ Regressed"} · ${delta > 0 ? "+" : ""}${Number(delta.toFixed(1))} ${metric === "passRate" ? "pp" : "s"} vs ${run.trendPreviousRunId}`;
+    const reference = data.runs.find(
+      (item) => item.runId === run.trendPreviousRunId,
+    );
+    return `${delta === 0 ? "→ Same" : good ? "↗ Improved" : "↘ Regressed"} · ${delta > 0 ? "+" : ""}${Number(delta.toFixed(1))} ${metric === "passRate" ? "pp" : "s"} vs ${reference?.sourceBranch ?? reference?.branchLabel ?? "reference run"} · ${reference ? historyTime(reference.startedAt) : ""} · ${run.trendPreviousRunId}`;
   };
   const summaryBranch =
     series.find((branch) => branch.branchKey === focusedBranch) ??
     (series.length === 1 ? series[0] : undefined);
   const latest = summaryBranch?.points.at(-1);
-  const dayRuns = data.runs.filter(
+  const dayRuns = plottedRuns.filter(
     (run) =>
       zoomDay &&
       dayKey(run.startedAt) === zoomDay &&
@@ -240,6 +283,51 @@ export function UnitSkillPerformanceTrend({
             <option value="duration">Execution duration</option>
           </select>
         </label>
+      </div>
+      <div className={styles.dayControls}>
+        <label>
+          Compare against{" "}
+          <select
+            aria-label="Trend comparison mode"
+            value={comparisonMode}
+            onChange={(event) => setComparisonMode(event.target.value)}
+          >
+            <option value="any">Previous comparable run · any branch</option>
+            <option value="same">Previous run · same branch</option>
+            <option value="branch">
+              Selected branch · latest earlier comparable run
+            </option>
+          </select>
+        </label>
+        {comparisonMode === "branch" && (
+          <label>
+            Reference branch{" "}
+            <select
+              aria-label="Trend reference branch"
+              value={referenceBranch}
+              onChange={(event) => setReferenceBranch(event.target.value)}
+            >
+              <option value="">Choose branch</option>
+              {[
+                ...new Set(
+                  data.runs
+                    .map((run) => run.sourceBranch)
+                    .filter((branch): branch is string => Boolean(branch)),
+                ),
+              ]
+                .sort()
+                .map((branch) => (
+                  <option key={branch} value={branch}>
+                    {branch}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+        <small>
+          Same skill/repository, stage, target, settings and test set.
+          References are earlier executions within this time window.
+        </small>
       </div>
       <div className={styles.summary} aria-live="polite">
         {latest ? (
@@ -457,7 +545,7 @@ export function UnitSkillPerformanceTrend({
             );
           })}
           {series.map((branch, index) => {
-            const edges = historyTrendConnections(branch, metric);
+            const edges = historyTrendConnections(branch, metric, series);
             const connectedRuns = new Set(
               edges.flatMap((edge) => [
                 edge.previous.run.runId,
@@ -514,8 +602,10 @@ export function UnitSkillPerformanceTrend({
                     <g
                       key={`direction-${edge.point.run.runId}`}
                       data-trend-direction={edge.direction}
+                      data-trend-reference={edge.previous.run.runId}
                       pointerEvents="none"
                     >
+                      <title>{`${directionLabel(edge.point.run)} · selected execution ${edge.point.run.runId}`}</title>
                       <line
                         x1={ax}
                         y1={ay}
@@ -524,7 +614,12 @@ export function UnitSkillPerformanceTrend({
                         stroke={tone}
                         strokeWidth="2"
                         strokeDasharray={
-                          edge.direction === "changed" ? "5 5" : dash
+                          edge.direction === "changed"
+                            ? "2 5"
+                            : edge.previous.run.sourceBranch !==
+                                edge.point.run.sourceBranch
+                              ? "8 4"
+                              : dash
                         }
                       />
                       {edge.direction === "changed" ? (
@@ -807,9 +902,9 @@ export function UnitSkillPerformanceTrend({
           />{" "}
           Connect stage / target changes
         </label>
-        <span>↗ Improved</span>
-        <span>↘ Regressed</span>
-        <span>→ Same</span>
+        <span>↗ Higher pass rate / faster execution vs reference</span>
+        <span>↘ Lower pass rate / slower execution vs reference</span>
+        <span>→ Same measured value · dashed = cross-branch comparison</span>
         <span>◆ Settings / context changed · dotted = chronology only</span>
       </div>
       {!!zoomDay && (
@@ -860,18 +955,19 @@ export function UnitSkillPerformanceTrend({
       <div className={styles.note}>
         Showing {pointCount} of{" "}
         {
-          data.runs.filter((run) => historyTrendValue(run, metric) !== null)
+          visibleRuns.filter((run) => historyTrendValue(run, metric) !== null)
             .length
         }{" "}
         measured executions
         {selectedCohortKey
           ? " in the selected analysis configuration"
           : " with recorded run summaries"}
-        . Dates are on the horizontal axis. Lines join comparable updates within
-        the same branch only; no main-branch baseline or PR approval is assumed.
-        Dotted links show settings or stage/target changes on the same source
-        branch; they do not indicate improvement or regression. Missing
-        measurements break connections. Select a point to inspect its execution.{" "}
+        . Dates are on the horizontal axis. Solid lines compare runs on the same
+        branch; dashed lines compare runs across branches; the chosen reference
+        is not a PR approval or an assumed main-branch baseline. Dotted links
+        show settings or stage/target changes on the same source branch; they do
+        not indicate improvement or regression. Missing measurements break
+        connections. Select a point to inspect its execution.{" "}
         {operational.length} executions with recorded issues are shown
         separately and do not contribute quality scores.
         {selectedCohortKey &&
