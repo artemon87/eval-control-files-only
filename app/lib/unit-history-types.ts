@@ -10,6 +10,11 @@ export interface UnitHistoryScope {
 }
 
 export interface HistoryRun {
+  agentName?: string | null;
+  trendPreviousRunId?: string | null;
+  trendTransition?: "first" | "comparable" | "settings_changed" | "incomplete";
+  trendPassRateDelta?: number | null;
+  trendDurationDeltaMs?: number | null;
   stage?: string;
   targetEnvironment?: string | null;
   environment?: string;
@@ -58,7 +63,11 @@ export interface HistoryBranch {
   latestActor: string | null;
   latestAt: string;
   direction:
-    "improved" | "declined" | "unchanged" | "insufficient" | "context_changed";
+    | "improved"
+    | "declined"
+    | "unchanged"
+    | "insufficient"
+    | "context_changed";
   firstPassRate: number | null;
   latestPassRate: number | null;
   firstTotal: number | null;

@@ -114,3 +114,38 @@ export function historyTrendCeiling(
   const step = [1, 2, 5, 10].find((factor) => factor * scale >= maximum) ?? 10;
   return step * scale;
 }
+
+export function historyTrendConnections(
+  series: HistoryTrendSeries,
+  metric: HistoryTrendMetric,
+) {
+  return series.points.flatMap((point, index) => {
+    const previous = series.points[index - 1];
+    if (
+      !previous ||
+      point.run.trendPreviousRunId !== previous.run.runId ||
+      !["comparable", "settings_changed"].includes(
+        point.run.trendTransition ?? "",
+      )
+    )
+      return [];
+    const changed = point.run.trendTransition === "settings_changed";
+    const delta = changed
+      ? null
+      : metric === "passRate"
+        ? (point.run.trendPassRateDelta ?? null)
+        : point.run.trendDurationDeltaMs == null
+          ? null
+          : point.run.trendDurationDeltaMs / 1000;
+    const direction = changed
+      ? "changed"
+      : delta === null
+        ? "unknown"
+        : delta === 0
+          ? "same"
+          : (metric === "passRate" ? delta > 0 : delta < 0)
+            ? "improved"
+            : "regressed";
+    return [{ previous, point, delta, direction }];
+  });
+}
