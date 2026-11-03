@@ -4,7 +4,6 @@ import { useEffect, useState, type KeyboardEvent } from "react";
 import type { EvalApi, UnitApiCase } from "../lib/eval-api";
 import type { UnitHistoryInsights } from "../lib/unit-history-types";
 import { historyTime, rateLabel } from "../lib/unit-history-utils";
-import { isOperationalHistoryRun } from "../lib/unit-history-trend";
 import {
   comparableTrendRuns,
   previousTrendRun,
@@ -18,6 +17,7 @@ import { RecordedUnitCase } from "./unit-history-case-record";
 import styles from "./unit-trend-explorer.module.css";
 
 type Props = {
+  chartCohortKey?: string | null;
   api: EvalApi | null;
   data: UnitHistoryInsights;
   openingRunId: string | null;
@@ -48,6 +48,7 @@ function Result({ value }: { value: string }) {
 
 export function UnitTrendExplorerContent({
   api,
+  chartCohortKey = null,
   data,
   openingRunId,
   onOpenRun,
@@ -76,7 +77,9 @@ export function UnitTrendExplorerContent({
   });
   const run =
     data.runs.find((run) => run.runId === selectedId) ??
-    data.runs.find((run) => run.contextMatch || isOperationalHistoryRun(run)) ??
+    data.runs.find(
+      (run) => !chartCohortKey || run.cohortKey === chartCohortKey,
+    ) ??
     data.runs[0];
   const reference = run
     ? referenceChoice === "previous"
@@ -124,12 +127,12 @@ export function UnitTrendExplorerContent({
   const loaded = response.key === key;
   const compared = Boolean(
     metadataComparable &&
-    run &&
-    reference &&
-    loaded &&
-    !response.error &&
-    !response.referenceError &&
-    completeTrendCaseComparison(current, earlier, run, reference),
+      run &&
+      reference &&
+      loaded &&
+      !response.error &&
+      !response.referenceError &&
+      completeTrendCaseComparison(current, earlier, run, reference),
   );
   const rows = trendCaseRows(current, earlier, compared);
   const effectiveFilter = filter === "changed" && !compared ? "failed" : filter;
@@ -179,6 +182,7 @@ export function UnitTrendExplorerContent({
     <>
       <UnitSkillPerformanceTrend
         data={data}
+        selectedCohortKey={chartCohortKey}
         focusedBranch={highlight}
         selectedRunId={run.runId}
         openingRunId={openingRunId}

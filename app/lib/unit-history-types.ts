@@ -10,6 +10,10 @@ export interface UnitHistoryScope {
 }
 
 export interface HistoryRun {
+  stage?: string;
+  targetEnvironment?: string | null;
+  environment?: string;
+  bsaVersion?: string | null;
   runId: string;
   branchKey: string;
   branchLabel: string;
@@ -146,6 +150,8 @@ export interface UnitHistoryInsights {
 export interface UnitHistoryQuery extends FixedTimeWindow {
   scopeKey: string;
   cohortKey?: string;
+  allStages?: boolean;
+  allTargets?: boolean;
 }
 
 export interface UnitHistoryFocus {
