@@ -378,3 +378,93 @@
     padding-top: 12px;
   }
 }
+
+/* Match the rounded, bordered controls used throughout History. */
+.filters details {
+  position: relative;
+  padding: 0;
+  align-self: flex-start;
+  border-radius: 8px;
+  background: var(--panel);
+}
+.filters summary {
+  padding: 11px 12px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+}
+.filters details[open] {
+  max-height: 280px;
+  overflow: auto;
+}
+.filters label {
+  padding: 9px 12px;
+  border-top: 1px solid var(--line);
+}
+.dayControls button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dayControls button:hover,
+.comparison button:hover {
+  border-color: var(--blue);
+}
+.dayControls button:focus-visible,
+.filters summary:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.branchKey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 12px 18px;
+  font-size: 12px;
+}
+.branchKey span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.comparison .caveatTitle {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 6px 0;
+}
+.legend button .swatch {
+  height: 10px;
+  width: 10px;
+}
+.dayList > button {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  margin: 7px 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}

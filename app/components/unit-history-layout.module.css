@@ -281,10 +281,9 @@
   min-width: 0;
 }
 .controls {
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(
-      0,
-      1.5fr
-    ) auto auto;
+  grid-template-columns:
+    minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.5fr)
+    auto auto;
   margin-bottom: 0;
 }
 .controls select {
@@ -381,4 +380,47 @@
   .controls {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.settingsList {
+  max-height: 460px;
+  overflow-y: auto;
+  display: grid;
+  gap: 10px;
+  padding: 12px 2px;
+}
+.settingsGroup {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow-wrap: anywhere;
+}
+.settingsGroup summary {
+  cursor: pointer;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.settingsGroup small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.settingsGroup dl {
+  display: grid;
+  grid-template-columns: minmax(100px, 150px) minmax(0, 1fr);
+  gap: 8px 14px;
+  font-size: 12px;
+}
+.settingsGroup dt {
+  color: var(--muted);
+}
+.settingsGroup dd {
+  margin: 0;
+}
+.settingsGroup ul {
+  display: grid;
+  gap: 8px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
 }

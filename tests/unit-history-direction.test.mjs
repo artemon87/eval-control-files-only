@@ -40,7 +40,8 @@ function harness(count = 4) {
   let cursor = 0;
   const state = [],
     exports = {},
-    opened = [];
+    opened = [],
+    inspected = [];
   runInNewContext(code, {
     exports,
     require: (name) =>
@@ -123,6 +124,7 @@ function harness(count = 4) {
   };
   return {
     opened,
+    inspected,
     render: (selected = "b3") => {
       cursor = 0;
       return exports.UnitSkillPerformanceTrend({
@@ -133,6 +135,7 @@ function harness(count = 4) {
         openingRunId: null,
         onOpenRun: (id) => opened.push(id),
         onInspectRun: (id) => opened.push(id),
+        onInspectReference: (ref, selected) => inspected.push([ref, selected]),
       });
     },
   };
@@ -149,7 +152,7 @@ test("continuous timeline crosses branches despite missing optional mode; shows 
   assert.ok(html.includes("↑ +20 pp"));
   assert.ok(html.includes("↓ -20 pp"));
   assert.ok(html.includes("mode not fully recorded"));
-  assert.ok(html.includes("VS PREVIOUS BRANCH"));
+  assert.ok(html.includes("VS LATEST EARLIER RUN ON ANOTHER BRANCH"));
 });
 test("branch cards select actual final runs; multi-select preserves visible series", () => {
   const h = harness();
@@ -208,5 +211,22 @@ test("day detail preserves every execution and paginates dense days", () => {
     walk(list).filter((n) => n.type === "button" && "aria-pressed" in n.props)
       .length,
     5,
+  );
+});
+
+test("inspect action supplies both selected execution and reference, and cross-branch edge is explicit", () => {
+  const h = harness();
+  const tree = h.render("b3");
+  const buttons = walk(tree).filter(
+    (n) =>
+      n.type === "button" && n.props.children === "Inspect test differences",
+  );
+  buttons[1].props.onClick();
+  assert.deepEqual(h.inspected, [["a1", "b3"]]);
+  assert.equal(
+    walk(tree).find((n) => n.props?.["data-cross-branch-reference"])?.props[
+      "data-cross-branch-reference"
+    ],
+    "a1",
   );
 });

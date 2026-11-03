@@ -98,6 +98,7 @@ async function harness({ compatible = false, referenceError = false } = {}) {
       if (!(i in values)) values[i] = initial;
       return [values[i], (value) => (values[i] = value)];
     },
+    useRef: () => ({ current: null }),
     useEffect: (callback) => effects.push(callback),
   };
   runInNewContext(component, {

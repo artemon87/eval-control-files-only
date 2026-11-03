@@ -24,6 +24,7 @@ export function UnitSkillPerformanceTrend({
   onInspectRun,
   selectedRunId,
   onReferenceRun,
+  onInspectReference,
 }: {
   data: UnitHistoryInsights;
   selectedCohortKey?: string | null;
@@ -35,6 +36,7 @@ export function UnitSkillPerformanceTrend({
   onInspectRun?: (id: string) => void;
   selectedRunId?: string;
   onReferenceRun?: (id: string) => void;
+  onInspectReference?: (id: string, selectedId: string) => void;
 }) {
   const [metric, setMetric] = useState<HistoryTrendMetric>("passRate");
   const [choices, setChoices] = useState<Record<string, string[]>>({});
@@ -80,6 +82,23 @@ export function UnitSkillPerformanceTrend({
     .reverse()
     .filter((run) => historyTrendValue(run, metric) !== null)
     .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+  const branchNames = [
+    ...new Set(data.runs.map((run) => run.sourceBranch ?? run.branchLabel)),
+  ].sort();
+  const palette = [
+    "#2563eb",
+    "#7c3aed",
+    "#0d9488",
+    "#c2410c",
+    "#be185d",
+    "#475569",
+    "#4d7c0f",
+    "#0369a1",
+  ];
+  const branchColor = (run: HistoryRun) =>
+    palette[
+      branchNames.indexOf(run.sourceBranch ?? run.branchLabel) % palette.length
+    ];
   const dayKey = (run: HistoryRun) =>
     new Date(run.startedAt).toISOString().slice(0, 10);
   const days = [...new Set(measured.map(dayKey))].sort().reverse();
@@ -87,11 +106,6 @@ export function UnitSkillPerformanceTrend({
   const byId = new Map(points.map((run) => [run.runId, run]));
   const selected =
     points.find((run) => run.runId === selectedRunId) ?? points.at(-1);
-  const defaultReference = selected?.progression?.previousExecution?.runId;
-  useEffect(() => {
-    if (selected?.runId === selectedRunId)
-      onReferenceRun?.(defaultReference ?? "none");
-  }, [selected?.runId, selectedRunId, defaultReference, onReferenceRun]);
   const open = (id: string) => {
     if (onInspectRun) onInspectRun(id);
     else if (id !== openingRunId) onOpenRun(id, "unit");
@@ -194,23 +208,53 @@ export function UnitSkillPerformanceTrend({
           <small>
             {ref.branch} · {historyTime(ref.startedAt)} · {ref.runId}
           </small>
-          <button onClick={() => onReferenceRun?.(ref.runId)}>
+          <button
+            onClick={() => {
+              if (onInspectReference && selected)
+                onInspectReference(ref.runId, selected.runId);
+              else onReferenceRun?.(ref.runId);
+            }}
+          >
             Inspect test differences
           </button>
           {!!ref.warnings?.length && (
             <details>
-              <summary>What else changed?</summary>
+              <summary>Comparison details &amp; missing metadata</summary>
               <ul>
-                {ref.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
+                {ref.warnings
+                  .filter((warning) => !warning.includes("not fully recorded"))
+                  .map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                {!ref.warnings.some(
+                  (warning) => !warning.includes("not fully recorded"),
+                ) && <li>No recorded settings or test-definition changes.</li>}
               </ul>
+              {!!ref.warnings.some((warning) =>
+                warning.includes("not fully recorded"),
+              ) && (
+                <>
+                  <strong className={styles.caveatTitle}>
+                    Missing metadata (not a detected change)
+                  </strong>
+                  <ul>
+                    {ref.warnings
+                      .filter((warning) =>
+                        warning.includes("not fully recorded"),
+                      )
+                      .map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                  </ul>
+                </>
+              )}
             </details>
           )}
         </>
       ) : (
         <small>
-          First execution for this comparison in the selected window.
+          No earlier measured run matches this environment and BSA / skill /
+          agent group in the selected window.
         </small>
       )}
     </div>
@@ -295,6 +339,15 @@ export function UnitSkillPerformanceTrend({
                 setPage(0);
               }}
             >
+              <span
+                className={styles.swatch}
+                style={{
+                  background: branchColor(
+                    matching.find((run) => run.branchKey === branch.key)!,
+                  ),
+                }}
+                aria-hidden="true"
+              />
               {branch.label}
             </button>
           ))}
@@ -328,11 +381,58 @@ export function UnitSkillPerformanceTrend({
             selected.progression?.previousSameBranch,
           )}
           {comparison(
-            "VS PREVIOUS BRANCH’S FINAL RUN",
+            "VS LATEST EARLIER RUN ON ANOTHER BRANCH",
             selected.progression?.previousBranch,
           )}
         </div>
       )}
+      {day && (
+        <div className={styles.branchKey} aria-label="Day branch key">
+          {branchNames.map((name, index) => (
+            <span key={name}>
+              <i
+                className={styles.swatch}
+                style={{ background: palette[index % palette.length] }}
+                aria-hidden="true"
+              />
+              B{index + 1} · {name}
+            </span>
+          ))}
+        </div>
+      )}
+      {day &&
+        selected?.progression?.previousBranch &&
+        !byId.has(selected.progression.previousBranch.runId) && (
+          <p className={styles.note}>
+            Other-branch reference is outside this day:{" "}
+            {selected.progression.previousBranch.branch} ·{" "}
+            {historyTime(selected.progression.previousBranch.startedAt)}. Return
+            to the full timeline to see the comparison connection.
+          </p>
+        )}
+      {!day &&
+        selected?.progression?.previousBranch &&
+        !byId.has(selected.progression.previousBranch.runId) && (
+          <div className={styles.dayControls}>
+            <span>
+              Other-branch reference is hidden by the branch selection.
+            </span>
+            <button
+              onClick={() => {
+                const ref = data.runs.find(
+                  (run) =>
+                    run.runId === selected.progression?.previousBranch?.runId,
+                );
+                if (ref)
+                  setBranches((current) => [
+                    ...new Set([...current, selected.branchKey, ref.branchKey]),
+                  ]);
+              }}
+            >
+              Show reference branch
+            </button>
+          </div>
+        )}
       <div className={styles.dayControls}>
         {day ? (
           <>
@@ -451,6 +551,49 @@ export function UnitSkillPerformanceTrend({
               </g>
             );
           })}
+          {(() => {
+            const ref = selected?.progression?.previousBranch;
+            const before = ref ? byId.get(ref.runId) : undefined;
+            if (!selected || !ref || !before) return null;
+            const px = Math.max(
+              left + 70,
+              Math.min(right - 70, (x(before) + x(selected)) / 2),
+            );
+            const py = Math.min(
+              bottom - 16,
+              Math.max(top + 24, (y(before) + y(selected)) / 2 + 24),
+            );
+            return (
+              <g data-cross-branch-reference={ref.runId}>
+                <title>{`Other branch: ${label(ref)} vs ${ref.branch} · ${historyTime(ref.startedAt)}`}</title>
+                <line
+                  x1={x(before)}
+                  y1={y(before)}
+                  x2={x(selected)}
+                  y2={y(selected)}
+                  stroke="#7c3aed"
+                  strokeWidth="3"
+                  strokeDasharray="8 4"
+                />
+                <rect
+                  x={px - 68}
+                  y={py - 13}
+                  width="136"
+                  height="22"
+                  rx="4"
+                  fill="var(--panel)"
+                />
+                <text
+                  x={px}
+                  y={py + 2}
+                  textAnchor="middle"
+                  className={styles.axisTitle}
+                >
+                  Other branch: {label(ref)}
+                </text>
+              </g>
+            );
+          })()}
           {points.map((run) => {
             const px = x(run),
               py = y(run),
@@ -479,7 +622,7 @@ export function UnitSkillPerformanceTrend({
                     cy={py}
                     r={run.runId === selected?.runId ? 6 : 4}
                     fill="var(--panel)"
-                    stroke="var(--blue)"
+                    stroke={branchColor(run)}
                     strokeWidth="2"
                   />
                   {show && (
@@ -490,6 +633,9 @@ export function UnitSkillPerformanceTrend({
                       className={styles.axisTitle}
                     >
                       {valueLabel(run)}
+                      {day
+                        ? ` · B${branchNames.indexOf(run.sourceBranch ?? run.branchLabel) + 1}`
+                        : ""}
                     </text>
                   )}
                 </a>
@@ -534,8 +680,9 @@ export function UnitSkillPerformanceTrend({
         ↑ Higher · ↓ Lower · → Same recorded value. Dashed lines indicate
         changed tests or incomplete/different evaluator metadata; inspect the
         comparison caveats. Lines never mix environments or Settings groups. The
-        previous-branch reference is its last measurement before this branch’s
-        first execution. Branches are not inferred PR approvals.{" "}
+        other-branch reference is its latest measurement before the selected
+        execution in the same environment and Settings group. Branches are not
+        inferred PR approvals.{" "}
         {filtered.filter((run) => !run.qualityMeasured).length} executions
         without measured quality remain in the supporting history.
       </p>
@@ -575,6 +722,12 @@ export function UnitSkillPerformanceTrend({
               aria-pressed={run.runId === selected?.runId}
               onClick={() => open(run.runId)}
             >
+              <span
+                className={styles.swatch}
+                style={{ background: branchColor(run) }}
+                aria-hidden="true"
+              />
+              B{branchNames.indexOf(run.sourceBranch ?? run.branchLabel) + 1} ·{" "}
               {historyTime(run.startedAt)} ·{" "}
               {run.sourceBranch ?? run.branchLabel} · {valueLabel(run)} ·{" "}
               {run.runId}

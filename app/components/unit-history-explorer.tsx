@@ -332,27 +332,78 @@ export function UnitHistoryTrendExplorer({
               </label>
             )}
           </div>
-          {data.cohorts.length > 1 && (
+          {!!settingsGroups.length && (
             <details className={styles.analysisDetails}>
-              <summary>Recorded evaluation settings</summary>
-              <ul>
-                {data.cohorts
+              <summary>
+                Recorded evaluation settings · {settingsGroups.length} groups
+              </summary>
+              <p>
+                Grouped by BSA version, skill version and agent. Expand a group
+                to inspect its recorded metadata and coverage.
+              </p>
+              <div className={styles.settingsList}>
+                {settingsGroups
                   .filter(
-                    (item) =>
-                      !cohortChoice.key ||
-                      Boolean(selectedSettings?.cohortKeys.includes(item.key)),
+                    (group) =>
+                      !cohortChoice.key || group.key === cohortChoice.key,
                   )
-                  .map((item) => (
-                    <li key={item.key}>
-                      <strong>{item.label}</strong>
-                      <ul>
-                        {item.details.map((detail) => (
-                          <li key={detail}>{detail}</li>
-                        ))}
-                      </ul>
-                    </li>
-                  ))}
-              </ul>
+                  .map((group) => {
+                    const runs = data.runs.filter((run) =>
+                      group.runIds.includes(run.runId),
+                    );
+                    const details = [
+                      ...new Set(
+                        data.cohorts
+                          .filter((item) => group.cohortKeys.includes(item.key))
+                          .flatMap((item) => item.details),
+                      ),
+                    ];
+                    return (
+                      <details className={styles.settingsGroup} key={group.key}>
+                        <summary>
+                          {group.label}{" "}
+                          <small>· {runs.length} executions</small>
+                        </summary>
+                        <dl>
+                          <dt>Stages</dt>
+                          <dd>
+                            {[
+                              ...new Set(
+                                runs.map((run) => run.stage ?? "Not recorded"),
+                              ),
+                            ].join(", ")}
+                          </dd>
+                          <dt>Targets</dt>
+                          <dd>
+                            {[
+                              ...new Set(
+                                runs.map(
+                                  (run) =>
+                                    run.targetEnvironment ?? "Not recorded",
+                                ),
+                              ),
+                            ].join(", ")}
+                          </dd>
+                          <dt>Execution environments</dt>
+                          <dd>
+                            {[
+                              ...new Set(
+                                runs.map(
+                                  (run) => run.environment ?? "Not recorded",
+                                ),
+                              ),
+                            ].join(", ")}
+                          </dd>
+                        </dl>
+                        <ul>
+                          {details.map((detail) => (
+                            <li key={detail}>{detail}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    );
+                  })}
+              </div>
             </details>
           )}
           <UnitTrendExplorerContent
@@ -369,4 +420,3 @@ export function UnitHistoryTrendExplorer({
     </div>
   );
 }
-

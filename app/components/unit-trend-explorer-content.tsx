@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { EvalApi, UnitApiCase } from "../lib/eval-api";
 import type { UnitHistoryInsights } from "../lib/unit-history-types";
 import { historyTime, rateLabel } from "../lib/unit-history-utils";
@@ -56,6 +56,7 @@ export function UnitTrendExplorerContent({
   openingRunId,
   onOpenRun,
 }: Props) {
+  const resultsSection = useRef<HTMLElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [referenceChoice, setReferenceChoice] = useState("previous");
@@ -88,7 +89,9 @@ export function UnitTrendExplorerContent({
     data.runs[0];
   const reference = run
     ? referenceChoice === "previous"
-      ? previousTrendRun(run, data.runs, data.cohorts)
+      ? (data.runs.find(
+          (item) => item.runId === run.progression?.previousExecution?.runId,
+        ) ?? previousTrendRun(run, data.runs, data.cohorts))
       : referenceChoice === "none"
         ? undefined
         : data.runs.find(
@@ -166,7 +169,7 @@ export function UnitTrendExplorerContent({
   const selectRun = (id: string) => {
     setSelectedId(id);
     setHighlight(data.runs.find((run) => run.runId === id)?.branchKey ?? null);
-    if (id === referenceChoice) setReferenceChoice("previous");
+    setReferenceChoice("previous");
     setPage(0);
     setCaseKey(null);
     setRecordPage(0);
@@ -199,6 +202,19 @@ export function UnitTrendExplorerContent({
         onOpenRun={onOpenRun}
         onInspectRun={selectRun}
         onReferenceRun={setReferenceChoice}
+        onInspectReference={(id, selectedId) => {
+          setSelectedId(selectedId);
+          setReferenceChoice(id);
+          setPage(0);
+          setCaseKey(null);
+          requestAnimationFrame(() => {
+            resultsSection.current?.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            });
+            resultsSection.current?.focus({ preventScroll: true });
+          });
+        }}
         onHighlightBranch={setHighlight}
       />
       <div className={styles.selectedHeader}>
@@ -257,7 +273,12 @@ export function UnitTrendExplorerContent({
           </div>
         ))}
       </section>
-      <section className="panel" aria-label="Execution test results">
+      <section
+        ref={resultsSection}
+        tabIndex={-1}
+        className="panel"
+        aria-label="Execution test results"
+      >
         <div className="panel-heading">
           <div>
             <h2>
