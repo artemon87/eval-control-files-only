@@ -1729,6 +1729,12 @@ export default function Home() {
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
   const [runPage, setRunPage] = useState(0);
   const [search, setSearch] = useState("");
+  const [runIdLookup, setRunIdLookup] = useState<{
+    query: string;
+    run: EvalRun | null;
+    loading: boolean;
+    error: string | null;
+  }>({ query: "", run: null, loading: false, error: null });
   const [type, setType] = useState<"all" | EvalType>("all");
   const [verdict, setVerdict] = useState<"all" | Verdict>("all");
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
@@ -2190,9 +2196,64 @@ export default function Home() {
     setRunPage(0);
   };
 
+  // Exact run IDs must be looked up independently of the loaded list pages.
+  // Keep the result separate so list refreshes cannot overwrite it, and clearing
+  // the search does not inject an older run into unrelated results or analytics.
+  useEffect(() => {
+    const runId = search.trim();
+    const query = runId.toLowerCase();
+    if (!api || !/^(unit|e2e)-[a-z0-9-]+$/i.test(runId)) return;
+
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setRunIdLookup({ query, run: null, loading: true, error: null });
+      try {
+        const run = await api.getRun(
+          query.startsWith("unit-") ? "unit" : "e2e",
+          runId,
+          controller.signal,
+        );
+        if (!controller.signal.aborted) {
+          setRunIdLookup({ query, run, loading: false, error: null });
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          const message =
+            error instanceof Error ? error.message : "Unable to look up this run.";
+          setRunIdLookup({
+            query,
+            run: null,
+            loading: false,
+            error: message.startsWith("Eval API 404:")
+              ? `No run found with ID ${runId}.`
+              : message,
+          });
+        }
+      }
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [api, search]);
+
+  const runIdSearchPending = Boolean(
+    api &&
+    /^(unit|e2e)-[a-z0-9-]+$/i.test(search.trim()) &&
+    (runIdLookup.query !== search.trim().toLowerCase() || runIdLookup.loading),
+  );
+
   const filteredRuns = useMemo(
     () => {
-      const matching = runs.filter((run) => {
+      const query = search.trim().toLowerCase();
+      const lookupRun = runIdLookup.query === query ? runIdLookup.run : null;
+      const sourceRuns =
+        lookupRun && !runs.some(
+          (run) => run.evalType === lookupRun.evalType && run.runId === lookupRun.runId,
+        )
+          ? [lookupRun, ...runs]
+          : runs;
+      const matching = sourceRuns.filter((run) => {
         const startedAt = Date.parse(run.startedAt);
         const withinTimeWindow =
           !runTimeWindow ||
@@ -2222,7 +2283,11 @@ export default function Home() {
           (run.summary.meanScoreRecorded &&
             run.summary.meanScore >= Number(minimumMeanScore));
         return (
-          haystack.includes(search.toLowerCase()) &&
+          haystack.includes(query) &&
+          (!runListFilters.githubRepository ||
+            run.githubRepository === runListFilters.githubRepository) &&
+          (!runListFilters.gitRef || run.gitRef === runListFilters.gitRef) &&
+          (!runListFilters.gitSha || run.gitSha === runListFilters.gitSha) &&
           (type === "all" || run.evalType === type) &&
           (verdict === "all" || effectiveRunVerdict(run) === verdict) &&
           (executionStatus === "all" ||
@@ -2269,6 +2334,8 @@ export default function Home() {
       minimumMeanScore,
       minimumPassRate,
       runs,
+      runIdLookup,
+      runListFilters,
       runTimeWindow,
       search,
       skillFilter,
@@ -2902,6 +2969,10 @@ export default function Home() {
                         : ""}
                     </button>
                   </div>
+                  {runIdSearchPending && <p role="status">Looking up run…</p>}
+                  {!runIdSearchPending &&
+                    runIdLookup.query === search.trim().toLowerCase() &&
+                    runIdLookup.error && <p role="alert">{runIdLookup.error}</p>}
                   <section
                     className="run-scope-panel"
                     aria-label="Evaluation scope filters"
@@ -3351,7 +3422,8 @@ export default function Home() {
                       ))}
                     </div>
                   </section>
-                  {runGroupingLens === "table" ? (
+                  {runIdSearchPending && filteredRuns.length === 0 ? null :
+                  runGroupingLens === "table" ? (
                     <>
                       <RunsTable runs={visibleRuns} onOpen={openRun} />
                       <div className="table-footer">
