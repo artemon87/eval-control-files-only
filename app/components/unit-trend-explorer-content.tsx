@@ -4,14 +4,12 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { EvalApi, UnitApiCase } from "../lib/eval-api";
 import type { UnitHistoryInsights } from "../lib/unit-history-types";
 import { historyTime, rateLabel } from "../lib/unit-history-utils";
+import { recordedCaseState, trendCaseRows } from "../lib/unit-trend-explorer";
 import {
-  comparableTrendRuns,
-  trendComparisonBlockers,
-  previousTrendRun,
-  completeTrendCaseComparison,
-  recordedCaseState,
-  trendCaseRows,
-} from "../lib/unit-trend-explorer";
+  historyProgression,
+  trendBranch,
+  trendReference,
+} from "../lib/unit-history-trend";
 import { UnitSkillPerformanceTrend } from "./unit-history-trend";
 import { SupportingRunHistory } from "./unit-history-runs";
 import { RecordedUnitCase } from "./unit-history-case-record";
@@ -56,9 +54,7 @@ export function UnitTrendExplorerContent({
   openingRunId,
   onOpenRun,
 }: Props) {
-  const resultsSection = useRef<HTMLElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [highlight, setHighlight] = useState<string | null>(null);
   const [referenceChoice, setReferenceChoice] = useState("previous");
   const [filter, setFilter] = useState("changed");
   const [query, setQuery] = useState("");
@@ -66,6 +62,7 @@ export function UnitTrendExplorerContent({
   const [caseKey, setCaseKey] = useState<string | null>(null);
   const [recordPage, setRecordPage] = useState(0);
   const [retry, setRetry] = useState(0);
+  const results = useRef<HTMLElement>(null);
   const [response, setResponse] = useState<{
     key: string;
     current: UnitApiCase[];
@@ -79,19 +76,16 @@ export function UnitTrendExplorerContent({
     error: null,
     referenceError: null,
   });
-  const run =
-    data.runs.find((run) => run.runId === selectedId) ??
-    data.runs.find(
-      (run) =>
-        (chartRunIds === null || chartRunIds.includes(run.runId)) &&
-        (!chartCohortKey || run.cohortKey === chartCohortKey),
-    ) ??
-    data.runs[0];
+  const scoped = data.runs.filter(
+    (run) =>
+      (chartRunIds === null || chartRunIds.includes(run.runId)) &&
+      (!chartCohortKey || run.cohortKey === chartCohortKey),
+  );
+  const run = scoped.find((run) => run.runId === selectedId) ?? scoped[0];
+  const step = run ? historyProgression(data.runs).get(run.runId) : undefined;
   const reference = run
     ? referenceChoice === "previous"
-      ? (data.runs.find(
-          (item) => item.runId === run.progression?.previousExecution?.runId,
-        ) ?? previousTrendRun(run, data.runs, data.cohorts))
+      ? (step?.previousSameBranch ?? step?.previousBranch)?.run
       : referenceChoice === "none"
         ? undefined
         : data.runs.find(
@@ -99,9 +93,8 @@ export function UnitTrendExplorerContent({
               item.runId === referenceChoice && item.runId !== run.runId,
           )
     : undefined;
-  const metadataComparable = Boolean(
-    run && comparableTrendRuns(run, reference, data.cohorts),
-  );
+  const changes =
+    run && reference ? trendReference(run, reference).changes : [];
   const requestRunId = run?.qualityMeasured === true ? run.runId : null;
   const requestReferenceId = reference?.runId ?? null;
   const key = JSON.stringify([requestRunId, requestReferenceId]);
@@ -134,17 +127,12 @@ export function UnitTrendExplorerContent({
   const earlier = response.key === key ? response.reference : emptyRecords;
   const loaded = response.key === key;
   const compared = Boolean(
-    metadataComparable &&
-      run &&
-      reference &&
+    run?.qualityMeasured &&
+      reference?.qualityMeasured &&
       loaded &&
       !response.error &&
-      !response.referenceError &&
-      completeTrendCaseComparison(current, earlier, run, reference),
+      !response.referenceError,
   );
-  const blockers = run
-    ? trendComparisonBlockers(run, reference, data.cohorts)
-    : [];
   const showReference = Boolean(reference);
   const rows = trendCaseRows(current, earlier, compared);
   const effectiveFilter = filter === "changed" && !compared ? "all" : filter;
@@ -155,7 +143,7 @@ export function UnitTrendExplorerContent({
         (effectiveFilter === "failed" &&
           row.current.some((record) => record.verdict === "failed")) ||
         (effectiveFilter === "changed" &&
-          ["Recovered", "New failure"].includes(row.change))),
+          !["Unchanged", "Not compared"].includes(row.change))),
   );
   const currentPage = Math.min(
     page,
@@ -166,9 +154,18 @@ export function UnitTrendExplorerContent({
     recordPage,
     Math.max(0, Math.ceil((inspected?.current.length ?? 0) / 10) - 1),
   );
+  const compareWith = (id: string) => {
+    setReferenceChoice(id);
+    setFilter("changed");
+    setPage(0);
+    setCaseKey(null);
+    requestAnimationFrame(() => {
+      results.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      results.current?.focus({ preventScroll: true });
+    });
+  };
   const selectRun = (id: string) => {
     setSelectedId(id);
-    setHighlight(data.runs.find((run) => run.runId === id)?.branchKey ?? null);
     setReferenceChoice("previous");
     setPage(0);
     setCaseKey(null);
@@ -182,9 +179,8 @@ export function UnitTrendExplorerContent({
       </section>
     );
   const measured = run.qualityMeasured === true;
-  const changed = rows.filter(
-    (row) => row.change === "Recovered" || row.change === "New failure",
-  );
+  const count = (change: string) =>
+    rows.filter((row) => row.change === change).length;
   const executionMessage =
     run.error ??
     data.executionIssues?.find(
@@ -194,28 +190,14 @@ export function UnitTrendExplorerContent({
     <>
       <UnitSkillPerformanceTrend
         data={data}
-        selectedCohortKey={chartCohortKey}
-        visibleRunIds={chartRunIds}
-        focusedBranch={highlight}
+        visibleRunIds={
+          chartCohortKey ? scoped.map((run) => run.runId) : chartRunIds
+        }
         selectedRunId={run.runId}
         openingRunId={openingRunId}
         onOpenRun={onOpenRun}
         onInspectRun={selectRun}
-        onReferenceRun={setReferenceChoice}
-        onInspectReference={(id, selectedId) => {
-          setSelectedId(selectedId);
-          setReferenceChoice(id);
-          setPage(0);
-          setCaseKey(null);
-          requestAnimationFrame(() => {
-            resultsSection.current?.scrollIntoView({
-              behavior: "smooth",
-              block: "start",
-            });
-            resultsSection.current?.focus({ preventScroll: true });
-          });
-        }}
-        onHighlightBranch={setHighlight}
+        onCompare={compareWith}
       />
       <div className={styles.selectedHeader}>
         <button
@@ -258,7 +240,7 @@ export function UnitTrendExplorerContent({
           [
             "Pass rate",
             measured ? rateLabel(run.passRatePct) : null,
-            metadataComparable &&
+            reference?.qualityMeasured &&
             run.passRatePct !== null &&
             reference?.passRatePct !== null &&
             reference?.passRatePct !== undefined
@@ -274,7 +256,7 @@ export function UnitTrendExplorerContent({
         ))}
       </section>
       <section
-        ref={resultsSection}
+        ref={results}
         tabIndex={-1}
         className="panel"
         aria-label="Execution test results"
@@ -288,7 +270,7 @@ export function UnitTrendExplorerContent({
             </h2>
             <p>
               {compared
-                ? `${rows.filter((row) => row.change === "Recovered").length} recovered · ${rows.filter((row) => row.change === "New failure").length} newly failed · ${rows.length - changed.length} unchanged`
+                ? `vs ${trendBranch(reference!)} · ${historyTime(reference!.startedAt)} · ${count("Recovered")} recovered · ${count("New failure")} newly failed · ${count("New test")} new tests · ${count("Definition changed")} definitions changed · ${count("Unchanged")} unchanged`
                 : "Recorded evidence from the selected execution"}
             </p>
           </div>
@@ -307,8 +289,8 @@ export function UnitTrendExplorerContent({
             >
               <option value="previous">
                 {referenceChoice === "previous" && !reference
-                  ? "No compatible earlier run · choose a reference below"
-                  : "Previous compatible run in this branch · automatic"}
+                  ? "Automatic · no earlier run on this stage and target"
+                  : "Automatic · last run on this branch, else previous branch"}
               </option>
               <option value="none">None · selected results only</option>
               {data.runs
@@ -317,14 +299,10 @@ export function UnitTrendExplorerContent({
                 )
                 .map((item) => (
                   <option key={item.runId} value={item.runId}>
-                    {item.branchLabel} ·{" "}
-                    {item.gitSha?.slice(0, 8) ?? "SHA not recorded"} ·{" "}
+                    {trendBranch(item)} · {item.stage ?? "unknown"} ·{" "}
+                    {item.targetEnvironment ?? "Target not recorded"} ·{" "}
                     {historyTime(item.startedAt)} ·{" "}
-                    {rateLabel(item.passRatePct)} · {item.runId} · BSA{" "}
-                    {item.bsaVersion ?? "not recorded"}
-                    {comparableTrendRuns(run, item, data.cohorts)
-                      ? " · comparable"
-                      : " · recorded results only"}
+                    {rateLabel(item.passRatePct)} · {item.runId}
                   </option>
                 ))}
             </select>
@@ -335,44 +313,14 @@ export function UnitTrendExplorerContent({
           role="status"
           aria-label="Comparison status"
         >
-          <p>
-            <strong>Selected execution:</strong> {run.runId} ·{" "}
-            {historyTime(run.startedAt)} · BSA{" "}
-            {run.bsaVersion ?? "not recorded"}
-          </p>
-          <p>
-            <strong>Reference execution:</strong>{" "}
-            {reference
-              ? `${reference.runId} · ${historyTime(reference.startedAt)} · BSA ${reference.bsaVersion ?? "not recorded"}`
-              : "None"}
-          </p>
-          {!compared && blockers.length > 0 && (
-            <>
-              <strong>Change analysis unavailable</strong>
-              <ul>
-                {blockers.map((reason) => (
-                  <li key={reason}>{reason}</li>
-                ))}
-              </ul>
-              {reference && (
-                <p>
-                  Showing recorded results side by side. These settings are not
-                  treated as equivalent.
-                </p>
-              )}
-            </>
-          )}
-        </div>
-        <div className={styles.note}>
           {!measured
             ? "This execution has no complete quality measurement. It is not a measured skill regression."
             : reference
-              ? metadataComparable
-                ? `Reference: ${reference.branchLabel} · ${reference.gitSha?.slice(0, 8) ?? "SHA not recorded"} · ${historyTime(reference.startedAt)}. Matching recorded case identities, thresholds, and configuration; this does not prove identical prompt content or code-change causality.`
-                : "Different or incomplete recorded case sets/settings. Deltas are unavailable; selected-run results remain inspectable."
+              ? `Comparing with ${trendBranch(reference)} · ${reference.runId} · ${historyTime(reference.startedAt)}.`
               : referenceChoice === "none"
                 ? "No reference selected. Showing selected-run results."
-                : "No earlier comparable execution in this branch within the selected window. No unrelated branch is used automatically."}
+                : "No earlier run on this stage and target in the selected window. Choose a reference above or use a longer window."}
+          {!!changes.length && <p>Also changed: {changes.join(" · ")}</p>}
           {measured && run.passRateThreshold != null && (
             <p>
               Recorded quality threshold: {rateLabel(run.passRateThreshold)} ·{" "}
@@ -421,13 +369,6 @@ export function UnitTrendExplorerContent({
                   Retry reference evidence
                 </button>
               </div>
-            )}
-            {metadataComparable && !compared && !response.referenceError && (
-              <p className={styles.note}>
-                The loaded case records are incomplete, ambiguous, or differ
-                from the recorded comparison metadata. No case changes are
-                inferred.
-              </p>
             )}
             <div className={styles.testControls}>
               <label>

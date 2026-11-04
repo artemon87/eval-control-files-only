@@ -24,6 +24,16 @@ runInNewContext(
   ),
   { exports: helpers },
 );
+const progression = {};
+runInNewContext(
+  compile(
+    await readFile(
+      new URL("../app/lib/unit-history-trend.ts", import.meta.url),
+      "utf8",
+    ),
+  ),
+  { exports: progression },
+);
 const component = compile(
   await readFile(
     new URL(
@@ -110,13 +120,15 @@ async function harness({ compatible = false, referenceError = false } = {}) {
         ? react
         : name === "react/jsx-runtime"
           ? require(name)
-          : name.endsWith("unit-trend-explorer")
-            ? helpers
-            : name.endsWith("unit-history-utils")
-              ? { historyTime: (x) => x, rateLabel: (x) => `${x}%` }
-              : name.endsWith(".css")
-                ? { default: new Proxy({}, { get: (_, key) => key }) }
-                : new Proxy({}, { get: () => () => null }),
+          : name === "../lib/unit-history-trend"
+            ? progression
+            : name.endsWith("unit-trend-explorer")
+              ? helpers
+              : name.endsWith("unit-history-utils")
+                ? { historyTime: (x) => x, rateLabel: (x) => `${x}%` }
+                : name.endsWith(".css")
+                  ? { default: new Proxy({}, { get: (_, key) => key }) }
+                  : new Proxy({}, { get: () => () => null }),
   });
   const render = () => {
     cursor = 0;
@@ -129,7 +141,7 @@ async function harness({ compatible = false, referenceError = false } = {}) {
     });
   };
   let tree = render();
-  values[3] = "all";
+  values[2] = "all";
   const select = walk(tree).find(
     (node) => node.props?.["aria-label"] === "Reference execution",
   );
@@ -149,16 +161,16 @@ async function harness({ compatible = false, referenceError = false } = {}) {
     render,
   };
 }
-test("manual incompatible reference loads and displays actual evidence with explicit blockers", async () => {
+test("reference across BSA versions compares recorded tests and reports the version difference", async () => {
   const { html, calls } = await harness();
   assert.deepEqual(calls, ["new", "old"]);
   assert.ok(html.includes("Reference result"));
   assert.ok(html.includes("Failed"));
   assert.ok(html.includes("Passed"));
-  assert.ok(html.includes("Configuration metadata is incomplete"));
-  assert.ok(html.includes("new · 2026-11-02"));
-  assert.ok(html.includes("old · 2026-11-01"));
-  assert.ok(!html.includes("<th>Observed change</th>"));
+  assert.ok(html.includes("BSA version 1.17 → 1.18"));
+  assert.ok(html.includes("<th>Observed change</th>"));
+  assert.ok(html.includes("Recovered"));
+  assert.ok(!html.includes("Change analysis unavailable"));
 });
 test("compatible reference still reports recovered tests", async () => {
   const { html } = await harness({ compatible: true });
@@ -169,7 +181,7 @@ test("no reference shows selected results only and failed reference fetch remain
   const h = await harness({ referenceError: true });
   assert.ok(h.html.includes("Reference request failed"));
   assert.ok(!h.html.includes("<th>Observed change</th>"));
-  h.values[2] = "none";
+  h.values[1] = "none";
   const html = renderToStaticMarkup(h.render());
   assert.ok(!html.includes("<th>Reference result</th>"));
   assert.ok(html.includes("Results for this run"));

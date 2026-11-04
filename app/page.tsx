@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { UnitHistoryTrendExplorer } from "./components/unit-history-explorer";
 import { HistoryInsights, type HistoryInsightsSnapshot } from "./components/history-insights";
 import { HistoryWorkspace } from "./components/history-workspace";
@@ -5244,44 +5244,55 @@ function E2EHistoryCollection({
   const [windowRevision, setWindowRevision] = useState(0);
   const resolvedWindow = useHistoryWindow(api, range, revision, windowRevision);
   const timeWindow = resolvedWindow.window;
-  const collection = useRunCollection(api, timeWindow ?? {}, Boolean(timeWindow), "e2e");
+  const collection = useRunCollection(
+    api,
+    timeWindow ?? {},
+    Boolean(timeWindow),
+    "e2e",
+  );
   const loading = resolvedWindow.loading || collection.loading;
   const error = resolvedWindow.error ?? collection.error;
+  const windowControls = (
+    <div className="history-window-controls">
+      <div className="range-switch" aria-label="History time window">
+        {(["7d", "30d", "90d"] as const).map((value) => (
+          <button
+            key={value}
+            className={range === value ? "active" : ""}
+            onClick={() => setRange(value)}
+          >
+            {value}
+          </button>
+        ))}
+      </div>
+      <button
+        className="secondary-button"
+        onClick={() => setWindowRevision((value) => value + 1)}
+      >
+        ↻ Refresh
+      </button>
+    </div>
+  );
+  const showView = collection.loaded && timeWindow && !loading && !error;
   return (
     <>
-      {(loading || error || !collection.loaded) && (
-        <div className="page-heading history-heading">
-          <div><span className="eyebrow">Longitudinal quality</span><h1>Evaluation history</h1></div>
-          <div className="type-switch"><button className="active">E2E history</button><button onClick={onShowUnit}>Unit skill history</button></div>
-        </div>
+      {!showView && (
+        <>
+          <div className="page-heading history-heading">
+            <div>
+              <span className="eyebrow">Longitudinal quality</span>
+              <h1>Evaluation history</h1>
+            </div>
+            <div className="type-switch">
+              <button className="active">E2E history</button>
+              <button onClick={onShowUnit}>Unit skill history</button>
+            </div>
+          </div>
+          <section className="panel history-controls history-controls--pending">
+            {windowControls}
+          </section>
+        </>
       )}
-      <section className="panel analytics-window">
-        <div>
-          <strong>History time window</strong>
-          <small>
-            All runs within the selected period, ending at refresh time.
-          </small>
-        </div>
-        <div className="range-switch" aria-label="History time window">
-          {(["7d", "30d", "90d"] as const).map((value) => (
-            <button
-              key={value}
-              className={range === value ? "active" : ""}
-              onClick={() => {
-                setRange(value);
-              }}
-            >
-              {value}
-            </button>
-          ))}
-        </div>
-        <button
-          className="secondary-button"
-          onClick={() => setWindowRevision((value) => value + 1)}
-        >
-          ↻ Refresh history
-        </button>
-      </section>
       {loading && (
         <section className="panel empty" role="status">
           Loading every run in the selected window…
@@ -5299,6 +5310,7 @@ function E2EHistoryCollection({
             runs={collection.runs}
             timeWindow={timeWindow}
             onShowUnit={onShowUnit}
+            windowControls={windowControls}
           />
         </div>
       )}
@@ -5313,9 +5325,11 @@ function HistoryView({
   openingRunId,
   onOpenRun,
   onShowUnit,
+  windowControls,
 }: {
   initialFocus: HistoryFocus;
   onShowUnit?: () => void;
+  windowControls?: ReactNode;
   runs: EvalRun[];
   timeWindow: FixedTimeWindow;
   openingRunId: string | null;
@@ -5839,6 +5853,7 @@ function HistoryView({
             </label>
           </>
         )}
+        {windowControls}
       </section>
       {historyType === "unit" && (
         <nav className="unit-history-path" aria-label="Unit history scope">
