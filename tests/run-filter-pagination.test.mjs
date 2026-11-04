@@ -44,6 +44,8 @@ test("run list excludes injected out-of-window runs using half-open bounds", () 
       "targetEnvironment", "agentName", "trigger", "actor",
     ].map((name) => [name, "all"])),
     runs,
+    runIdLookup: { query: "", run: null },
+    runListFilters: {},
     search: "",
     selectedStages: [],
     minimumGateThreshold: "",
