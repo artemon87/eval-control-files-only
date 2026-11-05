@@ -2378,6 +2378,21 @@ export default function Home() {
     (activeRunPage + 1) * RUNS_PAGE_SIZE,
     filteredRuns.length,
   );
+  const lastRunPageIsPartial =
+    filteredRuns.length === 0 || filteredRuns.length % RUNS_PAGE_SIZE !== 0;
+  const showNextRunPage = async () => {
+    if (loadingMoreRuns) return;
+    if (activeRunPage + 1 < runPageCount) {
+      setRunPage(activeRunPage + 1);
+      return;
+    }
+    if (!hasOlderRuns) return;
+    const loadedCount = await loadOlderRuns();
+    // Filling a partial page must not move past the rows just added to it.
+    if (loadedCount > 0 && !lastRunPageIsPartial) {
+      setRunPage(activeRunPage + 1);
+    }
+  };
   const availableRunMetrics = useMemo(
     () =>
       Array.from(
@@ -3475,21 +3490,24 @@ export default function Home() {
                             {activeRunPage + 1}
                           </button>
                           <button
+                            className="run-page-next"
                             disabled={
                               loadingMoreRuns ||
                               (activeRunPage + 1 >= runPageCount &&
                                 !hasOlderRuns)
                             }
-                            onClick={() => {
-                              if (activeRunPage + 1 < runPageCount)
-                                setRunPage(activeRunPage + 1);
-                              else
-                                void loadOlderRuns().then((loaded) => {
-                                  if (loaded) setRunPage(activeRunPage + 1);
-                                });
-                            }}
+                            aria-label={
+                              hasOlderRuns && activeRunPage + 1 === runPageCount && lastRunPageIsPartial
+                                ? "Load more runs"
+                                : "Next page"
+                            }
+                            onClick={() => void showNextRunPage()}
                           >
-                            {loadingMoreRuns ? "…" : "→"}
+                            {loadingMoreRuns
+                              ? "Loading…"
+                              : hasOlderRuns && activeRunPage + 1 === runPageCount && lastRunPageIsPartial
+                                ? "Load more"
+                                : "→"}
                           </button>
                         </div>
                       </div>
