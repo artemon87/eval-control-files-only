@@ -171,8 +171,8 @@ export function UnitHistoryTrendExplorer({
           <span className="eyebrow">Longitudinal quality</span>
           <h1>Trend Explorer</h1>
           <p>
-            Follow a skill through branch updates. Select an execution to
-            inspect its results and test changes.
+            See how a skill progresses or regresses within a branch and
+            against earlier branches, on every stage and target.
           </p>
         </div>
         <div className="type-switch">
@@ -332,29 +332,6 @@ export function UnitHistoryTrendExplorer({
               </label>
             )}
           </div>
-          {data.cohorts.length > 1 && (
-            <details className={styles.analysisDetails}>
-              <summary>Recorded evaluation settings</summary>
-              <ul>
-                {data.cohorts
-                  .filter(
-                    (item) =>
-                      !cohortChoice.key ||
-                      Boolean(selectedSettings?.cohortKeys.includes(item.key)),
-                  )
-                  .map((item) => (
-                    <li key={item.key}>
-                      <strong>{item.label}</strong>
-                      <ul>
-                        {item.details.map((detail) => (
-                          <li key={detail}>{detail}</li>
-                        ))}
-                      </ul>
-                    </li>
-                  ))}
-              </ul>
-            </details>
-          )}
           <UnitTrendExplorerContent
             key={requestKey}
             chartRunIds={

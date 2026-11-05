@@ -36,11 +36,12 @@ const walk = (n) =>
     : Array.isArray(n)
       ? n.flatMap(walk)
       : [n, ...walk(n.props?.children)];
-function harness(count = 4) {
-  let cursor = 0;
+function harness(count = 4, extraContext = false) {
+  let cursor = 0,
+    selected = `r${count - 1}`;
   const state = [],
     exports = {},
-    opened = [];
+    compared = [];
   runInNewContext(code, {
     exports,
     require: (name) =>
@@ -65,148 +66,119 @@ function harness(count = 4) {
               ? { historyTime: (s) => s }
               : { default: new Proxy({}, { get: (_, k) => k }) },
   });
-  const ref = (id, d) => ({
-    runId: id,
-    branch: id.startsWith("a") ? "branch-a" : "branch-b",
-    startedAt: "2026-11-02T09:00:00Z",
-    passRateDelta: d,
-    durationDeltaMs: -100,
-    warnings: ["mode not fully recorded"],
-  });
-  const values = [50, 90, 50, 70];
+  const rates = [50, 90, 50, 70];
   const runs = Array.from({ length: count }, (_, i) => ({
-    runId: i < 2 ? `a${i}` : `b${i}`,
-    branchKey: i < 2 ? "branch-a" : "branch-b",
-    sourceBranch: i < 2 ? "branch-a" : "branch-b",
+    runId: `r${i}`,
     branchLabel: i < 2 ? "branch-a" : "branch-b",
+    sourceBranch: i < 2 ? "branch-a" : "branch-b",
+    branchKey: i < 2 ? "a" : "b",
+    startedAt: `2026-11-02T10:${String(i).padStart(2, "0")}:00Z`,
     stage: "dev",
     targetEnvironment: "east",
     environment: "runner",
-    startedAt: `2026-11-02T10:${String(i).padStart(2, "0")}:00Z`,
-    executionStatus: "completed",
     qualityMeasured: true,
-    passRatePct: values[i] ?? 70,
+    passRatePct: rates[i] ?? 70,
+    total: 10,
+    passed: (rates[i] ?? 70) / 10,
     durationMs: 1000,
-    cohortKey: "setting",
     caseSetKey: "tests",
-    progression: {
-      key: "dev/east/setting",
-      label: "dev/east",
-      previousExecution: i
-        ? ref(
-            i === 1 ? "a0" : i === 2 ? "a1" : `b${i - 1}`,
-            (values[i] ?? 70) - (values[i - 1] ?? 70),
-          )
-        : null,
-      previousSameBranch:
-        i === 1
-          ? ref("a0", 40)
-          : i >= 3
-            ? ref(`b${i - 1}`, i === 3 ? 20 : 0)
-            : null,
-      previousBranch: i >= 2 ? ref("a1", (values[i] ?? 70) - 90) : null,
-      branchStart:
-        i >= 2
-          ? ref("b2", (values[i] ?? 70) - 50)
-          : ref("a0", (values[i] ?? 70) - 50),
-    },
+    bsaVersion: i < 2 ? "1.17" : "1.18",
   })).reverse();
-  const data = {
-    runs,
-    branches: [
-      { key: "branch-a", label: "branch-a · dev · east" },
-      { key: "branch-b", label: "branch-b · dev · east" },
-    ],
-    cohorts: [{ key: "setting", configurationComplete: false }],
-    startedFrom: "2026-11-01T00:00:00Z",
-    startedBefore: "2026-11-04T00:00:00Z",
-  };
+  if (extraContext)
+    runs.unshift({
+      ...runs[0],
+      runId: "west",
+      targetEnvironment: "west",
+      startedAt: "2026-11-03T10:00:00Z",
+    });
   return {
-    opened,
-    render: (selected = "b3") => {
+    compared,
+    render: (id = selected) => {
       cursor = 0;
       return exports.UnitSkillPerformanceTrend({
-        data,
-        selectedRunId: selected,
-        focusedBranch: null,
-        onHighlightBranch: () => {},
+        data: { runs },
+        selectedRunId: id,
         openingRunId: null,
-        onOpenRun: (id) => opened.push(id),
-        onInspectRun: (id) => opened.push(id),
+        onOpenRun: () => {},
+        onInspectRun: (id) => (selected = id),
+        onCompare: (id) => compared.push(id),
       });
     },
   };
 }
-test("continuous timeline crosses branches despite missing optional mode; shows both references", () => {
-  const h = harness();
-  const tree = h.render();
+test("solid branch segments and dashed cross-branch handoff follow recorded execution order across versions", () => {
+  const h = harness(),
+    tree = h.render(),
+    html = renderToStaticMarkup(tree);
   assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 4);
   assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-direction"]).length,
-    3,
+    walk(tree).filter((n) => n.props?.["data-trend-segment"]).length,
+    2,
   );
-  const html = renderToStaticMarkup(tree);
+  assert.equal(
+    walk(tree).find((n) => n.props?.["data-trend-handoff"])?.props[
+      "data-trend-handoff"
+    ],
+    "r1",
+  );
   assert.ok(html.includes("↑ +20 pp"));
   assert.ok(html.includes("↓ -20 pp"));
-  assert.ok(html.includes("mode not fully recorded"));
-  assert.ok(html.includes("VS PREVIOUS BRANCH"));
+  assert.ok(html.includes("BSA version 1.17 → 1.18"));
+  const actions = walk(tree).filter(
+    (n) => n.type === "button" && n.props.children === "Compare tests",
+  );
+  actions[1].props.onClick();
+  assert.deepEqual(h.compared, ["r1"]);
 });
-test("branch cards select actual final runs; multi-select preserves visible series", () => {
+test("branch legend supports several visible branches and selected branch card follows selected execution", () => {
   const h = harness();
   let tree = h.render();
-  const cards = walk(tree).find(
-    (n) => n.props?.["aria-label"] === "Branch progression cards",
-  );
-  const card = walk(cards).filter((n) => n.type === "button")[0];
-  card.props.onClick();
-  assert.deepEqual(h.opened, ["a1"]);
-  const legend = walk(tree).find(
-    (n) => n.props?.["aria-label"] === "Trend branch highlights",
-  );
-  walk(legend)
-    .filter((n) => n.type === "button")[0]
+  const legend = () =>
+    walk(tree).find((n) => n.props?.["aria-label"] === "Trend branches");
+  walk(legend())
+    .find((n) => n.type === "button")
     .props.onClick();
   tree = h.render();
   assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 2);
-  const next = walk(tree).find(
-    (n) => n.props?.["aria-label"] === "Trend branch highlights",
-  );
-  walk(next)
-    .filter((n) => n.type === "button")[1]
+  walk(legend())
+    .find((n) => n.type === "button")
     .props.onClick();
-  assert.equal(
-    walk(h.render()).filter((n) => n.props?.["data-trend-run"]).length,
-    4,
+  tree = h.render("r2");
+  const cards = walk(tree).find(
+    (n) => n.props?.["aria-label"] === "Branch progression cards",
+  );
+  assert.ok(renderToStaticMarkup(cards).includes("Single run on this branch"));
+  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 4);
+});
+test("many same-day runs have distinct execution slots and exact timestamps remain inspectable", () => {
+  const tree = harness(25).render();
+  const links = walk(tree).filter((n) => n.props?.["data-trend-run"]);
+  assert.equal(links.length, 25);
+  const xs = links.map(
+    (n) => walk(n).find((c) => c.type === "circle").props.cx,
+  );
+  assert.equal(new Set(xs).size, 25);
+  assert.ok(
+    links.every((n) => n.props["aria-label"].includes("2026-11-02T10:")),
+  );
+  assert.ok(
+    !walk(tree).some((n) => n.props?.["aria-label"] === "Zoom into trend day"),
   );
 });
-test("day detail preserves every execution and paginates dense days", () => {
-  const h = harness(25);
+test("context buttons focus stage and target without joining other contexts", () => {
+  const h = harness(4, true);
   let tree = h.render();
-  walk(tree)
-    .find((n) => n.props?.["aria-label"] === "Zoom into trend day")
-    .props.onChange({ target: { value: "2026-11-02" } });
+  const contexts = walk(tree).find(
+    (n) => n.props?.["aria-label"] === "Trend stage and target",
+  );
+  const west = walk(contexts).find(
+    (n) => n.type === "button" && String(n.props.children).includes("west"),
+  );
+  west.props.onClick();
   tree = h.render();
+  assert.equal(walk(tree).filter((n) => n.props?.["data-trend-run"]).length, 1);
   assert.equal(
-    walk(tree).filter((n) => n.props?.["data-trend-run"]).length,
-    25,
-  );
-  let list = walk(tree).find(
-    (n) => n.props?.["aria-label"] === "Day executions",
-  );
-  assert.equal(
-    walk(list).filter((n) => n.type === "button" && "aria-pressed" in n.props)
-      .length,
-    20,
-  );
-  walk(list)
-    .find((n) => n.type === "button" && n.props.children === "Next runs")
-    .props.onClick();
-  list = walk(h.render()).find(
-    (n) => n.props?.["aria-label"] === "Day executions",
-  );
-  assert.equal(
-    walk(list).filter((n) => n.type === "button" && "aria-pressed" in n.props)
-      .length,
-    5,
+    walk(tree).filter((n) => n.props?.["data-trend-handoff"]).length,
+    0,
   );
 });
