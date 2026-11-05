@@ -206,39 +206,43 @@ function isBlockedRun(run: EvalRun) {
   return run.verdict === "blocked" || run.executionStatus === "blocked";
 }
 
-function runGateThresholdPct(run: EvalRun) {
-  const threshold = run.e2eConfig?.passRateThreshold;
-  if (threshold === undefined || threshold === null) return undefined;
-  return threshold <= 1 ? threshold * 100 : threshold;
+function previousComparableRun(run: EvalRun, runs: EvalRun[]) {
+  const repository = run.githubRepository?.trim().toLowerCase();
+  if (!repository) return undefined;
+  return runs.filter((candidate) =>
+    candidate.executionStatus === "completed" && candidate.summary.total > 0 &&
+    candidate.summary.meanScoreRecorded &&
+    candidate.evalType === run.evalType &&
+    candidate.githubRepository?.trim().toLowerCase() === repository &&
+    candidate.stage === run.stage && candidate.target === run.target &&
+    (run.evalType !== "unit" || (
+      candidate.environment === run.environment &&
+      candidate.unitConfig?.targetEnvironment === run.unitConfig?.targetEnvironment &&
+      candidate.unitConfig?.category === run.unitConfig?.category &&
+      candidate.unitConfig?.evaluationLayer === run.unitConfig?.evaluationLayer
+    )) && Date.parse(candidate.startedAt) < Date.parse(run.startedAt)
+  ).sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0];
 }
 
-function isDegradedRun(run: EvalRun) {
-  const threshold = runGateThresholdPct(run);
-  return (
-    run.executionStatus === "completed" &&
-    threshold !== undefined &&
-    run.summary.passRatePct < threshold
-  );
+function isDegradedRun(run: EvalRun, runs: EvalRun[]) {
+  if (run.executionStatus !== "completed" || run.summary.total <= 0 ||
+      !run.summary.meanScoreRecorded) return false;
+  const previous = previousComparableRun(run, runs);
+  return Boolean(previous && run.summary.meanScore < previous.summary.meanScore);
 }
 
-function isNeedsAttentionRun(run: EvalRun) {
-  return (
-    !isBlockedRun(run) &&
-    (run.executionStatus === "error" ||
-      run.verdict === "failed" ||
-      run.verdict === "xpassed" ||
-      isDegradedRun(run))
-  );
+function isNeedsAttentionRun(run: EvalRun, runs: EvalRun[]) {
+  return !isBlockedRun(run) && (run.executionStatus === "error" ||
+    run.verdict === "failed" || run.verdict === "xpassed" || isDegradedRun(run, runs));
 }
 
-function attentionSignal(run: EvalRun) {
+function attentionSignal(run: EvalRun, runs: EvalRun[]) {
   if (run.executionStatus === "error") return "Error";
   if (run.verdict === "xpassed") return "XPASS";
-  if (isDegradedRun(run)) {
-    const threshold = runGateThresholdPct(run);
-    return `${run.summary.passRatePct}% < ${threshold}%`;
-  }
-  return `${run.summary.passRatePct}%`;
+  const previous = isDegradedRun(run, runs) ? previousComparableRun(run, runs) : undefined;
+  return previous
+    ? `${run.summary.meanScore.toFixed(2)} · ${(run.summary.meanScore - previous.summary.meanScore).toFixed(2)}`
+    : `${run.summary.passRatePct}%`;
 }
 
 function shortGitSha(sha?: string) {
@@ -728,9 +732,8 @@ function runTargetLabel(run: EvalRun) {
   return recordedRunTarget(run) ?? "Target not recorded";
 }
 
-function runRequiresAttention(run: EvalRun) {
-  const outcome = effectiveRunVerdict(run);
-  return !["passed", "xpassed"].includes(outcome);
+function runRequiresAttention(run: EvalRun, runs: EvalRun[]) {
+  return isBlockedRun(run) || isNeedsAttentionRun(run, runs);
 }
 
 function metricLabel(metric: string) {
@@ -987,6 +990,7 @@ function StageMultiSelect({
 
 function RunGroups({
   runs,
+  comparisonRuns = runs,
   lens,
   category,
   skill,
@@ -999,6 +1003,7 @@ function RunGroups({
   onViewAll,
 }: {
   runs: EvalRun[];
+  comparisonRuns?: EvalRun[];
   lens: RunGroupingLens;
   category: string;
   skill: string;
@@ -1124,7 +1129,7 @@ function RunGroups({
     if (resolvedLens === "skill") return runSkillLabel(run);
     if (resolvedLens === "target")
       return multipleStages ? run.stage : runTargetLabel(run);
-    if (runRequiresAttention(run)) return "Needs attention";
+    if (runRequiresAttention(run, comparisonRuns)) return "Needs attention";
     if (run.evalType === "unit" && !run.summary.meanScoreRecorded)
       return "Missing quality data";
     return "Healthy";
@@ -1156,7 +1161,7 @@ function RunGroups({
     0,
   );
   const observedPassRate = totalCases ? (passedCases / totalCases) * 100 : 0;
-  const attentionCount = runs.filter(runRequiresAttention).length;
+  const attentionCount = runs.filter((run) => runRequiresAttention(run, comparisonRuns)).length;
   const recordedCoverage = new Set(
     runs.flatMap((run) => {
       const target = recordedRunTarget(run);
@@ -1235,7 +1240,7 @@ function RunGroups({
                 0,
               ) / scoredRuns.length
             : null;
-          const groupAttention = groupRuns.filter(runRequiresAttention).length;
+          const groupAttention = groupRuns.filter((run) => runRequiresAttention(run, comparisonRuns)).length;
           const latestRun = [...groupRuns].sort((left, right) =>
             right.startedAt.localeCompare(left.startedAt),
           )[0];
@@ -1736,7 +1741,7 @@ export default function Home() {
     error: string | null;
   }>({ query: "", run: null, loading: false, error: null });
   const [type, setType] = useState<"all" | EvalType>("all");
-  const [verdict, setVerdict] = useState<"all" | Verdict>("all");
+  const [verdict, setVerdict] = useState<"all" | "attention" | Verdict>("all");
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
   const [executionStatus, setExecutionStatus] = useState<
     "all" | ExecutionStatus
@@ -1798,7 +1803,7 @@ export default function Home() {
         : null,
     [runs, selectedRunId],
   );
-  const hasOlderRuns = Boolean(runCursors.e2e || runCursors.unit);
+  const hasOlderRuns = verdict !== "attention" && verdict !== "blocked" && Boolean(runCursors.e2e || runCursors.unit);
   const [timeWindowAnchor, setTimeWindowAnchor] = useState(() => Date.now());
   const runTimeWindow = useMemo(
     () =>
@@ -2180,6 +2185,10 @@ export default function Home() {
     [minimumGateThreshold, minimumPassRate, minimumMeanScore].filter(Boolean)
       .length;
 
+  const issueFilterActive = verdict === "attention" || verdict === "blocked";
+  const issueCollection = useRunCollection(api, runTimeWindow ?? {}, view === "runs" && issueFilterActive);
+  const issueResultsPending = issueFilterActive && (issueCollection.loading || Boolean(issueCollection.error));
+
   const resetMoreFilters = () => {
     setExecutionStatus("all");
     setSelectedStages([]);
@@ -2247,12 +2256,13 @@ export default function Home() {
     () => {
       const query = search.trim().toLowerCase();
       const lookupRun = runIdLookup.query === query ? runIdLookup.run : null;
+      const listedRuns = issueFilterActive ? (issueResultsPending ? [] : issueCollection.runs) : runs;
       const sourceRuns =
-        lookupRun && !runs.some(
+        !issueFilterActive && lookupRun && !listedRuns.some(
           (run) => run.evalType === lookupRun.evalType && run.runId === lookupRun.runId,
         )
-          ? [lookupRun, ...runs]
-          : runs;
+          ? [lookupRun, ...listedRuns]
+          : listedRuns;
       const matching = sourceRuns.filter((run) => {
         const startedAt = Date.parse(run.startedAt);
         const withinTimeWindow =
@@ -2289,7 +2299,9 @@ export default function Home() {
           (!runListFilters.gitRef || run.gitRef === runListFilters.gitRef) &&
           (!runListFilters.gitSha || run.gitSha === runListFilters.gitSha) &&
           (type === "all" || run.evalType === type) &&
-          (verdict === "all" || effectiveRunVerdict(run) === verdict) &&
+          (verdict === "all" || (verdict === "attention"
+            ? isNeedsAttentionRun(run, sourceRuns)
+            : verdict === "blocked" ? isBlockedRun(run) : effectiveRunVerdict(run) === verdict)) &&
           (executionStatus === "all" ||
             run.executionStatus === executionStatus) &&
           (selectedStages.length === 0 || selectedStages.includes(run.stage)) &&
@@ -2335,6 +2347,9 @@ export default function Home() {
       minimumPassRate,
       runs,
       runIdLookup,
+      issueFilterActive,
+      issueResultsPending,
+      issueCollection.runs,
       runListFilters,
       runTimeWindow,
       search,
@@ -2401,7 +2416,7 @@ export default function Home() {
     );
     const queuedRuns = inView.filter((run) => run.executionStatus === "queued");
     const blockedRuns = inView.filter(isBlockedRun);
-    const attentionRuns = inView.filter(isNeedsAttentionRun);
+    const attentionRuns = inView.filter((run) => isNeedsAttentionRun(run, overviewCollection.runs));
     const p95 = percentile(
       completed.flatMap((run) =>
         typeof run.durationMs === "number" ? [run.durationMs] : [],
@@ -2474,7 +2489,7 @@ export default function Home() {
       daily,
       passSpark,
       failureSpark: dailyCount(
-        (run) => isBlockedRun(run) || isNeedsAttentionRun(run),
+        (run) => isBlockedRun(run) || isNeedsAttentionRun(run, overviewCollection.runs),
       ),
       progressSpark: dailyCount(
         (run) =>
@@ -2804,16 +2819,23 @@ export default function Home() {
                     </div>
                     <button
                       onClick={() => {
+                        resetMoreFilters();
+                        setSearch("");
+                        setCategory("all");
+                        setSkillFilter("all");
+                        setTargetEnvironment("all");
+                        setStartedWithin(`${overviewDays}d` as "7d" | "30d" | "90d");
+                        setTimeWindowAnchor(overviewAnchor);
                         setType(overviewType);
                         setVerdict(
-                          overviewInboxTab === "blocked" ? "blocked" : "all",
+                          overviewInboxTab === "blocked" ? "blocked" : "attention",
                         );
                         navigate("runs");
                       }}
                     >
                       {overviewInboxTab === "blocked"
                         ? "View blocked"
-                        : "View all runs"}
+                        : "View needs attention"}
                     </button>
                   </div>
                   <div
@@ -2845,7 +2867,7 @@ export default function Home() {
                         <b>
                           {overviewInboxTab === "blocked"
                             ? "Blocked"
-                            : attentionSignal(run)}
+                            : attentionSignal(run, overviewCollection.runs)}
                         </b>
                       </button>
                     ))}
@@ -2945,12 +2967,13 @@ export default function Home() {
                     <select
                       value={verdict}
                       onChange={(event) => {
-                        setVerdict(event.target.value as "all" | Verdict);
+                        setVerdict(event.target.value as "all" | "attention" | Verdict);
                         setRunPage(0);
                       }}
                       aria-label="Verdict"
                     >
                       <option value="all">All verdicts</option>
+                      <option value="attention">Needs attention</option>
                       <option value="passed">Passed</option>
                       <option value="failed">Failed</option>
                       <option value="blocked">Blocked</option>
@@ -2969,6 +2992,8 @@ export default function Home() {
                         : ""}
                     </button>
                   </div>
+                  {issueFilterActive && issueCollection.loading && <p role="status">Loading all runs for issue review…</p>}
+                  {issueFilterActive && issueCollection.error && <p role="alert">{issueCollection.error}</p>}
                   {runIdSearchPending && <p role="status">Looking up run…</p>}
                   {!runIdSearchPending &&
                     runIdLookup.query === search.trim().toLowerCase() &&
@@ -3422,7 +3447,7 @@ export default function Home() {
                       ))}
                     </div>
                   </section>
-                  {runIdSearchPending && filteredRuns.length === 0 ? null :
+                  {issueResultsPending || (runIdSearchPending && filteredRuns.length === 0) ? null :
                   runGroupingLens === "table" ? (
                     <>
                       <RunsTable runs={visibleRuns} onOpen={openRun} />
@@ -3473,6 +3498,7 @@ export default function Home() {
                     <>
                       <RunGroups
                         runs={filteredRuns}
+                        comparisonRuns={issueFilterActive ? issueCollection.runs : runs}
                         lens={runGroupingLens}
                         category={category}
                         skill={skillFilter}
