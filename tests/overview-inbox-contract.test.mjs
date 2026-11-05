@@ -13,12 +13,12 @@ const cssSource = await readFile(
 
 test("overview separates blocked runs from other actionable runs", () => {
   assert.match(pageSource, /function isBlockedRun\(run: EvalRun\)/);
-  assert.match(pageSource, /function isNeedsAttentionRun\(run: EvalRun\)/);
+  assert.match(pageSource, /function isNeedsAttentionRun\(run: EvalRun, runs: EvalRun\[\]\)/);
   assert.match(pageSource, /!isBlockedRun\(run\)/);
   assert.match(pageSource, /run\.executionStatus === "error"/);
   assert.match(pageSource, /run\.verdict === "failed"/);
   assert.match(pageSource, /run\.verdict === "xpassed"/);
-  assert.match(pageSource, /isDegradedRun\(run\)/);
+  assert.match(pageSource, /isDegradedRun\(run, runs\)/);
 });
 
 test("overview renders a compact two-tab inbox with independent counts", () => {
@@ -32,10 +32,8 @@ test("overview renders a compact two-tab inbox with independent counts", () => {
   assert.match(cssSource, /\.attention-tabs/);
 });
 
-test("degraded E2E thresholds support ratios and percentages", () => {
-  assert.match(pageSource, /threshold <= 1 \? threshold \* 100 : threshold/);
-  assert.match(
-    pageSource,
-    /run\.summary\.passRatePct < threshold/,
-  );
+test("degradation compares measured scores against an earlier comparable run", () => {
+  assert.match(pageSource, /run.summary.meanScore < previous.summary.meanScore/);
+  assert.match(pageSource, /candidate.summary.meanScoreRecorded/);
+  assert.match(pageSource, /Date.parse\(candidate.startedAt\) < Date.parse\(run.startedAt\)/);
 });

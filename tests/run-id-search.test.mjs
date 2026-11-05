@@ -53,6 +53,7 @@ function results(overrides = {}) {
     ...Object.fromEntries(["type", "verdict", "executionStatus", "category", "skillFilter",
       "targetEnvironment", "agentName", "trigger", "actor"].map((key) => [key, "all"])),
     runs: [], search: "unit-301c769ef6", selectedStages: [], runTimeWindow: null,
+    issueFilterActive: false, issueResultsPending: false, issueCollection: { runs: [] },
     runListFilters: {}, runIdLookup: { query: "unit-301c769ef6", run: run() },
     minimumGateThreshold: "", minimumPassRate: "", minimumMeanScore: "", sortOrder: "newest",
     effectiveRunVerdict: (value) => value.verdict,
