@@ -46,8 +46,8 @@ type LightboxState = {
 };
 
 const MAX_IMAGES = 3;
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const SUGGESTION_IMAGE_UPLOADS_ENABLED = false;
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+const SUGGESTION_IMAGE_UPLOADS_ENABLED = true;
 const ALLOWED_IMAGE_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -291,7 +291,7 @@ export default function SuggestionsPage() {
 
     const tooLarge = selected.find((file) => file.size > MAX_IMAGE_BYTES);
     if (tooLarge) {
-      setError(`${tooLarge.name} exceeds 10 MB.`);
+      setError(`${tooLarge.name} exceeds 3 MiB.`);
       return;
     }
 
@@ -578,7 +578,7 @@ export default function SuggestionsPage() {
                   : "We’re finishing the secure upload setup."}
               </span>
               <small>
-                PNG, JPEG, or HEIC/HEIF · Up to 10 MB each · Maximum {MAX_IMAGES}
+                PNG, JPEG, or HEIC/HEIF · Up to 3 MiB each · Maximum {MAX_IMAGES}
               </small>
             </div>
           </div>

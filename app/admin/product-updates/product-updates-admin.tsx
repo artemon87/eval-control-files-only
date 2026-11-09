@@ -61,6 +61,10 @@ export function ProductUpdatesAdmin() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (form.image && form.image.size > 3 * 1024 * 1024) {
+      setMessage("Screenshot exceeds 3 MiB. Choose a smaller image.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     const input = {
@@ -97,7 +101,17 @@ export function ProductUpdatesAdmin() {
               <label>Display date<input required type="date" value={form.releaseDate} onChange={(e) => setForm({ ...form, releaseDate: e.target.value })} /></label>
               <label className={styles.full}>Description<textarea required minLength={10} maxLength={2000} rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
               <label className={styles.full}>Highlights <small>One per line</small><textarea rows={4} value={highlightText} onChange={(e) => setHighlightText(e.target.value)} placeholder={"Upload PNG, JPEG, or HEIC\nPreview before submitting"} /></label>
-              {!editingId && <label className={styles.full}>Screenshot <small>Optional · one image</small><input type="file" accept="image/png,image/jpeg,image/heic,image/heif" onChange={(e) => setForm({ ...form, image: e.target.files?.[0] ?? null })} /></label>}
+              <label className={styles.full}>Screenshot <small>Optional · one image · up to 3 MiB · select a file to replace the current screenshot</small><input type="file" accept="image/png,image/jpeg,image/heic,image/heif" onChange={(e) => {
+                const image = e.target.files?.[0] ?? null;
+                if (image && image.size > 3 * 1024 * 1024) {
+                  setMessage("Screenshot exceeds 3 MiB. Choose a smaller image.");
+                  e.target.value = "";
+                  setForm({ ...form, image: null });
+                  return;
+                }
+                setMessage("");
+                setForm({ ...form, image });
+              }} /></label>
             </div>
             <div className={styles.actions}>{editingId && <button type="button" className={styles.secondary} onClick={() => { setEditingId(null); setForm(emptyForm); setHighlightText(""); }}>Cancel</button>}<button disabled={busy}>{busy ? "Saving…" : editingId ? "Save changes" : "Post update"}</button></div>
             {message && <p className={styles.message} role="status">{message}</p>}
