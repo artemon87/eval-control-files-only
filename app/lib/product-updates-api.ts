@@ -78,7 +78,7 @@ export async function createProductUpdate(input: ProductUpdateInput): Promise<vo
 export async function updateProductUpdate(id: string, input: ProductUpdateInput): Promise<void> {
   await checked(await fetch(`${API_BASE}/${encodeURIComponent(id)}`, {
     method: "PATCH",
-    body: formDataFor(input, false),
+    body: formDataFor(input, true),
   }));
 }
 
