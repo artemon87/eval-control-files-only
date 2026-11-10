@@ -1,46 +1,51 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type {
   HistoryRun,
   UnitHistoryInsights,
 } from "../lib/unit-history-types";
 import {
+  HISTORY_TREND_METRICS,
+  historyProgression,
   historyTrendValue,
+  trendBranch,
+  trendContext,
   type HistoryTrendMetric,
+  type TrendReference,
 } from "../lib/unit-history-trend";
 import { historyTime } from "../lib/unit-history-utils";
 import styles from "./unit-history-trend.module.css";
-type Reference = NonNullable<HistoryRun["progression"]>["previousExecution"];
-const context = (run: HistoryRun) =>
-  `${run.stage ?? "unknown"} · ${run.targetEnvironment ?? "Target not recorded"} · ${run.environment ?? "unknown"}`;
+
+// Fixed categorical order; green/red remain reserved for performance status.
+const BRANCH_COLORS = [
+  "#2a78d6",
+  "#eb6834",
+  "#1baf7a",
+  "#eda100",
+  "#e87ba4",
+  "#6250d6",
+];
+const OTHER_BRANCH_COLOR = "#8a94a3";
 export function UnitSkillPerformanceTrend({
   data,
-  selectedCohortKey = null,
   visibleRunIds = null,
-  focusedBranch,
-  onHighlightBranch,
   openingRunId,
   onOpenRun,
   onInspectRun,
   selectedRunId,
-  onReferenceRun,
+  onCompare,
 }: {
   data: UnitHistoryInsights;
-  selectedCohortKey?: string | null;
   visibleRunIds?: string[] | null;
-  focusedBranch: string | null;
-  onHighlightBranch: (key: string | null) => void;
   openingRunId: string | null;
   onOpenRun: (id: string, type: "unit") => void;
   onInspectRun?: (id: string) => void;
   selectedRunId?: string;
-  onReferenceRun?: (id: string) => void;
+  onCompare?: (referenceRunId: string) => void;
 }) {
   const [metric, setMetric] = useState<HistoryTrendMetric>("passRate");
-  const [choices, setChoices] = useState<Record<string, string[]>>({});
-  const [branches, setBranches] = useState<string[]>([]);
-  const [day, setDay] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [showAll, setShowAll] = useState(true);
   const [more, setMore] = useState(false);
   const [width, setWidth] = useState(640);
   const container = useRef<HTMLDivElement>(null);
@@ -53,168 +58,168 @@ export function UnitSkillPerformanceTrend({
     return () => observer.disconnect();
   }, []);
   const allowed = visibleRunIds === null ? null : new Set(visibleRunIds);
-  const scoped = data.runs.filter(
-    (run) =>
-      (!allowed || allowed.has(run.runId)) &&
-      (!selectedCohortKey || run.cohortKey === selectedCohortKey),
-  );
-  const dimensions = [
-    ["stage", "Stage"],
-    ["targetEnvironment", "Target"],
-    ["environment", "Execution environment"],
-  ] as const;
-  const field = (run: HistoryRun, key: string) =>
-    String(run[key as keyof HistoryRun] ?? "Not recorded");
-  const matching = scoped.filter((run) =>
-    dimensions.every(
-      ([key]) =>
-        !choices[key]?.length || choices[key].includes(field(run, key)),
-    ),
-  );
-  const seriesKeys = new Set(matching.map((run) => run.branchKey));
-  const activeBranches = branches.filter((key) => seriesKeys.has(key));
-  const filtered = matching.filter(
-    (run) => !activeBranches.length || activeBranches.includes(run.branchKey),
-  );
-  const measured = [...filtered]
+  const measured = [...data.runs]
     .reverse()
-    .filter((run) => historyTrendValue(run, metric) !== null)
+    .filter(
+      (run) =>
+        (!allowed || allowed.has(run.runId)) &&
+        historyTrendValue(run, metric) !== null,
+    )
     .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
-  const dayKey = (run: HistoryRun) =>
-    new Date(run.startedAt).toISOString().slice(0, 10);
-  const days = [...new Set(measured.map(dayKey))].sort().reverse();
-  const points = measured.filter((run) => !day || dayKey(run) === day);
-  const byId = new Map(points.map((run) => [run.runId, run]));
+  const progression = historyProgression([...measured].reverse());
+  const branchNames = [...new Set(measured.map(trendBranch))];
+  const color = (branch: string) =>
+    BRANCH_COLORS[branchNames.indexOf(branch)] ?? OTHER_BRANCH_COLOR;
+  const contexts = [...new Set([...measured].reverse().map(trendContext))];
   const selected =
-    points.find((run) => run.runId === selectedRunId) ?? points.at(-1);
-  const defaultReference = selected?.progression?.previousExecution?.runId;
-  useEffect(() => {
-    if (selected?.runId === selectedRunId)
-      onReferenceRun?.(defaultReference ?? "none");
-  }, [selected?.runId, selectedRunId, defaultReference, onReferenceRun]);
+    measured.find((run) => run.runId === selectedRunId) ?? measured.at(-1);
+  const context = showAll
+    ? null
+    : selected
+      ? trendContext(selected)
+      : contexts[0];
+  const inContext = measured.filter(
+    (run) => !context || trendContext(run) === context,
+  );
+  const contextBranches = [...new Set(inContext.map(trendBranch))];
+  const points = inContext.filter(
+    (run) =>
+      !hidden.includes(trendBranch(run)) || run.runId === selected?.runId,
+  );
   const open = (id: string) => {
     if (onInspectRun) onInspectRun(id);
     else if (id !== openingRunId) onOpenRun(id, "unit");
   };
-  const delta = (reference: Reference | undefined) =>
-    metric === "passRate"
-      ? reference?.passRateDelta
-      : reference?.durationDeltaMs == null
-        ? null
-        : reference.durationDeltaMs / 1000;
-  const label = (reference: Reference | undefined) => {
-    const value = delta(reference);
-    if (value == null) return "No earlier measurement";
-    return `${value > 0 ? "↑" : value < 0 ? "↓" : "→"} ${value > 0 ? "+" : ""}${Number(value.toFixed(1))} ${metric === "passRate" ? "pp" : "s"}`;
+  const definition = HISTORY_TREND_METRICS[metric];
+  const delta = (
+    run: HistoryRun,
+    reference: TrendReference | null | undefined,
+  ) => {
+    const now = historyTrendValue(run, metric),
+      then = reference ? historyTrendValue(reference.run, metric) : null;
+    return now == null || then == null ? null : now - then;
   };
-  const tone = (reference: Reference | undefined) => {
-    const value = delta(reference);
-    return value == null || value === 0
+  const label = (
+    run: HistoryRun,
+    reference: TrendReference | null | undefined,
+  ) => {
+    const value = delta(run, reference);
+    if (value == null) return "—";
+    return `${value > 0 ? "↑" : value < 0 ? "↓" : "→"} ${value > 0 ? "+" : ""}${Number(value.toFixed(1))}${definition.deltaUnit}`;
+  };
+  const tone = (
+    run: HistoryRun,
+    reference: TrendReference | null | undefined,
+  ) => {
+    const value = delta(run, reference);
+    return value == null || value === 0 || !definition.better
       ? styles.neutral
-      : (metric === "passRate" ? value > 0 : value < 0)
+      : (definition.better === "higher" ? value > 0 : value < 0)
         ? styles.improved
         : styles.regressed;
   };
   const valueLabel = (run: HistoryRun) =>
-    `${Number((historyTrendValue(run, metric) ?? 0).toFixed(1))}${metric === "passRate" ? "%" : "s"}`;
-  const toggle = (key: string, value: string) => {
-    setChoices((current) => ({
-      ...current,
-      [key]: current[key]?.includes(value)
-        ? current[key].filter((item) => item !== value)
-        : [...(current[key] ?? []), value],
-    }));
-    setDay(null);
-    setPage(0);
-  };
-  const cards = [
-    ...new Map(
-      measured.map((run) => [
-        `${run.progression?.key ?? context(run)}:${run.sourceBranch ?? run.branchKey}`,
-        run,
-      ]),
-    ).values(),
-  ];
+    `${Number((historyTrendValue(run, metric) ?? 0).toFixed(1))}${definition.unit}`;
   const left = 50,
     right = width - 20,
-    top = 38,
+    top = 30,
     bottom = 240,
-    height = 330;
-  const start =
-    day && points.length
-      ? Date.parse(points[0].startedAt) - 60000
-      : Date.parse(data.startedFrom);
-  const end =
-    day && points.length
-      ? Date.parse(points[points.length - 1].startedAt) + 60000
-      : Date.parse(data.startedBefore);
-  const x = (run: HistoryRun) =>
-    left +
-    8 +
-    ((Date.parse(run.startedAt) - start) / Math.max(1, end - start)) *
-      (right - left - 16);
+    height = 290;
+  // Executions are evenly spaced so runs on the same day do not share a date slot.
+  const x = (index: number) =>
+    points.length < 2
+      ? (left + right) / 2
+      : left + 16 + (index / (points.length - 1)) * (right - left - 32);
+  const values = points.map((run) => historyTrendValue(run, metric) ?? 0);
   const max =
     metric === "passRate"
       ? 100
-      : Math.max(
-          1,
-          ...points.map((run) => historyTrendValue(run, metric) ?? 0),
-        ) * 1.1;
+      : metric === "duration"
+        ? Math.max(1, ...values) * 1.1
+        : Math.max(4, Math.ceil((Math.max(0, ...values) * 1.1) / 4) * 4);
   const min =
     metric === "passRate"
       ? Math.max(
           0,
-          Math.floor(
-            ((points.length
-              ? Math.min(
-                  ...points.map((run) => historyTrendValue(run, metric) ?? 0),
-                )
-              : 100) -
-              10) /
-              10,
-          ) * 10,
+          Math.floor(((values.length ? Math.min(...values) : 100) - 10) / 10) *
+            10,
         )
       : 0;
   const y = (run: HistoryRun) =>
     bottom -
     (((historyTrendValue(run, metric) ?? 0) - min) / Math.max(1, max - min)) *
       (bottom - top);
-  const connections = points.flatMap((run) => {
-    const ref = run.progression?.previousExecution;
-    const before = ref ? byId.get(ref.runId) : undefined;
-    return before && ref ? [{ run, before, ref }] : [];
+  const index = new Map(points.map((run, i) => [run.runId, i]));
+  const segments = points.flatMap((run, i) => {
+    const before = progression.get(run.runId)?.previousSameBranch?.run;
+    const from = before ? index.get(before.runId) : undefined;
+    return from === undefined
+      ? []
+      : [{ run, before: points[from], from, to: i }];
   });
-  const slots: Array<{ x: number; y: number }> = [];
-  const comparison = (title: string, ref: Reference | undefined) => (
+  const handoffs = points.flatMap((run, i) => {
+    const step = progression.get(run.runId);
+    const from = step?.previousBranch
+      ? index.get(step.previousBranch.run.runId)
+      : undefined;
+    return step?.previousSameBranch || from === undefined
+      ? []
+      : [{ run, before: points[from], from, to: i }];
+  });
+  const latestByBranch = new Set(
+    contextBranches.map(
+      (branch) =>
+        points.filter((run) => trendBranch(run) === branch).at(-1)?.runId,
+    ),
+  );
+  const step = selected ? progression.get(selected.runId) : undefined;
+  const comparison = (
+    title: string,
+    reference: TrendReference | null | undefined,
+    empty: string,
+  ) => (
     <div>
       <small>{title}</small>
-      <strong className={tone(ref)}>{label(ref)}</strong>
-      {ref ? (
+      <strong className={tone(selected!, reference)}>
+        {reference ? label(selected!, reference) : "—"}
+      </strong>
+      {reference ? (
         <>
           <small>
-            {ref.branch} · {historyTime(ref.startedAt)} · {ref.runId}
+            {trendBranch(reference.run)} · {valueLabel(reference.run)} ·{" "}
+            {historyTime(reference.run.startedAt)}
           </small>
-          <button onClick={() => onReferenceRun?.(ref.runId)}>
-            Inspect test differences
-          </button>
-          {!!ref.warnings?.length && (
-            <details>
-              <summary>What else changed?</summary>
-              <ul>
-                {ref.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
-              </ul>
-            </details>
+          {!!reference.changes.length && (
+            <small>Also changed: {reference.changes.join(" · ")}</small>
+          )}
+          {onCompare && (
+            <button
+              onClick={() => {
+                if (selected && selected.runId !== selectedRunId)
+                  open(selected.runId);
+                onCompare(reference.run.runId);
+              }}
+            >
+              Compare tests
+            </button>
           )}
         </>
       ) : (
-        <small>
-          First execution for this comparison in the selected window.
-        </small>
+        <small>{empty}</small>
       )}
     </div>
   );
+  // One card per branch in each stage/target, newest first. A card follows the
+  // selected execution when it belongs to that branch, otherwise its latest run.
+  const cards = contexts.flatMap((name) => {
+    const runs = measured.filter((run) => trendContext(run) === name);
+    return [...new Set(runs.map(trendBranch))]
+      .map((branch) => {
+        const own = runs.filter((run) => trendBranch(run) === branch);
+        return own.find((run) => run.runId === selected?.runId) ?? own.at(-1)!;
+      })
+      .reverse();
+  });
   return (
     <section
       className={`panel ${styles.panel}`}
@@ -224,8 +229,8 @@ export function UnitSkillPerformanceTrend({
         <div>
           <h2>Skill performance over time</h2>
           <p>
-            Follow this skill across branches. Each environment and Settings
-            group has its own timeline.
+            Lines follow a branch within each stage and target; dashed lines
+            show where a branch picked up from the previous one.
           </p>
         </div>
         <label className={styles.metric}>
@@ -237,75 +242,57 @@ export function UnitSkillPerformanceTrend({
               setMetric(event.target.value as HistoryTrendMetric)
             }
           >
-            <option value="passRate">Pass rate</option>
-            <option value="duration">Execution duration</option>
+            {Object.entries(HISTORY_TREND_METRICS).map(([key, item]) => (
+              <option key={key} value={key}>
+                {item.label}
+              </option>
+            ))}
           </select>
         </label>
       </div>
-      <div className={styles.filters}>
-        {dimensions.map(([key, title]) => (
-          <details key={key}>
-            <summary>
-              {title} · {choices[key]?.length ?? "All"}
-            </summary>
-            {[...new Set(scoped.map((run) => field(run, key)))]
-              .sort()
-              .map((value) => (
-                <label key={value}>
-                  <input
-                    type="checkbox"
-                    checked={choices[key]?.includes(value) ?? false}
-                    onChange={() => toggle(key, value)}
-                  />
-                  {value}
-                </label>
-              ))}
-          </details>
-        ))}
-        <button
-          onClick={() => {
-            setChoices({});
-            setBranches([]);
-            setDay(null);
-            setPage(0);
-          }}
-        >
-          Show all contexts
-        </button>
-      </div>
-      <div className={styles.legend} aria-label="Trend branch highlights">
-        {data.branches
-          .filter((branch) => seriesKeys.has(branch.key))
-          .map((branch) => (
+      {contexts.length > 1 && (
+        <div className={styles.contexts} aria-label="Trend stage and target">
+          <button aria-pressed={showAll} onClick={() => setShowAll(true)}>
+            All stages &amp; targets
+          </button>
+          {contexts.map((name) => (
             <button
-              key={branch.key}
-              aria-pressed={activeBranches.includes(branch.key)}
-              className={
-                activeBranches.includes(branch.key)
-                  ? styles.highlighted
-                  : undefined
-              }
+              key={name}
+              aria-pressed={name === context}
               onClick={() => {
-                setBranches((current) =>
-                  current.includes(branch.key)
-                    ? current.filter((key) => key !== branch.key)
-                    : [...current, branch.key],
-                );
-                onHighlightBranch(null);
-                setPage(0);
+                setShowAll(false);
+                if (!selected || trendContext(selected) !== name)
+                  open(
+                    measured.filter((run) => trendContext(run) === name).at(-1)!
+                      .runId,
+                  );
               }}
             >
-              {branch.label}
+              {name}
             </button>
           ))}
+        </div>
+      )}
+      <div className={styles.legend} aria-label="Trend branches">
+        {contextBranches.map((branch) => (
+          <button
+            key={branch}
+            aria-pressed={!hidden.includes(branch)}
+            className={hidden.includes(branch) ? styles.muted : undefined}
+            style={{ "--branch-color": color(branch) } as CSSProperties}
+            onClick={() =>
+              setHidden((current) =>
+                current.includes(branch)
+                  ? current.filter((item) => item !== branch)
+                  : [...current, branch],
+              )
+            }
+          >
+            <span />
+            {branch}
+          </button>
+        ))}
       </div>
-      <p className={styles.note}>
-        {activeBranches.length
-          ? `${activeBranches.length} branch/context series selected`
-          : `All ${seriesKeys.size} branch/context series shown`}{" "}
-        · Click multiple labels to view them together. Comparisons use recorded
-        results; missing metadata does not hide a score difference.
-      </p>
       {selected && (
         <div
           className={styles.comparison}
@@ -316,60 +303,24 @@ export function UnitSkillPerformanceTrend({
             <small>SELECTED EXECUTION</small>
             <strong>{valueLabel(selected)}</strong>
             <small>
-              {selected.sourceBranch ?? selected.branchLabel} ·{" "}
-              {historyTime(selected.startedAt)}
+              {trendBranch(selected)} · {historyTime(selected.startedAt)}
             </small>
-            <small>
-              {context(selected)} · {selected.runId}
-            </small>
+            <small>{trendContext(selected)}</small>
           </div>
           {comparison(
             "VS LAST RUN ON THIS BRANCH",
-            selected.progression?.previousSameBranch,
+            step?.previousSameBranch,
+            "First run of this branch in the selected window.",
           )}
           {comparison(
-            "VS PREVIOUS BRANCH’S FINAL RUN",
-            selected.progression?.previousBranch,
+            step?.previousBranch
+              ? `VS ${trendBranch(step.previousBranch.run).toUpperCase()}`
+              : "VS PREVIOUS BRANCH",
+            step?.previousBranch,
+            "No other branch ran on this stage and target earlier in the selected window.",
           )}
         </div>
       )}
-      <div className={styles.dayControls}>
-        {day ? (
-          <>
-            <strong>Day detail · {day} UTC</strong>
-            <button
-              onClick={() => {
-                setDay(null);
-                setPage(0);
-              }}
-            >
-              Back to full timeline
-            </button>
-          </>
-        ) : (
-          <label>
-            Zoom into a day
-            <select
-              aria-label="Zoom into trend day"
-              value=""
-              onChange={(event) => {
-                setDay(event.target.value);
-                setPage(0);
-              }}
-            >
-              <option value="" disabled>
-                Choose a day · execution count
-              </option>
-              {days.map((value) => (
-                <option key={value} value={value}>
-                  {value} ·{" "}
-                  {measured.filter((run) => dayKey(run) === value).length} runs
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-      </div>
       <div ref={container} className={styles.plot}>
         <svg
           viewBox={`0 0 ${width} ${height}`}
@@ -377,11 +328,9 @@ export function UnitSkillPerformanceTrend({
           role="img"
           aria-label="Chronological skill measurements across branches"
         >
-          <title>Recorded performance by execution time</title>
-          <text x={left} y="16" className={styles.axisTitle}>
-            {metric === "passRate"
-              ? "Pass rate (%)"
-              : "Execution duration (seconds)"}
+          <title>Recorded performance by execution</title>
+          <text x={left} y="14" className={styles.axisTitle}>
+            {definition.axis}
           </text>
           {[0, 1, 2, 3, 4].map((i) => {
             const value = min + ((max - min) * i) / 4,
@@ -402,205 +351,167 @@ export function UnitSkillPerformanceTrend({
                   className={styles.tick}
                 >
                   {Number(value.toFixed(1))}
-                  {metric === "passRate" ? "%" : "s"}
+                  {metric === "passRate"
+                    ? "%"
+                    : metric === "duration"
+                      ? "s"
+                      : ""}
                 </text>
               </g>
             );
           })}
-          {connections.map(({ run, before, ref }) => {
-            const d = delta(ref) ?? 0,
-              color =
-                d === 0
-                  ? "#9b7010"
-                  : (metric === "passRate" ? d > 0 : d < 0)
-                    ? "var(--green)"
-                    : "var(--red)";
-            const ax = x(before),
-              ay = y(before),
-              bx = x(run),
-              by = y(run),
-              dx = bx - ax,
-              dy = by - ay,
-              len = Math.hypot(dx, dy),
-              mx = (ax + bx) / 2,
-              my = (ay + by) / 2;
+          {handoffs.map(({ run, before, from, to }) => (
+            <line
+              key={`handoff:${run.runId}`}
+              data-trend-handoff={before.runId}
+              x1={x(from)}
+              y1={y(before)}
+              x2={x(to)}
+              y2={y(run)}
+              stroke={OTHER_BRANCH_COLOR}
+              strokeWidth="2"
+              strokeDasharray="5 4"
+            />
+          ))}
+          {segments.map(({ run, before, from, to }) => (
+            <line
+              key={`segment:${run.runId}`}
+              data-trend-segment={before.runId}
+              x1={x(from)}
+              y1={y(before)}
+              x2={x(to)}
+              y2={y(run)}
+              stroke={color(trendBranch(run))}
+              strokeWidth="2"
+            />
+          ))}
+          {points.map((run, i) => {
+            const isSelected = run.runId === selected?.runId;
             return (
-              <g
+              <a
                 key={run.runId}
-                data-trend-reference={ref.runId}
-                data-trend-direction={
-                  d > 0 ? "higher" : d < 0 ? "lower" : "same"
-                }
+                href={`?view=runs&run=${encodeURIComponent(run.runId)}`}
+                data-trend-run={run.runId}
+                aria-label={`Inspect ${trendBranch(run)}, ${historyTime(run.startedAt)}, ${valueLabel(run)}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  open(run.runId);
+                }}
               >
-                <title>{`${label(ref)} vs ${ref.branch} · ${ref.runId}`}</title>
-                <line
-                  x1={ax}
-                  y1={ay}
-                  x2={bx}
-                  y2={by}
-                  stroke={color}
+                <title>{`${trendBranch(run)} · ${valueLabel(run)} · ${historyTime(run.startedAt)} · ${run.runId}`}</title>
+                <circle cx={x(i)} cy={y(run)} r="12" fill="transparent" />
+                <circle
+                  cx={x(i)}
+                  cy={y(run)}
+                  r={isSelected ? 6 : 4}
+                  fill={isSelected ? color(trendBranch(run)) : "var(--panel)"}
+                  stroke={color(trendBranch(run))}
                   strokeWidth="2"
-                  strokeDasharray={ref.warnings.length ? "6 3" : undefined}
                 />
-                {len > 30 && (
-                  <polygon
-                    points={`${mx + (dx / len) * 6},${my + (dy / len) * 6} ${mx - (dx / len) * 4 - (dy / len) * 4},${my - (dy / len) * 4 + (dx / len) * 4} ${mx - (dx / len) * 4 + (dy / len) * 4},${my - (dy / len) * 4 - (dx / len) * 4}`}
-                    fill={color}
-                  />
+                {(isSelected || latestByBranch.has(run.runId)) && (
+                  <text
+                    x={Math.max(left + 20, Math.min(right - 20, x(i)))}
+                    y={Math.max(top - 6, y(run) - 12)}
+                    textAnchor="middle"
+                    className={styles.pointLabel}
+                  >
+                    {valueLabel(run)}
+                  </text>
                 )}
-              </g>
+              </a>
             );
           })}
-          {points.map((run) => {
-            const px = x(run),
-              py = y(run),
-              show =
-                run.runId === selected?.runId ||
-                !slots.some(
-                  (slot) =>
-                    Math.abs(slot.x - px) < 90 && Math.abs(slot.y - py) < 30,
-                );
-            if (show) slots.push({ x: px, y: py });
-            return (
-              <g key={run.runId}>
-                <a
-                  href={`?view=runs&run=${encodeURIComponent(run.runId)}`}
-                  data-trend-run={run.runId}
-                  aria-label={`Inspect ${run.sourceBranch ?? run.branchLabel}, ${historyTime(run.startedAt)}, ${valueLabel(run)}`}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    open(run.runId);
-                  }}
-                >
-                  <title>{`${run.sourceBranch ?? run.branchLabel} · ${valueLabel(run)} · ${context(run)} · ${historyTime(run.startedAt)}`}</title>
-                  <circle cx={px} cy={py} r="12" fill="transparent" />
-                  <circle
-                    cx={px}
-                    cy={py}
-                    r={run.runId === selected?.runId ? 6 : 4}
-                    fill="var(--panel)"
-                    stroke="var(--blue)"
-                    strokeWidth="2"
-                  />
-                  {show && (
-                    <text
-                      x={Math.max(left + 30, Math.min(right - 30, px))}
-                      y={Math.max(top - 10, py - 14)}
-                      textAnchor="middle"
-                      className={styles.axisTitle}
-                    >
-                      {valueLabel(run)}
-                    </text>
-                  )}
-                </a>
-              </g>
-            );
-          })}
-          {[0, 1, 2].map((i) => {
-            const at = start + ((end - start) * i) / 2;
-            return (
+          {points.length > 0 &&
+            [
+              ...new Set([
+                0,
+                Math.floor((points.length - 1) / 2),
+                points.length - 1,
+              ]),
+            ].map((i) => (
               <text
                 key={i}
-                x={left + ((right - left) * i) / 2}
-                y={height - 25}
-                textAnchor={i === 0 ? "start" : i === 2 ? "end" : "middle"}
+                x={x(i)}
+                y={height - 22}
+                textAnchor={
+                  points.length < 2
+                    ? "middle"
+                    : i === 0
+                      ? "start"
+                      : i === points.length - 1
+                        ? "end"
+                        : "middle"
+                }
                 className={styles.tick}
               >
-                {new Date(at).toLocaleString(
-                  "en-US",
-                  day
-                    ? { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }
-                    : { month: "short", day: "numeric", timeZone: "UTC" },
-                )}
+                {new Date(points[i].startedAt).toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  timeZone: "UTC",
+                })}
               </text>
-            );
-          })}
+            ))}
           <text
             x={right}
-            y={height - 5}
+            y={height - 4}
             textAnchor="end"
             className={styles.axisTitle}
           >
-            Started (UTC)
+            Executions in order (UTC)
           </text>
         </svg>
       </div>
       {!points.length && (
-        <p className={styles.note}>
-          No measured executions match these filters.
-        </p>
+        <p className={styles.note}>No measured executions in this window.</p>
       )}
-      <p className={styles.note}>
-        ↑ Higher · ↓ Lower · → Same recorded value. Dashed lines indicate
-        changed tests or incomplete/different evaluator metadata; inspect the
-        comparison caveats. Lines never mix environments or Settings groups. The
-        previous-branch reference is its last measurement before this branch’s
-        first execution. Branches are not inferred PR approvals.{" "}
-        {filtered.filter((run) => !run.qualityMeasured).length} executions
-        without measured quality remain in the supporting history.
-      </p>
       <div className={styles.cards} aria-label="Branch progression cards">
-        {(more ? cards : cards.slice(-6)).map((run) => (
-          <button
-            key={`${run.progression?.key}:${run.sourceBranch ?? run.branchKey}`}
-            onClick={() => open(run.runId)}
-            aria-pressed={run.runId === selected?.runId}
-          >
-            <small>{run.sourceBranch ?? run.branchLabel}</small>
-            <strong>{valueLabel(run)}</strong>
-            <small>{run.progression?.label ?? context(run)}</small>
-            <span className={tone(run.progression?.branchStart)}>
-              {label(run.progression?.branchStart)} within this branch
-            </span>
-            <span className={tone(run.progression?.previousBranch)}>
-              {label(run.progression?.previousBranch)} vs previous branch
-            </span>
-            <small>
-              {historyTime(run.startedAt)} · latest measured execution
-            </small>
-          </button>
-        ))}
+        {cards
+          .filter((run, i) => more || i < 6 || run.runId === selected?.runId)
+          .map((run) => {
+            const item = progression.get(run.runId);
+            return (
+              <button
+                key={run.runId}
+                onClick={() => open(run.runId)}
+                aria-pressed={run.runId === selected?.runId}
+              >
+                <small className={styles.cardBranch}>
+                  <span style={{ background: color(trendBranch(run)) }} />
+                  {trendBranch(run)}
+                </small>
+                <strong>{valueLabel(run)}</strong>
+                <small>{trendContext(run)}</small>
+                <span className={tone(run, item?.branchStart)}>
+                  {item?.branchStart && item.branchStart.run.runId !== run.runId
+                    ? `${label(run, item.branchStart)} within this branch`
+                    : "Single run on this branch"}
+                </span>
+                <span className={tone(run, item?.previousBranch)}>
+                  {item?.previousBranch
+                    ? `${label(run, item.previousBranch)} vs ${trendBranch(item.previousBranch.run)}`
+                    : "No earlier branch to compare"}
+                </span>
+                <small>
+                  {historyTime(run.startedAt)} ·{" "}
+                  {run.runId === selected?.runId
+                    ? "selected execution"
+                    : "latest measured execution"}
+                </small>
+              </button>
+            );
+          })}
       </div>
       {cards.length > 6 && (
-        <button onClick={() => setMore((value) => !value)}>
-          {more ? "Show fewer branch cards" : "Show all branch cards"}
+        <button
+          className={styles.moreCards}
+          onClick={() => setMore((value) => !value)}
+        >
+          {more
+            ? "Show fewer branch cards"
+            : `Show all ${cards.length} branch cards`}
         </button>
-      )}
-      {day && (
-        <div className={styles.dayList} aria-label="Day executions">
-          <h3>{points.length} executions · exact timestamps</h3>
-          {points.slice(page * 20, page * 20 + 20).map((run) => (
-            <button
-              key={run.runId}
-              aria-pressed={run.runId === selected?.runId}
-              onClick={() => open(run.runId)}
-            >
-              {historyTime(run.startedAt)} ·{" "}
-              {run.sourceBranch ?? run.branchLabel} · {valueLabel(run)} ·{" "}
-              {run.runId}
-            </button>
-          ))}
-          {points.length > 20 && (
-            <div>
-              <button
-                disabled={!page}
-                onClick={() => setPage((value) => value - 1)}
-              >
-                Previous runs
-              </button>
-              <span>
-                {page * 20 + 1}–{Math.min(points.length, page * 20 + 20)} of{" "}
-                {points.length}
-              </span>
-              <button
-                disabled={(page + 1) * 20 >= points.length}
-                onClick={() => setPage((value) => value + 1)}
-              >
-                Next runs
-              </button>
-            </div>
-          )}
-        </div>
       )}
     </section>
   );

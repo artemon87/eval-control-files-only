@@ -5641,9 +5641,6 @@ select:not([multiple]):disabled {
 .comparison-context { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 20px 24px; margin-bottom: 16px; }
 .comparison-context > div { display: grid; gap: 6px; min-width: 0; }
 .comparison-context span { font-size: 13px; overflow-wrap: anywhere; }
-.analytics-window { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; padding: 18px 22px; margin-bottom: 24px; }
-.analytics-window > div:first-child { display: grid; gap: 4px; margin-right: auto; }
-.analytics-window small { opacity: .7; }
 [hidden] { display: none !important; }
 @media (max-width: 720px) {
   .compare-unit-filters, .comparison-context { grid-template-columns: 1fr; }
@@ -5722,4 +5719,18 @@ select:not([multiple]):disabled {
   .compare-run-details {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.history-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.history-controls--pending {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+@media (max-width: 600px) {
+  .history-window-controls { flex-wrap: wrap; }
 }

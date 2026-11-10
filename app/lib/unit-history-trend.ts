@@ -1,7 +1,47 @@
 import type { HistoryBranch, HistoryRun } from "./unit-history-types";
 import type { FixedTimeWindow } from "./time-window";
 
-export type HistoryTrendMetric = "passRate" | "duration";
+export type HistoryTrendMetric = "passRate" | "duration" | "cases" | "failed";
+export const HISTORY_TREND_METRICS: Record<
+  HistoryTrendMetric,
+  {
+    label: string;
+    axis: string;
+    unit: string;
+    deltaUnit: string;
+    /** Which direction is an improvement; null when neither is. */
+    better: "higher" | "lower" | null;
+  }
+> = {
+  passRate: {
+    label: "Pass rate",
+    axis: "Pass rate (%)",
+    unit: "%",
+    deltaUnit: " pp",
+    better: "higher",
+  },
+  failed: {
+    label: "Failed tests",
+    axis: "Failed tests",
+    unit: " failed",
+    deltaUnit: " failed",
+    better: "lower",
+  },
+  cases: {
+    label: "Tests evaluated",
+    axis: "Tests evaluated",
+    unit: " tests",
+    deltaUnit: " tests",
+    better: null,
+  },
+  duration: {
+    label: "Execution duration",
+    axis: "Execution duration (seconds)",
+    unit: "s",
+    deltaUnit: " s",
+    better: "lower",
+  },
+};
 export interface HistoryTrendPoint {
   run: HistoryRun;
   value: number;
@@ -18,7 +58,16 @@ export function historyTrendValue(
   metric: HistoryTrendMetric,
 ): number | null {
   if (run.qualityMeasured !== true) return null;
-  const value = metric === "passRate" ? run.passRatePct : run.durationMs;
+  const value =
+    metric === "passRate"
+      ? run.passRatePct
+      : metric === "duration"
+        ? run.durationMs
+        : metric === "cases"
+          ? run.total
+          : run.total != null && run.passed != null
+            ? run.total - run.passed
+            : null;
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0)
     return null;
   if (metric === "passRate" && value > 100) return null;
@@ -176,3 +225,97 @@ export function historyContextConnections(series: HistoryTrendSeries[]) {
   });
 }
 
+export interface TrendReference {
+  run: HistoryRun;
+  passRateDelta: number | null;
+  durationDeltaMs: number | null;
+  /** Recorded differences only; missing metadata is never reported as a change. */
+  changes: string[];
+}
+export interface TrendProgression {
+  context: string;
+  branch: string;
+  previousSameBranch: TrendReference | null;
+  previousBranch: TrendReference | null;
+  branchStart: TrendReference;
+}
+export const trendBranch = (run: HistoryRun) =>
+  run.sourceBranch ?? run.branchLabel;
+export const trendContext = (run: HistoryRun) =>
+  `${run.stage ?? "unknown"} · ${run.targetEnvironment ?? "Target not recorded"} · ${run.environment ?? "unknown"}`;
+export function trendReference(
+  run: HistoryRun,
+  before: HistoryRun,
+): TrendReference {
+  const changes: string[] = [];
+  for (const [title, now, then] of [
+    ["Skill version", run.skillVersion, before.skillVersion],
+    ["BSA version", run.bsaVersion, before.bsaVersion],
+    ["Agent", run.agentName, before.agentName],
+  ] as const) {
+    if (now && then && now !== then) changes.push(`${title} ${then} → ${now}`);
+  }
+  if (run.total != null && before.total != null && run.total !== before.total)
+    changes.push(`Tests ${before.total} → ${run.total}`);
+  else if (
+    run.caseSetKey &&
+    before.caseSetKey &&
+    run.caseSetKey !== before.caseSetKey
+  )
+    changes.push("Test definitions changed");
+  return {
+    run: before,
+    passRateDelta:
+      run.passRatePct != null && before.passRatePct != null
+        ? run.passRatePct - before.passRatePct
+        : null,
+    durationDeltaMs:
+      run.durationMs != null && before.durationMs != null
+        ? run.durationMs - before.durationMs
+        : null,
+    changes,
+  };
+}
+/**
+ * Chronological progression per stage/target/environment. Branches are compared
+ * regardless of skill/BSA version (those are reported as changes), and the
+ * previous branch is its final run before this branch started in the context.
+ */
+export function historyProgression(
+  runs: HistoryRun[],
+): Map<string, TrendProgression> {
+  const result = new Map<string, TrendProgression>();
+  const latest = new Map<string, Map<string, HistoryRun>>();
+  const starts = new Map<string, HistoryRun>();
+  const anchors = new Map<string, HistoryRun | undefined>();
+  // The API is newest first; preserve repository order when timestamps tie.
+  const ordered = [...runs]
+    .reverse()
+    .filter((run) => run.qualityMeasured === true)
+    .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+  for (const run of ordered) {
+    const context = trendContext(run),
+      branch = trendBranch(run),
+      identity = JSON.stringify([context, branch]);
+    const byBranch = latest.get(context) ?? new Map<string, HistoryRun>();
+    const otherBranch = () =>
+      [...byBranch.entries()].reverse().find(([name]) => name !== branch)?.[1];
+    if (!starts.has(identity)) {
+      starts.set(identity, run);
+      anchors.set(identity, otherBranch());
+    }
+    const same = byBranch.get(branch);
+    const anchor = anchors.get(identity) ?? otherBranch();
+    result.set(run.runId, {
+      context,
+      branch,
+      previousSameBranch: same ? trendReference(run, same) : null,
+      previousBranch: anchor ? trendReference(run, anchor) : null,
+      branchStart: trendReference(run, starts.get(identity)!),
+    });
+    byBranch.delete(branch);
+    byBranch.set(branch, run);
+    latest.set(context, byBranch);
+  }
+  return result;
+}

@@ -61,14 +61,6 @@
   height: 34px;
   max-width: min(100%, 520px);
 }
-.analysisDetails {
-  margin: 10px 0 18px;
-  color: var(--muted);
-  font-size: 11px;
-}
-.analysisDetails summary {
-  cursor: pointer;
-}
 .selectedHeader {
   display: flex;
   justify-content: space-between;
