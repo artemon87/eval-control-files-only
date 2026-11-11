@@ -23,10 +23,10 @@ test("overview separates blocked runs from other actionable runs", () => {
 
 test("overview renders a compact two-tab inbox with independent counts", () => {
   assert.match(pageSource, /overviewInboxTab/);
-  assert.match(pageSource, />\s*Blocked\s*<b>\{overview\.blockedRuns\.length\}<\/b>/);
+  assert.match(pageSource, />\s*Blocked\s*<b>\{overview\.counts\.blocked\}<\/b>/);
   assert.match(
     pageSource,
-    />\s*Needs attention\s*<b>\{overview\.attentionRuns\.length\}<\/b>/,
+    />\s*Needs attention\s*<b>\{overview\.counts\.attention\}<\/b>/,
   );
   assert.match(pageSource, /label="Actionable runs"/);
   assert.match(cssSource, /\.attention-tabs/);
@@ -39,3 +39,4 @@ test("degraded E2E thresholds support ratios and percentages", () => {
     /run\.summary\.passRatePct < threshold/,
   );
 });
+
