@@ -457,6 +457,38 @@
   outline-offset: 3px;
 }
 
+.signInToSuggest {
+  min-height: 330px;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at top right, rgb(71 160 218 / 12%), transparent 45%),
+    radial-gradient(circle at bottom left, rgb(39 191 161 / 12%), transparent 42%),
+    #fff;
+  text-align: center;
+}
+
+.signInToSuggest .authPromptIcon {
+  margin: 0 0 2px;
+}
+
+.signInToSuggest h2 {
+  color: #24384d;
+  line-height: 1.35;
+}
+
+.signInToSuggest p {
+  margin: 0;
+  color: #718294;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.signInToSuggest button {
+  width: 100%;
+  cursor: pointer;
+}
+
 @media (max-width: 520px) {
   .authPrompt {
     margin: 38px auto;
